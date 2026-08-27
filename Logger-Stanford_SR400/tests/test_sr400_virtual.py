@@ -4,7 +4,7 @@ Implements a simulator of the SR400 command set (as documented in the SR400 manu
 "REMOTE PROGRAMMING") behind the pysweepme port interface (write/read) and runs the complete
 SweepMe! driver lifecycle against it.
 
-Run with:  python test_sr400_virtual.py
+Run with:  python tests/test_sr400_virtual.py
 """
 
 from __future__ import annotations
@@ -539,10 +539,12 @@ def make_device(driver, instrument, **overrides):
     return device
 
 
-def run_point(device, value=None):
-    if value is not None:
-        device.set_value(value)
-    device.apply()
+def run_point(device):
+    """One Logger measurement point: measure() then call().
+
+    A Logger has no apply() and no self.value -- everything the instrument needs was sent in
+    configure(), so a point is just an acquisition.
+    """
     device.measure()
     return device.call()
 
@@ -633,79 +635,85 @@ def test_external_dwell(driver):
     check(counts_a == 3 * 250, f"counts of 3 periods were summed (got {counts_a})")
 
 
-def test_gate_delay_sweep(driver):
-    print("\n[4] sweeping the gate A delay")
-    sr400 = VirtualSR400()
-    device = make_device(
-        driver,
-        sr400,
-        **{
-            "SweepMode": "Gate A delay in s",
-            "Gate A mode": "Fixed",
-            "Gate A width in s": 5e-6,
-            "Counter A input": "INPUT 1",
-            "Count time in s": 0.002,
-            "Dwell time in s": 2e-3,
-        },
-    )
-    device.connect()
-    device.initialize()
-    device.configure()
+def test_gate_delay_configuration(driver):
+    print("\n[4] gate A delay and width reach the instrument in configure()")
 
+    # Each delay is its own configuration: a Logger sets the gate once, at configure() time.
     for delay in (0.0, 1.2e-6, 1e-3):
-        run_point(device, delay)
+        sr400 = VirtualSR400()
+        device = make_device(
+            driver,
+            sr400,
+            **{
+                "Gate A mode": "Fixed",
+                "Gate A delay in s": delay,
+                "Gate A width in s": 5e-6,
+                "Counter A input": "INPUT 1",
+                "Count time in s": 0.002,
+                "Dwell time in s": 2e-3,
+            },
+        )
+        device.connect()
+        device.initialize()
+        device.configure()
+        run_point(device)
+
         check(
             math.isclose(sr400.gate_delay[0], delay, rel_tol=1e-9, abs_tol=1e-15),
             f"gate A delay {delay:g} s was applied (instrument holds {sr400.gate_delay[0]:g})",
         )
+        check(sr400.gate_mode[0] == 1, f"gate A is in FIXED mode (delay {delay:g} s)")
+        check(
+            math.isclose(sr400.gate_width[0], 5e-6, rel_tol=1e-9),
+            f"gate A width 5 us was applied (delay {delay:g} s)",
+        )
+        check(
+            any(command.startswith("GD 0,") for command in sr400.log),
+            f"the delay was set with the GD command including the gate index (delay {delay:g} s)",
+        )
 
-    check(sr400.gate_mode[0] == 1, "gate A is in FIXED mode")
-    check(math.isclose(sr400.gate_width[0], 5e-6, rel_tol=1e-9), "gate A width 5 us was applied")
-    check(
-        any(command.startswith("GD 0,") for command in sr400.log),
-        "the delay was set with the GD command including the gate index",
-    )
 
+def test_count_time_and_rounding(driver):
+    print("\n[5] count time, incl. the one-significant-digit T preset rounding")
 
-def test_count_time_sweep_and_rounding(driver):
-    print("\n[5] sweeping the count time, incl. the one-significant-digit rounding")
-    sr400 = VirtualSR400()
-    device = make_device(
-        driver,
-        sr400,
-        **{
-            "SweepMode": "Count time in s",
-            "Counter A input": "10 MHz",
-            "Count time in s": 0.001,
-            "Dwell time in s": 2e-3,
-        },
-    )
-    device.connect()
-    device.initialize()
-    device.configure()
+    def configured_point(count_time):
+        sr400 = VirtualSR400()
+        device = make_device(
+            driver,
+            sr400,
+            **{
+                "Counter A input": "10 MHz",
+                "Count time in s": count_time,
+                "Dwell time in s": 2e-3,
+            },
+        )
+        device.connect()
+        device.initialize()
+        device.configure()
+        return run_point(device)
 
-    counts_a, _, rate_a, _, count_time = run_point(device, 0.002)
+    counts_a, _, rate_a, _, count_time = configured_point(0.002)
     check(math.isclose(count_time, 0.002, rel_tol=1e-9), f"2 ms count time applied (got {count_time})")
     check(counts_a == 2e4, f"counter A counted 2e4 clock cycles (got {counts_a})")
+    check(math.isclose(rate_a, 1e7, rel_tol=1e-6), "the rate stays 10 MHz for the clock input")
 
     # 3.4 ms is not representable: the T preset keeps one significant digit -> 3 ms
-    counts_a, _, _, _, count_time = run_point(device, 0.0034)
+    counts_a, _, _, _, count_time = configured_point(0.0034)
     check(
         math.isclose(count_time, 0.003, rel_tol=1e-9),
         f"3.4 ms was rounded to the reachable 3 ms and reported back (got {count_time})",
     )
     check(counts_a == 3e4, f"counts follow the applied count time (got {counts_a})")
-    check(math.isclose(rate_a, 1e7, rel_tol=1e-6), "the rate stays 10 MHz for the clock input")
 
 
-def test_discriminator_and_port_sweep(driver):
-    print("\n[6] sweeping the discriminator level and a PORT output")
+def test_discriminator_and_port_configuration(driver):
+    print("\n[6] discriminator level and PORT output reach the instrument in configure()")
     sr400 = VirtualSR400()
     device = make_device(
         driver,
         sr400,
         **{
-            "SweepMode": "Discriminator A level in V",
+            "Discriminator A level in V": -0.0252,
             "Counter A input": "INPUT 1",
             "Count time in s": 0.002,
             "Dwell time in s": 2e-3,
@@ -714,7 +722,7 @@ def test_discriminator_and_port_sweep(driver):
     device.connect()
     device.initialize()
     device.configure()
-    run_point(device, -0.0252)
+    run_point(device)
     check(
         math.isclose(sr400.disc_level[0], -0.0252, abs_tol=1e-9),
         f"discriminator A level -25.2 mV was applied (got {sr400.disc_level[0]})",
@@ -729,8 +737,8 @@ def test_discriminator_and_port_sweep(driver):
         driver,
         sr400,
         **{
-            "SweepMode": "PORT1 level in V",
             "Set PORT levels": True,
+            "PORT1 level in V": 5.0,
             "Counter A input": "INPUT 1",
             "Count time in s": 0.002,
             "Dwell time in s": 2e-3,
@@ -739,7 +747,7 @@ def test_discriminator_and_port_sweep(driver):
     device.connect()
     device.initialize()
     device.configure()
-    run_point(device, 5.0)
+    run_point(device)
     check(math.isclose(sr400.port_level[1], 5.0, abs_tol=1e-9), "PORT1 was set to 5 V")
     check(sr400.port_mode[1] == 0, "PORT1 was put into FIXED mode")
 
@@ -802,20 +810,35 @@ def test_parameter_validation(driver):
         "no out-of-range command reached the instrument",
     )
 
-    # sweeping a gate delay while the gate is in CW mode cannot work
+    # A gate delay set while the gate is in CW mode is ignored by the instrument. That is a
+    # warning, not an error: the SR400 accepts it and counts perfectly well, the delay just
+    # does nothing. configure() must go through and the user must be told.
+    messages = []
     device_cw = make_device(
         driver,
         sr400,
-        **{"SweepMode": "Gate A delay in s", "Gate A mode": "CW", "Count time in s": 0.002},
+        **{"Gate A mode": "CW", "Gate A delay in s": 1e-6, "Count time in s": 0.002},
     )
-    expect_error(device_cw.configure, "sweeping the gate delay in CW mode is refused in configure()")
+    device_cw.message_info = messages.append
+    device_cw.configure()
+    check(
+        any("CW" in str(message) for message in messages),
+        f"a gate delay in CW mode is reported as a message, not an error (got {messages})",
+    )
 
+    # Likewise a T discriminator level that cannot matter, because T counts the timebase.
+    messages = []
     device_t = make_device(
         driver,
         sr400,
-        **{"SweepMode": "Count time in s", "Counter T input": "TRIG", "Count time in s": 0.002},
+        **{"Counter T input": "10 MHz", "Discriminator T level in V": -0.05, "Count time in s": 0.002},
     )
-    expect_error(device_t.configure, "sweeping the count time without the 10 MHz T input is refused")
+    device_t.message_info = messages.append
+    device_t.configure()
+    check(
+        any("T discriminator" in str(message) for message in messages),
+        f"an unused T discriminator level is reported as a message (got {messages})",
+    )
 
 
 def test_instrument_error_reporting(driver):
@@ -1047,7 +1070,7 @@ def test_reset_at_start(driver):
 
 
 def main() -> int:
-    driver_path = Path(__file__).parent / "Switch-Stanford_SR400" / "main.py"
+    driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
 
     print("Virtual test bench for the SweepMe! SR400 driver")
@@ -1057,9 +1080,9 @@ def main() -> int:
         test_single_point,
         test_multiple_periods,
         test_external_dwell,
-        test_gate_delay_sweep,
-        test_count_time_sweep_and_rounding,
-        test_discriminator_and_port_sweep,
+        test_gate_delay_configuration,
+        test_count_time_and_rounding,
+        test_discriminator_and_port_configuration,
         test_b_preset_mode,
         test_parameter_validation,
         test_instrument_error_reporting,

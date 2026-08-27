@@ -25,9 +25,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# SweepMe! driver
-# * Module: Switch
-# * Instrument: Stanford Research Systems SR400 (gated photon counter)
+# SweepMe! device class
+# Type: Logger
+# Device: Stanford Research Systems SR400 (gated photon counter)
 #
 # All instrument commands used below are taken from the SR400 manual,
 # chapter "REMOTE PROGRAMMING -- DETAILED COMMAND LIST" (manual pp. 37-47).
@@ -186,7 +186,6 @@ class Device(EmptyDevice):
         self.port_string: str = ""
 
         # --- GUI parameters (set in get_GUIparameter) -------------------------
-        self.sweep_mode: str = "None"
         self.counting_mode: str = "A, B for T preset"
         self.counter_a_input: str = "INPUT 1"
         self.counter_b_input: str = "INPUT 1"
@@ -230,21 +229,6 @@ class Device(EmptyDevice):
     def set_GUIparameter(self) -> dict:  # noqa: N802
         """Return the GUI elements shown in the SweepMe! module."""
         return {
-            "SweepMode": [
-                "None",
-                "Gate A delay in s",
-                "Gate A width in s",
-                "Gate B delay in s",
-                "Gate B width in s",
-                "Discriminator A level in V",
-                "Discriminator B level in V",
-                "Discriminator T level in V",
-                "Trigger level in V",
-                "PORT1 level in V",
-                "PORT2 level in V",
-                "Count time in s",
-            ],
-            " ": None,
             "Count mode": list(self.COUNTING_MODES.keys()),
             "Counter A input": list(self.ALLOWED_COUNTER_INPUTS["A"]),
             "Counter B input": list(self.ALLOWED_COUNTER_INPUTS["B"]),
@@ -284,8 +268,6 @@ class Device(EmptyDevice):
         self.port_string = str(parameter.get("Port", ""))
         # RS-232 only commands (MI, SW, SE) must not be sent via GPIB, see manual command list.
         self.is_rs232 = self.port_string.upper().startswith(("COM", "ASRL"))
-
-        self.sweep_mode = parameter.get("SweepMode", "None")
 
         self.counting_mode = parameter.get("Count mode", "A, B for T preset")
         self.counter_a_input = parameter.get("Counter A input", "INPUT 1")
@@ -385,7 +367,7 @@ class Device(EmptyDevice):
 
     def configure(self) -> None:
         """Apply all one-time settings taken from the GUI."""
-        self._check_sweep_mode_is_usable()
+        self._check_configuration()
 
         self.requested_count_time = self.count_time
 
@@ -449,52 +431,13 @@ class Device(EmptyDevice):
             self.set_front_panel_mode("Local")
             self.front_panel_was_locked = False
 
-    def apply(self) -> None:
-        """Set the swept quantity to the value handed over by SweepMe! in 'self.value'."""
-        if self.sweep_mode == "None":
-            return
-
-        value = float(self.value)
-
-        # Start values of scanned parameters may only be changed while the counters are in
-        # reset (manual, e.g. GD/DL/PL notes), so reset before every change.
-        self.reset_counters()
-
-        if self.sweep_mode == "Gate A delay in s":
-            self.set_gate_delay("A", value)
-        elif self.sweep_mode == "Gate B delay in s":
-            self.set_gate_delay("B", value)
-        elif self.sweep_mode == "Gate A width in s":
-            self.set_gate_width("A", value)
-        elif self.sweep_mode == "Gate B width in s":
-            self.set_gate_width("B", value)
-        elif self.sweep_mode == "Discriminator A level in V":
-            self.set_discriminator_level("A", value)
-        elif self.sweep_mode == "Discriminator B level in V":
-            self.set_discriminator_level("B", value)
-        elif self.sweep_mode == "Discriminator T level in V":
-            self.set_discriminator_level("T", value)
-        elif self.sweep_mode == "Trigger level in V":
-            self.set_trigger_level(value)
-        elif self.sweep_mode == "PORT1 level in V":
-            self.set_port_level(1, value)
-        elif self.sweep_mode == "PORT2 level in V":
-            self.set_port_level(2, value)
-        elif self.sweep_mode == "Count time in s":
-            self.requested_count_time = value
-            self.set_count_time(value)
-            self._read_back_timing()
-        else:
-            msg = f"Sweep mode '{self.sweep_mode}' is not supported by the SR400 driver."
-            raise Exception(msg)
-
     def measure(self) -> None:
         """Run one scan of 'Periods per point' count periods and read the counts."""
         self.reset_counters()
 
         # "the status byte should be cleared before starting a scan and then polled to
         # determine when the scan is finished" (manual, QA/QB section). Reading it also
-        # reports problems caused by the commands sent in apply().
+        # reports any problem left over from the configuration commands.
         self._check_status(self.get_status_byte(), context="measurement start")
 
         status = 0
@@ -624,45 +567,38 @@ class Device(EmptyDevice):
 
         return mantissa, exponent
 
-    def _check_sweep_mode_is_usable(self) -> None:
-        """Reject sweep modes that cannot have an effect with the chosen configuration."""
+    def _check_configuration(self) -> None:
+        """Warn about GUI settings the instrument will silently ignore.
+
+        None of these is an error -- the SR400 accepts every one of them -- but each is a
+        setting the user plausibly expected to matter and which does not, given the rest of
+        the configuration. Saying so once at configure() time is cheaper than a puzzling
+        data set.
+        """
         for gate in ("A", "B"):
-            if (
-                self.sweep_mode in (f"Gate {gate} delay in s", f"Gate {gate} width in s")
-                and self.gate_modes[gate] == "CW"
-            ):
-                msg = (
-                    f"Sweeping '{self.sweep_mode}' has no effect while gate {gate} is in CW mode. "
-                    f"Please set 'Gate {gate} mode' to 'Fixed' or 'Scan'."
+            # In CW mode the gate is held permanently open, so GD and GW never take effect
+            # (manual, GATE menu). A nonzero delay is the case where the user clearly meant
+            # to gate something.
+            if self.gate_modes[gate] == "CW" and self.gate_delays[gate] != 0.0:
+                self.message_info(
+                    f"SR400: 'Gate {gate} delay in s' is ignored while gate {gate} is in CW "
+                    f"mode, because a CW gate is always open. Set 'Gate {gate} mode' to "
+                    f"'Fixed' or 'Scan' to use the delay and width.",
                 )
-                raise Exception(msg)
 
-        if self.sweep_mode == "Count time in s":
-            if self.counting_mode == "A for B preset":
-                msg = (
-                    "The count time cannot be swept in the counting mode 'A for B preset' because "
-                    "counter B is preset and the count period length is determined by the signal."
-                )
-                raise Exception(msg)
-            if self.counter_t_input != "10 MHz":
-                msg = (
-                    "Sweeping the count time requires 'Counter T input' = '10 MHz', because only "
-                    "then the T preset corresponds to a time."
-                )
-                raise Exception(msg)
-
-        if self.sweep_mode.startswith("PORT") and not self.set_ports:
-            # Sweeping a PORT level is allowed without the checkbox, but then the port mode
-            # was never set to FIXED, so tell the user what the driver assumes.
+        # Counter T on the 10 MHz timebase is the default and the recommended setup, so only
+        # say something when the user has actually moved the T discriminator off its default
+        # and would otherwise wait for an effect that cannot come.
+        if self.counter_t_input == "10 MHz" and self.discriminator_levels["T"] != -0.010:
             self.message_info(
-                "SR400: the PORT output is swept but 'Set PORT levels' is disabled, so the "
-                "PORT mode (FIXED/SCAN) is left as it is on the instrument.",
+                "SR400: the T discriminator level is not used while counter T counts the "
+                "internal 10 MHz timebase.",
             )
 
-        if self.sweep_mode == "Discriminator T level in V" and self.counter_t_input == "10 MHz":
+        if self.counting_mode == "A for B preset" and self.counter_t_input != "10 MHz":
             self.message_info(
-                "SR400: the T discriminator is not used while counter T counts the internal "
-                "10 MHz timebase.",
+                "SR400: counter T is neither preset nor the timebase in the counting mode "
+                "'A for B preset', so 'Counter T input' has no effect on the result.",
             )
 
     def _read_back_timing(self) -> None:

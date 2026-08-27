@@ -1,7 +1,7 @@
 # SweepMe! driver — Stanford Research Systems SR400 photon counter
 
-Module: **Switch** · Interfaces: **RS-232 (COM)** and **GPIB** · Files: `main.py`, `README.md`,
-`../test_sr400_virtual.py`
+Module: **Logger** · Interfaces: **RS-232 (COM)** and **GPIB** · Files: `main.py`, `README.md`,
+`license.txt`, `tests/test_sr400_virtual.py`
 
 Every command this driver sends is documented in the SR400 manual, chapter *Remote Programming –
 Detailed Command List* (manual pp. 37–47). Nothing is inferred from generic SCPI conventions; the
@@ -15,22 +15,28 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
    - RS-232: set `BAUD`, `BITS`, `PARITY` to match your port (driver defaults: 9600, 8, none)
      and set **`RS-232 ECHO = OFF`**.
    - GPIB: set `GPIB ADDR` to something in 1…30.
-2. Copy the whole `Switch-Stanford_SR400` folder into your SweepMe! device-class directory.
-3. Add a **Switch** module, pick the SR400, choose the port.
+2. Copy the whole `Logger-Stanford_SR400` folder into your SweepMe! device-class directory.
+3. Add a **Logger** module, pick the SR400, choose the port.
 4. Minimum sanity configuration: `Counter A input = 10 MHz`, `Count time in s = 1`,
-   `Gate A mode = CW`, `SweepMode = None`. One measurement point must return
+   `Gate A mode = CW`. One measurement point must return
    **Counter A = 10 000 000** and **Rate A = 1.0e7**. If that number is exact, the preset
    arithmetic, the status polling and the buffer read are all working.
 5. Then switch `Counter A input` to `INPUT 1`, connect your PMT, and set the discriminator level.
 
-### Why the *Switch* module and not *Logger*
+### Why the *Logger* module
 
-The SR400's characteristic experiment is a gate-delay scan (time-resolved photon counting), which
-needs to **set** a value and **read** counts at the same measurement point. Only the Switch module
-provides both `apply()` and `call()`. `SweepMode = "None"` turns the driver into a pure counter, so
-you lose nothing by using Switch even when you are not sweeping anything. If you prefer a Logger
-driver, rename the folder to `Logger-Stanford_SR400` — everything works except `SweepMode`, which
-the Logger module does not render.
+Every setting goes to the instrument once, in `configure()`; a measurement point is then just an
+acquisition — `measure()` followed by `call()`. That is Logger semantics, and it is what the
+folder-name prefix selects. There is no `apply()` and no `SweepMode`: the Logger module does not
+render a sweep field, so an `apply()` here would be code that SweepMe! never calls.
+
+**Sweeping a gate delay is therefore not yet wired up.** The SR400's characteristic experiment is
+a gate-delay scan, and this driver can currently only sit at one gate delay per run. The intended
+route is the instrument's own scan machinery rather than a SweepMe! sweep: `Gate A mode = Scan`
+plus `GY` (delay step), `DT` (dwell) and `NP` (number of points) make the SR400 step its own gate
+and fill the scan buffer, which `EA` then dumps in one transfer. Every one of those commands is
+already implemented and round-trip tested below — what is missing is the decision about how to
+present a whole scan through `call()`, which returns one row per point. See §7.2.
 
 ---
 
@@ -39,10 +45,8 @@ the Logger module does not render.
 One SweepMe! point = one SR400 **scan** of `Periods per point` count periods:
 
 ```
-apply()      CR                       reset counters (start values may only be changed in reset)
-             <set the swept value>
-measure()    CR                       reset
-             SS                       read+clear the status byte (also reports errors from apply)
+measure()    CR                       reset counters
+             SS                       read+clear the status byte (also reports config errors)
              CS                       start
              SS SS SS …               poll until "scan finished"
              QA 1, QB 1, QA 2, …      read the scan buffer point by point
@@ -80,8 +84,8 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Reset instrument at start` | `CL` | Off by default. See gotcha 5. |
 | `Lock front panel` | `MI` | RS-232 only; released again in `unconfigure()`. |
 
-`SweepMode` can sweep gate A/B delay, gate A/B width, discriminator A/B/T level, trigger level,
-PORT1/2 level, or count time.
+All of these are applied once, in `configure()`. To vary one of them across a run you currently
+have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §8.
 
 ---
 
@@ -115,8 +119,8 @@ explicitly rather than failing with a parse error.
 - The driver rounds to the *nearest* achievable value (the instrument would truncate), sends an
   unambiguous `2E4`-style string, reads the applied value back, and reports the **real** count time
   in the `Count time` variable. Ask for 3.4 ms and you get 3 ms plus a message telling you so.
-- Consequence for sweeps: sweeping `Count time in s` linearly produces a *staircase*, not a ramp.
-  Sweep it logarithmically or use explicit list values of the form d×10ᵏ.
+- Consequence: if you ever step `Count time in s` across runs, the achievable values are
+  logarithmically spaced, not linear. Use explicit values of the form d×10ᵏ.
 
 ### 4. Gate delay and width have variable resolution
 
@@ -141,8 +145,8 @@ reconnect cannot fix, because the driver's `EOL` no longer matches what the inst
 Reading `SS` returns the byte **and clears it**; reading `SS j` clears bit *j*. So a naive
 "poll bit 1, then check bit 7" loses errors. The driver reads the whole byte and **OR-accumulates**
 every byte received during a wait, so no error bit is dropped while polling. It also reads and
-checks the byte *before* starting each count, which is how a command error caused by `apply()`
-gets reported instead of silently discarded.
+checks the byte *before* starting each count, which is how a command error left over from
+`configure()` gets reported instead of silently discarded.
 
 Bits: 0 front-panel parameter changed · 1 data ready · 2 scan finished · 3 counter overrun ·
 4 rate error · 5 recall error · 6 SRQ · 7 command error.
@@ -169,16 +173,19 @@ and is genuinely unknown. `EB` and `ET` also error out in this mode.
 
 ### 10. Changing gate parameters while counting corrupts data
 
-The manual: "It is recommended that the counters be paused before changing gate values." The driver
-therefore sends `CR` before every parameter change in `apply()` — this also satisfies the stricter
-rule that *start values of scanned parameters may only be adjusted when the counters are in reset*.
-You will see two `CR` per point in the traffic; that is deliberate, not a bug.
+The manual: "It is recommended that the counters be paused before changing gate values." All gate
+programming happens in `configure()`, and `configure()` ends with `CR`; `measure()` then opens with
+`CR` of its own. This also satisfies the stricter rule that *start values of scanned parameters may
+only be adjusted when the counters are in reset*.
 
-### 11. Sweeping a gate delay in CW mode does nothing
+### 11. A gate delay in CW mode does nothing
 
-In CW the gate is continuously open and the delay line is inactive. The driver **refuses to
-configure** in that combination rather than producing a flat, meaningless curve. Same for sweeping
-`Count time in s` without `Counter T input = 10 MHz`.
+In CW the gate is continuously open and the delay line is inactive, so `Gate A/B delay in s` is
+accepted by the instrument and then ignored. The driver reports this as a **message, not an
+error** — the configuration counts perfectly well, the delay just has no effect. It says the same
+about a `Discriminator T level` while counter T is on the 10 MHz timebase. Both checks live in
+`_check_configuration()` and fire only when the setting differs from its default, so a normal run
+stays quiet.
 
 ### 12. Interface-specific commands
 
@@ -208,15 +215,16 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python test_sr400_virtual.py        # expect "90/90 checks passed"
+python tests/test_sr400_virtual.py   # expect "96/96 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
 function plus one entry in the tuple at the bottom of `main()`.
 
 It caught three real defects during development: a status byte cleared before it was checked (which
-would have swallowed errors from `apply()`), a rounding message that compared against the GUI value
-instead of the swept value, and a broken EXTERNAL-dwell period model in the simulator itself.
+would have swallowed errors from the setup commands), a rounding message that compared against the
+requested rather than the applied count time, and a broken EXTERNAL-dwell period model in the
+simulator itself.
 
 The simulator is **not** a substitute for hardware. It cannot validate response *formats*, real
 command-processing latency, or electrical behaviour.
@@ -230,14 +238,14 @@ Escalate only after each step passes. Steps 1–3 are non-destructive.
 2. **Read-only wrappers**, via pysweepme standalone:
    ```python
    import pysweepme
-   sr = pysweepme.get_driver("Switch-Stanford_SR400", "path/to/drivers", "COM3")
+   sr = pysweepme.get_driver("Logger-Stanford_SR400", "path/to/drivers", "COM3")
    sr.set_parameters({"Count time in s": 1.0, "Counter A input": "10 MHz"})
    sr.connect(); sr.initialize()
    print(sr.get_counting_mode(), sr.get_counter_input("A"))
    print(sr.get_counter_preset("T"), sr.get_dwell_time(), sr.get_trigger_level())
    print(sr.get_status_byte(), sr.get_secondary_status_byte())
    ```
-   This is where the two remaining format assumptions get confirmed — see §7.
+   This is where the two remaining format assumptions get confirmed — see §7.1.
 3. **Configuration.** `configure()`, then verify on the front panel that COUNT, A/B/T inputs,
    T SET, N PERIODS, DWELL, TRIG LVL, disc levels and gate values match what you asked for. Then
    check `get_status_byte()` returns 0 (no command error from any of the ~25 setup commands).
@@ -350,7 +358,9 @@ than 10×.
 
 ---
 
-## 7. Open items needing hardware confirmation
+## 7. Open items
+
+### 7.1 Response formats needing hardware confirmation
 
 Low-risk, but honest: three response formats are inferred from the manual's examples rather than
 stated as grammars. All three are parsed through `float()`, so plain integers, reals and
@@ -365,3 +375,26 @@ stated as grammars. All three are parsed through `float()`, so plain integers, r
    `float()`-parsed.
 
 Everything else in the driver traces to an explicit statement in the command list.
+
+### 7.2 How to expose a gate-delay scan
+
+This is the one real functional gap. The driver holds one gate delay for a whole run, so the
+SR400's characteristic time-resolved experiment cannot be run from it yet. The command layer is
+already complete and tested — `GM` (scan mode), `GY` (delay step), `GZ` (read the applied scan
+delay), `NP`, `DT`, `EA`/`EB` (buffer dump) — so this is a question of presentation, not of
+protocol.
+
+`call()` returns one row per measurement point, and an instrument-internal scan produces *N* rows
+in a single acquisition. The three ways out, none of them free:
+
+- **One point per SweepMe! point, driver-stepped.** Add `GD` stepping to `measure()` and let the
+  SweepMe! loop own the x-axis. Simplest, and slowest: one round trip per delay.
+- **Whole scan per point, as extra variables.** `Counter A[0…N-1]` as *N* columns. Fast (one `EA`
+  transfer) but `self.variables` has to be built from the GUI parameters, and *N* is then fixed
+  for the run.
+- **Whole scan per point, as a sidecar file.** Keeps the column count stable and writes the scan
+  to its own file, the way the LabJack counter driver's self-test writes its sidecar. Least
+  disruptive to the data model, worst for live plotting.
+
+Decide this before adding the gate-scan GUI parameters, because the choice determines whether
+`self.variables` stays fixed-length.
