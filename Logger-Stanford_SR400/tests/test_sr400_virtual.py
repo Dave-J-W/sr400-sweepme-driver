@@ -594,6 +594,7 @@ def test_multiple_periods(driver):
         **{
             "Counter A input": "INPUT 1",
             "Counter B input": "INPUT 1",
+            "Measurement mode": "Scan of N periods",
             "Count time in s": 0.01,
             "Dwell time in s": 2e-3,
             "Periods per point": 5,
@@ -619,6 +620,7 @@ def test_external_dwell(driver):
         sr400,
         **{
             "Counter A input": "INPUT 1",
+            "Measurement mode": "Scan of N periods",
             "Count time in s": 0.005,
             "Dwell time in s": 0,
             "Periods per point": 3,
@@ -1005,7 +1007,13 @@ def test_wrapped_command_layer(driver):
     device = make_device(
         driver,
         sr400,
-        **{"Counter A input": "INPUT 1", "Count time in s": 0.002, "Dwell time in s": 2e-3, "Periods per point": 4},
+        **{
+            "Measurement mode": "Scan of N periods",
+            "Counter A input": "INPUT 1",
+            "Count time in s": 0.002,
+            "Dwell time in s": 2e-3,
+            "Periods per point": 4,
+        },
     )
     device.connect()
     device.initialize()
@@ -1086,6 +1094,7 @@ def test_ported_gui_options(driver):
     # --- 'Print SweepMe! phase' off by default, and silent ----------------------
     sr400 = VirtualSR400()
     device = make_device(driver, sr400, **{"Counter A input": "INPUT 1", "Count time in s": 0.002})
+    device.message_info = lambda message: None  # also writes to stdout; not what is under test
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
         device.connect()
@@ -1101,6 +1110,7 @@ def test_ported_gui_options(driver):
         sr400,
         **{"Print SweepMe! phase": True, "Counter A input": "INPUT 1", "Count time in s": 0.002},
     )
+    device.message_info = lambda message: None
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
         device.connect()
@@ -1154,6 +1164,134 @@ def test_ported_gui_options(driver):
     check(not sr400.running, "the simulator is no longer counting")
 
 
+def test_measurement_modes(driver):
+    print("\n[17] the two measurement modes, and preset read-back without a count time")
+
+    # --- simple mode forces NP 1 and an EXTERNAL dwell --------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Measurement mode": "Single count period",
+            "Counter A input": "INPUT 1",
+            "Count time in s": 0.002,
+        },
+    )
+    device.connect()
+    device.initialize()
+    device.configure()
+    counts_a = run_point(device)[0]
+    check(sr400.periods == 1, f"NP 1 was programmed (instrument holds {sr400.periods})")
+    check(sr400.dwell == 0.0, f"DT 0 selected the EXTERNAL dwell (holds {sr400.dwell})")
+    check(counts_a == 100, f"one count period of 2 ms at 50 kHz gives 100 counts (got {counts_a})")
+    check(sum(1 for c in sr400.log if c == "CS") == 1, "exactly one CS per point")
+
+    # --- ... and says so when the scan-only fields were set ---------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Measurement mode": "Single count period",
+            "Counter A input": "INPUT 1",
+            "Count time in s": 0.002,
+            "Periods per point": 7,
+            "Dwell time in s": 0.5,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(sr400.periods == 1, "'Periods per point' is overridden to 1 in the simple mode")
+    check(
+        any("Periods per point" in str(m) and "Dwell time in s" in str(m) for m in messages),
+        f"both overridden fields are named in one message (got {messages})",
+    )
+
+    # --- ... and stays quiet on a default configuration -------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1", "Count time in s": 0.002})
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(
+        not any("only applies" in str(m) for m in messages),
+        f"a default single-period configuration produces no override message (got {messages})",
+    )
+    check(
+        device.measurement_mode == "Single count period",
+        "the simple mode is the default",
+    )
+
+    # --- scan mode runs the instrument's own scan and sums it -------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Measurement mode": "Scan of N periods",
+            "Counter A input": "INPUT 1",
+            "Count time in s": 0.002,
+            "Dwell time in s": 2e-3,
+            "Periods per point": 4,
+        },
+    )
+    device.connect()
+    device.initialize()
+    device.configure()
+    counts_a, _, _, _, count_time = run_point(device)
+    check(sr400.periods == 4, f"NP 4 was programmed (instrument holds {sr400.periods})")
+    check(sr400.dwell == 2e-3, f"the internal dwell was kept (holds {sr400.dwell})")
+    check(counts_a == 4 * 100, f"the four periods were summed (got {counts_a})")
+    check(
+        math.isclose(count_time, 4 * 0.002, rel_tol=1e-9),
+        f"the count time covers all four periods (got {count_time})",
+    )
+    check(sum(1 for c in sr400.log if c == "CS") == 1, "one CS starts the whole scan")
+
+    # --- an unknown mode is refused rather than silently treated as one of them -
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device.measurement_mode = "Whatever"
+    try:
+        device._apply_measurement_mode()
+    except Exception as exc:
+        check("Whatever" in str(exc), f"an unknown measurement mode is refused: {exc}")
+    else:
+        check(False, "an unknown measurement mode is refused")
+
+    # --- the preset rounding is reported even with no Count time column ---------
+    sr400 = VirtualSR400()
+    sr400.rate["TRIG"] = 1e5
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Counter A input": "INPUT 1",
+            "Counter T input": "TRIG",
+            "Preset counts (T or B)": 1.5e6,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(
+        math.isnan(device.actual_count_time),
+        "the count time is unknown when T does not count the timebase",
+    )
+    check(
+        any("rounded to" in str(m) and "counts" in str(m) for m in messages),
+        f"the silent CP rounding of the preset is now reported (got {messages})",
+    )
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -1178,6 +1316,7 @@ def main() -> int:
         test_gpib_specifics,
         test_reset_at_start,
         test_ported_gui_options,
+        test_measurement_modes,
     ):
         test(driver)
 

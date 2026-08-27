@@ -46,8 +46,16 @@ class Device(EmptyDevice):
 
     description = """
         <h3>Stanford Research Systems SR400</h3>
-        <p>Two-channel gated photon counter. One SweepMe! measurement point corresponds to one
-        SR400 scan of "Periods per point" count periods; the counts of all periods are summed.</p>
+        <p>Two-channel gated photon counter, in two measurement modes:</p>
+        <ul>
+        <li><b>Single count period</b> (default) &mdash; one SweepMe! point is one SR400 count
+        period. The driver forces NP 1 and an EXTERNAL dwell and starts each period itself, so
+        SweepMe! owns the point sequence. Simplest to reason about, fewest round trips.</li>
+        <li><b>Scan of N periods</b> &mdash; one SweepMe! point is one SR400 scan of
+        "Periods per point" count periods with the instrument's internal dwell. The SR400 runs
+        the scan itself and the counts of all periods are summed. "Periods per point" and
+        "Dwell time in s" only apply here.</li>
+        </ul>
 
         <h4>Setup</h4>
         <ul>
@@ -112,6 +120,9 @@ class Device(EmptyDevice):
         "B": ("INPUT 1", "INPUT 2"),
         "T": ("10 MHz", "INPUT 2", "TRIG"),
     }
+    MEASUREMENT_MODES = ("Single count period", "Scan of N periods")
+    """How one SweepMe! point maps onto SR400 count periods. See _apply_measurement_mode()."""
+
     SLOPES = {"Rise": 0, "Fall": 1}
     DISCRIMINATOR_MODES = {"Fixed": 0, "Scan": 1}
     GATE_MODES = {"CW": 0, "Fixed": 1, "Scan": 2}
@@ -125,6 +136,7 @@ class Device(EmptyDevice):
     PRESET_MAX = 9e11
     PERIODS_MAX = 2000
     DWELL_MIN = 2e-3
+    DEFAULT_DWELL_TIME = 2e-3
     DWELL_MAX = 6e1
     TRIGGER_LEVEL_LIMIT = 2.000
     DISCRIMINATOR_LEVEL_LIMIT = 0.3000
@@ -186,6 +198,7 @@ class Device(EmptyDevice):
         self.port_string: str = ""
 
         # --- GUI parameters (set in get_GUIparameter) -------------------------
+        self.measurement_mode: str = self.MEASUREMENT_MODES[0]
         self.counting_mode: str = "A, B for T preset"
         self.counter_a_input: str = "INPUT 1"
         self.counter_b_input: str = "INPUT 1"
@@ -193,7 +206,7 @@ class Device(EmptyDevice):
         self.count_time: float = 1.0
         self.preset_counts: float = 1e6
         self.periods: int = 1
-        self.dwell_time: float = 2e-3
+        self.dwell_time: float = self.DEFAULT_DWELL_TIME
         self.trigger_slope: str = "Rise"
         self.trigger_level: float = 0.0
         self.discriminator_slopes: dict[str, str] = {"A": "Fall", "B": "Fall", "T": "Fall"}
@@ -214,7 +227,10 @@ class Device(EmptyDevice):
         self.counter_b_is_readable: bool = True
         self.count_time_is_known: bool = True
         self.requested_count_time: float = 1.0
+        self.requested_periods: int = 1
+        self.requested_dwell_time: float = self.DEFAULT_DWELL_TIME
         self.actual_count_time: float = float("nan")
+        self.actual_preset_counts: float = float("nan")
         self.actual_dwell_time: float = 0.0
         self.acquisition_timeout: float = 30.0
         self.poll_interval: float = 0.05
@@ -230,6 +246,8 @@ class Device(EmptyDevice):
     def set_GUIparameter(self) -> dict:  # noqa: N802
         """Return the GUI elements shown in the SweepMe! module."""
         return {
+            "Measurement mode": list(self.MEASUREMENT_MODES),
+            " ": None,
             "Count mode": list(self.COUNTING_MODES.keys()),
             "Counter A input": list(self.ALLOWED_COUNTER_INPUTS["A"]),
             "Counter B input": list(self.ALLOWED_COUNTER_INPUTS["B"]),
@@ -237,7 +255,7 @@ class Device(EmptyDevice):
             "Count time in s": 1.0,
             "Preset counts (T or B)": 1e6,
             "Periods per point": 1,
-            "Dwell time in s": 2e-3,
+            "Dwell time in s": self.DEFAULT_DWELL_TIME,
             "  ": None,
             "Trigger slope": list(self.SLOPES.keys()),
             "Trigger level in V": 0.0,
@@ -272,6 +290,8 @@ class Device(EmptyDevice):
         # RS-232 only commands (MI, SW, SE) must not be sent via GPIB, see manual command list.
         self.is_rs232 = self.port_string.upper().startswith(("COM", "ASRL"))
 
+        self.measurement_mode = parameter.get("Measurement mode", self.MEASUREMENT_MODES[0])
+
         self.counting_mode = parameter.get("Count mode", "A, B for T preset")
         self.counter_a_input = parameter.get("Counter A input", "INPUT 1")
         self.counter_b_input = parameter.get("Counter B input", "INPUT 1")
@@ -280,7 +300,7 @@ class Device(EmptyDevice):
         self.count_time = self._as_float(parameter, "Count time in s", 1.0)
         self.preset_counts = self._as_float(parameter, "Preset counts (T or B)", 1e6)
         self.periods = self._as_int(parameter, "Periods per point", 1)
-        self.dwell_time = self._as_float(parameter, "Dwell time in s", 2e-3)
+        self.dwell_time = self._as_float(parameter, "Dwell time in s", self.DEFAULT_DWELL_TIME)
 
         self.trigger_slope = parameter.get("Trigger slope", "Rise")
         self.trigger_level = self._as_float(parameter, "Trigger level in V", 0.0)
@@ -313,12 +333,45 @@ class Device(EmptyDevice):
         # Ignored by the port manager for GPIB ports; only the COM branch reads it.
         self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
 
+        self._apply_measurement_mode()
+
         # Derived flags that only depend on GUI settings
         self.uses_external_dwell = self.dwell_time == 0.0
         self.counter_b_is_readable = self.counting_mode != "A for B preset"
         self.count_time_is_known = (
             self.counting_mode != "A for B preset" and self.counter_t_input == "10 MHz"
         )
+
+    def _apply_measurement_mode(self) -> None:
+        """Turn 'Measurement mode' into the NP and DT the rest of the driver works from.
+
+        The two modes differ only in how one SweepMe! point maps onto SR400 count periods:
+
+        - "Single count period" -- NP 1 with an EXTERNAL dwell. The driver starts exactly one
+          count period per point and reads one buffer entry. The point sequence belongs to
+          SweepMe!, not to the instrument, which makes the timing easy to reason about and the
+          round trips per point minimal. This is the simple case and the default.
+        - "Scan of N periods" -- NP = 'Periods per point' with the instrument's own internal
+          dwell. The SR400 runs the whole scan itself and the driver sums the buffer entries.
+          This is the mode that owns the instrument's scan machinery, so it is also where
+          gate-delay scanning will land (README section 7.2).
+
+        'Periods per point' and 'Dwell time in s' only govern the scan mode. Rather than let
+        them look live in the single-period mode, they are overridden here and the override is
+        reported by _check_configuration() when the user had actually changed them.
+        """
+        if self.measurement_mode not in self.MEASUREMENT_MODES:
+            allowed = ", ".join(f"'{mode}'" for mode in self.MEASUREMENT_MODES)
+            msg = f"Unknown measurement mode '{self.measurement_mode}'. Allowed: {allowed}."
+            raise Exception(msg)
+
+        # Kept for _check_configuration(), which needs to know what was asked for.
+        self.requested_periods = self.periods
+        self.requested_dwell_time = self.dwell_time
+
+        if self.measurement_mode == "Single count period":
+            self.periods = 1
+            self.dwell_time = 0.0
 
     # ==================================================================
     #  SweepMe! semantic functions
@@ -599,6 +652,20 @@ class Device(EmptyDevice):
         the configuration. Saying so once at configure() time is cheaper than a puzzling
         data set.
         """
+        if self.measurement_mode == "Single count period":
+            ignored = []
+            if self.requested_periods != 1:
+                ignored.append(f"'Periods per point' ({self.requested_periods})")
+            if self.requested_dwell_time != self.DEFAULT_DWELL_TIME:
+                ignored.append(f"'Dwell time in s' ({self.requested_dwell_time:.4g})")
+            if ignored:
+                # Listed at the end so the sentence reads the same for one field or two.
+                self.message_info(
+                    f"SR400: the 'Single count period' mode forces NP 1 and an EXTERNAL dwell, "
+                    f"because it starts every count period itself. Ignored here, and only used "
+                    f"by 'Scan of N periods': {', '.join(ignored)}.",
+                )
+
         for gate in ("A", "B"):
             # In CW mode the gate is held permanently open, so GD and GW never take effect
             # (manual, GATE menu). A nonzero delay is the case where the user clearly meant
@@ -640,6 +707,19 @@ class Device(EmptyDevice):
             period_duration = self.actual_count_time + self.actual_dwell_time
         else:
             self.actual_count_time = float("nan")
+
+            # 'Preset counts (T or B)' is rounded to one significant digit exactly like the
+            # count time, but this branch has no Count time column to report it through, so
+            # the rounding used to be invisible. Read back what actually stuck.
+            preset_counter = "B" if self.counting_mode == "A for B preset" else "T"
+            self.actual_preset_counts = self.get_counter_preset(preset_counter)
+            if not math.isclose(self.actual_preset_counts, self.preset_counts, rel_tol=0.01):
+                self.message_info(
+                    f"SR400: the requested preset of {self.preset_counts:.4g} counts was "
+                    f"rounded to {self.actual_preset_counts:.4g} on counter {preset_counter}, "
+                    f"because CP keeps only one significant digit.",
+                )
+
             # The count period ends when the preset counter reaches its preset value, so its
             # duration depends on the signal and cannot be predicted.
             period_duration = 0.0

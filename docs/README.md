@@ -32,6 +32,16 @@ Three things, ported in the same commit that filed this note:
    throwing. The kept driver just threw, leaving the SR400 counting into a scan
    nobody would read. Now applied on both the timeout and the run-stopped paths.
 
+## Taken later: the draft's measurement architecture, as a mode
+
+This was originally recorded here as "not taken". That was wrong, and it was
+reversed: the draft's `NP 1` + `DT 0` architecture is now the **`Single count
+period`** mode *and the default*, with the kept driver's multi-period behaviour as
+**`Scan of N periods`**. The two were never really alternatives — `NP 1` is the
+special case — so offering both costs nothing, and the simple path no longer drags
+the scan machinery's assumptions along with it. The draft was right that this
+should be the default.
+
 ## What was deliberately not taken
 
 - **String presets (`"1E7"`).** The draft passed the preset through verbatim,
@@ -40,11 +50,6 @@ Three things, ported in the same commit that filed this note:
   round-to-nearest plus read-back reports what the instrument *actually* used,
   which matters more. A synthesis (string entry **and** read-back) would be
   better than either and is not done.
-- **Forcing `NP 1` + `DT 0`.** The draft ran exactly one count period per
-  SweepMe! point and let SweepMe! own the loop. Simpler, and arguably the better
-  default, but the kept driver's `Periods per point` and scan-buffer reads are
-  the machinery the gate-scan work needs (driver README §7.2). `NP 1` is the
-  special case of that, not an alternative to it.
 - **`units = ["counts", "counts"]`.** Cosmetic; the kept driver's five columns
   use `""` for the two raw counts.
 - **Coupling `PM` into `set_port_level()`.** The kept driver keeps PORT output
@@ -69,7 +74,14 @@ One of the four counting modes is unusable. The kept driver reports `NaN` for
 Counter B, Rate B and Count time there.
 
 **2. Preset truncation is silent and invisible.** `CP` keeps only the most
-significant digit, and the draft neither rounds nor reads back:
+significant digit, and the draft neither rounds nor reads back.
+
+Worth stressing that the kept driver had **half of this same bug**. It rounded and
+read back the *count time*, but `Preset counts (T or B)` — which governs whenever
+counter T is not on the timebase, and in `A for B preset` mode — was rounded
+silently, and that branch has no count-time column that could have revealed it.
+Asking 1.5e6 got you 2e6 with nothing said. Found while answering a question about
+this entry, and fixed. The draft's version of the bug:
 
 ```
 asked T preset : 15000 cycles = 1.5 ms

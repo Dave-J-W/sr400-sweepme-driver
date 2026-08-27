@@ -5,7 +5,16 @@ SR400 two-channel gated photon counter, over RS-232 or GPIB.
 
 | Driver | Reads | Notes |
 |---|---|---|
-| [`Logger-Stanford_SR400`](Logger-Stanford_SR400/) | Counts and rates on counters A and B, summed over the count periods of one point, plus the applied count time | [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/) |
+| [`Logger-Stanford_SR400`](Logger-Stanford_SR400/) | Counts and rates on counters A and B, plus the applied count time | [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/) |
+
+Two measurement modes, picked with the first GUI field:
+
+- **Single count period** (default) — one SweepMe! point is one SR400 count period.
+  `NP 1` plus an EXTERNAL dwell; the driver starts each period, so SweepMe! owns the
+  point sequence. Fewest round trips, simplest timing.
+- **Scan of N periods** — one point is one SR400 scan of *N* count periods on the
+  instrument's internal dwell, summed. This mode owns the SR400's scan machinery and
+  is where gate-delay scanning will land.
 
 Every command the driver sends is documented in the SR400 manual, chapter *Remote
 Programming – Detailed Command List* (manual pp. 37–47). Nothing is inferred from
@@ -35,11 +44,11 @@ semantics, and the folder-name prefix is what actually selects the module. The
 
 The consequence is that **sweeping a gate delay is not wired up yet**, which
 matters because a gate-delay scan is the SR400's characteristic experiment. The
-command layer for the instrument's own scan machinery is complete and tested;
-what is undecided is how to present *N* scan points through a `call()` that
-returns one row. That decision is written up in
-[§7.2 of the driver README](Logger-Stanford_SR400/README.md) and should be settled
-before any gate-scan GUI parameters are added.
+`Scan of N periods` mode now owns the instrument's scan machinery, so that is where
+it belongs; what is still undecided is the *output shape*, because a gate scan
+produces *N* values in one acquisition and `call()` returns one row. That decision
+is written up in [§7.2 of the driver README](Logger-Stanford_SR400/README.md) and
+should be settled before any gate-scan GUI parameters are added.
 
 ## Where the driver came from
 
@@ -62,7 +71,7 @@ whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-109 checks: the count-period model including EXTERNAL dwell, the one-significant-
+125 checks: both measurement modes, the count-period model including EXTERNAL dwell, the one-significant-
 digit preset rounding, `A for B preset` mode's `NaN` columns, every range check,
 the OR-accumulating status-byte poll, the echo-on and timeout failure paths,
 interface-specific command gating on GPIB versus RS-232, the front-panel lock

@@ -42,7 +42,27 @@ present a whole scan through `call()`, which returns one row per point. See §7.
 
 ## 2. What one measurement point is
 
-One SweepMe! point = one SR400 **scan** of `Periods per point` count periods:
+That depends on `Measurement mode`, which is the first GUI field and the only one that changes
+the shape of a run.
+
+### Single count period (default)
+
+One SweepMe! point = one SR400 count period. The driver forces `NP 1` and `DT 0` (EXTERNAL
+dwell) and starts every period itself, so the point sequence belongs to SweepMe! rather than to
+the instrument. Fewest round trips per point, and the easiest timing to reason about. Use this
+unless you specifically want the instrument to do the accumulating.
+
+`Periods per point` and `Dwell time in s` do not apply. If you set either of them away from its
+default in this mode, the driver says so once rather than letting the field look live.
+
+### Scan of N periods
+
+One SweepMe! point = one SR400 **scan** of `Periods per point` count periods, with the
+instrument's own internal dwell between them. The SR400 runs the whole scan from a single `CS`
+and the driver sums the buffer entries. This is the mode that owns the instrument's scan
+machinery, so it is where gate-delay scanning will land (§7.2).
+
+The command traffic below is the scan mode; the single-period mode is the same with `NP 1`:
 
 ```
 measure()    CR                       reset counters
@@ -68,12 +88,13 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 
 | Parameter | Command | Notes |
 |---|---|---|
+| `Measurement mode` | `NP`, `DT` | `Single count period` (default) forces `NP 1` + EXTERNAL dwell. `Scan of N periods` uses `Periods per point` and the internal dwell. See §2. |
 | `Count mode` | `CM` | Selects which counter is preset. Also resets the counters. |
 | `Counter A/B/T input` | `CI` | Hardware-restricted: A ∈ {10 MHz, INPUT 1}, B ∈ {INPUT 1, INPUT 2}, T ∈ {10 MHz, INPUT 2, TRIG}. Wrong combinations are rejected before anything is sent. |
 | `Count time in s` | `CP 2` | Used when `Counter T input = 10 MHz`. Converted to clock cycles. |
 | `Preset counts (T or B)` | `CP 1/2` | Used when T counts INPUT 2 / TRIG, or in `A for B preset` mode. |
-| `Periods per point` | `NP` | 1…2000. Counts are summed. |
-| `Dwell time in s` | `DT` | 2 ms…60 s, or **exactly 0** for EXTERNAL dwell. |
+| `Periods per point` | `NP` | 1…2000. Counts are summed. **`Scan of N periods` only.** |
+| `Dwell time in s` | `DT` | 2 ms…60 s, or **exactly 0** for EXTERNAL dwell. **`Scan of N periods` only.** |
 | `Trigger slope` / `Trigger level in V` | `TS` / `TL` | ±2.000 V, 1 mV resolution. |
 | `Discriminator A/B/T slope` / `level in V` | `DS` / `DL` | ±0.3000 V, 0.2 mV resolution. Mode is forced to FIXED (`DM i,0`). |
 | `Gate A/B mode` | `GM` | CW / Fixed / Scan. |
@@ -87,7 +108,7 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Print SweepMe! phase` | — | Debug aid. Prints the name of each semantic function as SweepMe! calls it (`connect`, `initialize`, `configure`, `measure`, `call`, `unconfigure`) to the SweepMe! debug console. Off by default and silent when off. |
 
 All of these are applied once, in `configure()`. To vary one of them across a run you currently
-have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §8.
+have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §7.2.
 
 ---
 
@@ -226,7 +247,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "109/109 checks passed"
+python tests/test_sr400_virtual.py   # expect "125/125 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -395,17 +416,25 @@ already complete and tested — `GM` (scan mode), `GY` (delay step), `GZ` (read 
 delay), `NP`, `DT`, `EA`/`EB` (buffer dump) — so this is a question of presentation, not of
 protocol.
 
-`call()` returns one row per measurement point, and an instrument-internal scan produces *N* rows
-in a single acquisition. The three ways out, none of them free:
+The `Measurement mode` split settled where this belongs: `Scan of N periods` already owns `NP`,
+the internal dwell and the buffer readout, so gate scanning is an extension of that mode rather
+than a third architecture. What is still undecided is the **output shape**.
 
-- **One point per SweepMe! point, driver-stepped.** Add `GD` stepping to `measure()` and let the
-  SweepMe! loop own the x-axis. Simplest, and slowest: one round trip per delay.
-- **Whole scan per point, as extra variables.** `Counter A[0…N-1]` as *N* columns. Fast (one `EA`
-  transfer) but `self.variables` has to be built from the GUI parameters, and *N* is then fixed
-  for the run.
+`call()` returns one row per measurement point, and a gate scan produces *N* points in a single
+acquisition. Today `Scan of N periods` sums them, which is right for repeat-and-accumulate and
+exactly wrong for a scan, where the *N* separate values *are* the measurement. Three ways out,
+none free:
+
+- **One delay per SweepMe! point, driver-stepped.** Step `GD` in `measure()` and let the SweepMe!
+  loop own the x-axis. Simplest, and slowest: one round trip per delay, and it does not use the
+  instrument's scan mode at all.
+- **Whole scan per point, as extra variables.** `Counter A[0…N-1]` as *N* columns, filled by one
+  `EA` transfer. Fast, but `self.variables` has to be built from the GUI parameters, so *N* is
+  fixed when the run starts.
 - **Whole scan per point, as a sidecar file.** Keeps the column count stable and writes the scan
   to its own file, the way the LabJack counter driver's self-test writes its sidecar. Least
   disruptive to the data model, worst for live plotting.
 
 Decide this before adding the gate-scan GUI parameters, because the choice determines whether
-`self.variables` stays fixed-length.
+`self.variables` stays fixed-length. Worth weighing a fourth option: add a **third** mode rather
+than overloading `Scan of N periods`, so summing and scanning never share a code path.
