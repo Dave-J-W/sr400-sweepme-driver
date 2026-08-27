@@ -62,17 +62,21 @@ then just an acquisition — `measure()` followed by `call()`. That is Logger se
 and the folder-name prefix is what actually selects the module. The `# Type:` comment
 in `main.py` is documentation, not something the loader reads.
 
-The consequence is that **sweeping a gate delay is not wired up**, which matters
-because a gate-delay scan is the SR400's characteristic experiment. Where it belongs is
-settled — `Scan of N periods` owns the scan machinery, and every command it needs is
-implemented and round-trip tested. What is undecided is the *output shape*: a gate scan
-produces *N* values in one acquisition and `call()` returns one row.
+The consequence is that **gate-delay scanning is not wired up**, which matters because a
+gate-delay scan is the SR400's characteristic experiment. Everything except the code is now
+settled. It belongs in the scan machinery, every command it needs is implemented and
+round-trip tested, and the output shape is decided: **a scan returns one row with *N*
+columns per counter, and the mode selects the reduction applied to the scan buffer** — not a
+different acquisition architecture. One SweepMe! point stays one complete scan; summing is
+what `Scan of N periods` does to the buffer, and a gate scan simply does not sum.
 
-That decision is shared by three features, so it gets made once rather than three times
-— gate scanning, auto-split (which sums today, deliberately), and per-period statistics
-(mean, sample standard deviation, Fano factor; not wanted yet). Written up in
-[§7.2 of the driver README](Logger-Stanford_SR400/README.md), with the gate-scan case
-worked through in §7.3.
+Two things fell out of settling it. Driver-stepped rows are not available to a Logger at
+all, since handing SweepMe! the x-axis needs the `SweepMode`/`apply()` pair a Logger never
+gets. And the decision was smaller than recorded: auto-split and per-period statistics are
+both *reductions to a fixed column count*, so neither was ever waiting on it.
+
+[§7.2 of the driver README](Logger-Stanford_SR400/README.md) has the reasoning and the two
+sub-decisions; §7.3 is the implementation spec.
 
 ## Host-side performance
 

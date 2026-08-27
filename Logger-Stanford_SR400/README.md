@@ -549,8 +549,9 @@ than 10×.
 
 Audited against the manual (Revision 2.7, 11/2018) — see [`docs/MANUAL_AUDIT.md`](../docs/MANUAL_AUDIT.md)
 for what was checked and what changed. Every command, every numeric limit and every status bit in
-this driver is now a quotation rather than an inference. Two assumptions survive, both narrow, and
-both parsed through `float()` so integers, reals and `1E1`-style floats all work regardless.
+this driver is now a quotation rather than an inference. Four assumptions survive. The first two
+are response-format details, and both are parsed through `float()` so integers, reals and
+`1E1`-style floats all work regardless; the last two are behavioural and need the bench.
 
 1. **Scan-finished bit with `NP 1`.** The manual says bit 2 is set at the end of a scan when the
    end mode is STOP, but does not say whether a one-period scan qualifies. The driver accepts
@@ -563,64 +564,120 @@ both parsed through `float()` so integers, reals and `1E1`-style floats all work
    example — but says nothing about a ten-deep chain. This is the one genuinely new assumption
    behind `Fast readout` (gotcha 16). Compare a batched and an unbatched point during hardware
    step 9.
+4. **That a gate scan steps the delay once per count period, filling the scan buffer in order
+   from the start delay.** The manual describes the scan buffer in terms of count periods and
+   documents `GY`/`GZ` for the delay scan, but shows no worked example tying the two together.
+   §7.3 rests on it, so confirm it before trusting a scan's x-axis: run a 4-point scan and check
+   the four buffer entries against four separate single-delay measurements at the same delays.
 
 **Resolved by the audit, previously listed here:** the `CP i` response format. The manual states it
 outright — *"In the above example, the string `1E1` is returned"* — so it is no longer an
 assumption.
 
-### 7.2 One unmade decision: what a multi-value acquisition returns
+### 7.2 Settled: what a multi-value acquisition returns
 
-Three features want the same thing and none of them can have it yet, so the decision below gets
-made **once** rather than three times. Nothing here needs doing now.
+**Decision: a scan returns one row with *N* columns per counter, and the mode selects the
+*reduction* applied to the scan buffer — not a different acquisition architecture.**
 
-| Wants | Status |
-|---|---|
-| Gate-delay scanning | Not implemented. The command layer is complete and tested; only the output shape is missing. |
-| `Total live time (auto-split)` | **Implemented**, and today it *sums* the *N* per-period values. That is the right default — the point of asking for 1.6 s of counting is to get one number for 1.6 s — and no change is wanted. |
-| Per-period statistics (mean, sample standard deviation, Fano factor) | Not implemented, and not wanted yet: an advanced-user feature. |
+One SweepMe! point stays one complete, self-contained SR400 scan. What changes between modes is
+only what the driver does with the *N* buffer entries it already reads.
 
-They share one constraint: `call()` returns **one row per measurement point**, and all three
-produce *N* values in a single acquisition.
+| Mode | Reduction | Columns |
+|---|---|---|
+| `Single count period` | none needed (*N* = 1) | fixed 5 |
+| `Scan of N periods` | **sum** — repeat-and-accumulate | fixed 5 |
+| `Total live time (auto-split)` | **sum** — the point of asking for 1.6 s is one number for 1.6 s | fixed 5 |
+| Gate-delay scan (§7.3, not implemented) | **none** — the *N* values *are* the measurement | 5 + 2*N* |
+| Per-period statistics (not wanted yet) | mean, sample std, Fano factor | fixed 5 + 3 |
 
-Worth recording for whenever statistics does land: **the readout already reads every period
-individually.** `_read_scan_buffer()` issues `QA m`/`QB m` per period and adds them up as it goes,
-so there is nothing new to collect and no extra instrument traffic — retaining the list instead of
-a running total is the whole data-collection change. It is purely an output-shape change, which is
-exactly why it waits on the decision below rather than on any protocol work.
+#### Why this and not the alternatives
 
-### 7.3 How to expose a gate-delay scan
+The three candidates recorded here previously were driver-stepped rows, *N* columns, and a sidecar
+file. Two are now ruled out on facts rather than taste.
 
-This is the one real functional gap. The driver holds one gate delay for a whole run, so the
-SR400's characteristic time-resolved experiment cannot be run from it yet. The command layer is
-already complete and tested — `GM` (scan mode), `GY` (delay step), `GZ` (read the applied scan
-delay), `NP`, `DT`, `EA`/`EB` (buffer dump) — so this is a question of presentation, not of
-protocol.
+**Driver-stepped rows is not available to a Logger.** The idea was to step `GD` per point and let
+the SweepMe! sweep loop own the x-axis. But a Logger renders no `SweepMode` field and never calls
+`apply()` — that is the whole reason those were deleted. Handing SweepMe! the x-axis requires the
+Switch module, which was explicitly rejected. The driver could step `GD` internally and emit the
+delay as a column, but then a "point" means *1/N of a hidden acquisition*: stopping mid-run yields
+a partial curve, the state is invisible, and it collides with `Periods per point` and auto-split.
+Every other decision in this driver has held the line that **one point is one well-defined
+acquisition**, and this would be the one that breaks it.
 
-(This is the concrete version of the §7.2 decision, written up for the gate-scan case because
-that is the one that needs new GUI parameters.)
+***N* columns is feasible, and that was the open question.** The worry was that `self.variables`
+would have to be built from the GUI parameters. It can be: `Logger-LJ_ADC_DJW` in the LabJack
+drivers repo does exactly that, assembling `self.variables` and `self.units` per channel inside
+`parse_GUIparameter()`. Dynamic column counts are ordinary pysweepme practice on the version
+SweepMe! ships, so the objection does not survive.
 
-The `Measurement mode` split settled where this belongs: `Scan of N periods` already owns `NP`,
-the internal dwell and the buffer readout, so gate scanning is an extension of that mode rather
-than a third architecture. What is still undecided is the **output shape**.
+**The sidecar file is worse for the actual experiment.** It keeps the column count stable, but the
+data leaves the SweepMe! table: no live plot, and the user has to correlate files by hand. Keep it
+in reserve for *N* beyond the column cap below, not as the primary shape.
 
-`call()` returns one row per measurement point, and a gate scan produces *N* points in a single
-acquisition. Today `Scan of N periods` sums them, which is right for repeat-and-accumulate and
-exactly wrong for a scan, where the *N* separate values *are* the measurement. Three ways out,
-none free:
+#### What this makes smaller
 
-- **One delay per SweepMe! point, driver-stepped.** Step `GD` in `measure()` and let the SweepMe!
-  loop own the x-axis. Simplest, and slowest: one round trip per delay, and it does not use the
-  instrument's scan mode at all.
-- **Whole scan per point, as extra variables.** `Counter A[0…N-1]` as *N* columns, filled by one
-  `EA` transfer. Fast, but `self.variables` has to be built from the GUI parameters, so *N* is
-  fixed when the run starts.
-- **Whole scan per point, as a sidecar file.** Keeps the column count stable and writes the scan
-  to its own file, the way the LabJack counter driver's self-test writes its sidecar. Least
-  disruptive to the data model, worst for live plotting.
+Recording the decision as shared by three features overstated it. Two of the three are
+**reductions to a fixed column count** — the auto-split sum, and statistics, which is three
+columns whatever *N* is. Neither ever needed this decision; both only needed the per-period list,
+which `_read_scan_buffer()` already has because it reads `QA m`/`QB m` per period and adds them up
+as it goes. Retaining the list instead of a running total is the entire data-collection change for
+either, with no extra instrument traffic.
 
-Decide this before adding the gate-scan GUI parameters, because the choice determines whether
-`self.variables` stays fixed-length. Worth weighing a fourth option: add a **third** mode rather
-than overloading `Scan of N periods`, so summing and scanning never share a code path.
+So exactly **one** feature needed an output-shape decision: the gate scan. The other two were
+waiting on nothing.
+
+#### Two sub-decisions that come with it
+
+**The x values are columns, not column names.** A gate scan emits `Gate A delay 0…N-1` alongside
+`Counter A 0…N-1`, which is why the row is 5 + 2*N* wide rather than 5 + *N*. Encoding the delay in
+the column name would make the x-axis a string to be parsed, and — the real reason — the SR400
+**rounds gate delays within resolution bands** (gotcha 4), so the applied delay is not reliably
+`start + i × step`. The x values have to be data.
+
+Those columns carry the *nominal* delays. Reading the applied value costs one `GZ` round trip per
+point, which would throw away the single-transfer `EA` readout that makes the scan worth using.
+Nominal is good to the ~0.1 % of gotcha 4; if a measurement needs better, read `GZ` per point and
+accept the round trips.
+
+**Cap the scan at 256 points.** `NP` allows 2000, but 2000 scan points is 4005 columns, which is
+not a table anyone can use and not a shape SweepMe! should be asked to render. 256 points is a
+generous decay curve. Above the cap, `configure()` should refuse and name the sidecar as the
+option that would lift it — rather than silently producing something unusable.
+
+### 7.3 Gate-delay scanning: what implementing it now involves
+
+Not implemented. The output shape is settled (§7.2), so what remains is mechanical — the command
+layer is already complete and round-trip tested: `GM` (scan mode), `GY` (delay step), `GZ` (read
+the applied scan delay), `NP`, `DT`, `EA`/`EB` (buffer dump).
+
+`Measurement mode` gains a third value, **`Gate delay scan`**, rather than overloading
+`Scan of N periods` — so summing and not-summing never share a code path, which was the fourth
+option weighed in §7.2 and is the right call for the same reason the count-time modes are separate.
+
+What it needs:
+
+1. **GUI**: `Gate A delay start in s`, `Gate A delay step in s`, and reuse `Periods per point` as
+   the scan length *N* (that is what `NP` is in scan mode). Refuse *N* > 256, per §7.2.
+2. **`configure()`**: `GM 0,2` (SCAN), `GD 0,<start>`, `GY 0,<step>`, `NP <N>`, internal dwell.
+   The existing gate-CW warning in `_check_configuration()` already covers the case where someone
+   selects a scan with the gate in CW mode — it needs promoting from a message to a refusal in
+   this mode, because a scan with no gate is not a scan.
+3. **`self.variables`**: built in `get_GUIparameter()` as
+   `["Counter A i", "Gate A delay i", …] + the fixed five`, following the
+   `Logger-LJ_ADC_DJW` pattern.
+4. **`measure()`**: unchanged acquisition. Only the reduction differs —
+   `_read_scan_buffer()` returns the per-period list instead of a sum. That is the one function
+   that needs a flag, and both paths already share `_parse_scan_point()`.
+5. **Readout**: prefer `EA`/`EB` (whole buffer, one transfer) over per-point `QA m`. Note `EA` may
+   only be sent while paused at the end of a scan, and the driver already forces scan end mode
+   STOP, so that precondition holds.
+6. **Bench**: the simulator models the scan buffer and `EA` already. The test that matters is that
+   a scan's *N* columns equal *N* separate single-delay measurements at the same delays.
+
+The one thing to verify on hardware first: that a scan's buffer really does hold one entry per
+gate-delay step, ordered from the start delay. The manual's scan-buffer description is about count
+periods; that gate scanning steps the delay once per count period is stated but not shown in a
+worked example. That belongs in §7.1 as an assumption until confirmed.
 
 ---
 

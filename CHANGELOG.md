@@ -66,6 +66,21 @@ Newest first. Gotcha and section numbers refer to
 
 ### Changed
 
+- **Settled the output shape for a multi-value acquisition (§7.2).** A scan returns one row with
+  *N* columns per counter, and the measurement mode selects the *reduction* applied to the scan
+  buffer rather than a different acquisition architecture — so one SweepMe! point stays one
+  complete, self-contained scan. Driver-stepped rows were ruled out because a Logger never gets
+  the `SweepMode`/`apply()` pair that would let SweepMe! own the x-axis; *N* dynamic columns were
+  confirmed feasible by the `Logger-LJ_ADC_DJW` precedent; the sidecar file is held in reserve for
+  *N* above the 256-point column cap. Two sub-decisions: the delay values are columns rather than
+  parsed out of column names, because the SR400 rounds delays within resolution bands
+  (**gotcha 4**) so the applied delay is not reliably `start + i × step`; and they carry the
+  nominal delays, because reading `GZ` per point would throw away the single-transfer `EA`
+  readout. Recording the decision as shared by three features overstated it — auto-split and
+  per-period statistics are both reductions to a fixed column count, so only gate scanning was
+  ever waiting on it. §7.3 is now the implementation spec, and §7.1 gains the one hardware
+  assumption it rests on.
+
 - **Switch → Logger.** The module renders no `SweepMode` field and never calls `apply()`, so
   `apply()` and the whole sweep-mode branch were unreachable and are gone. Gate-delay scanning is
   consequently not wired up; see **§7.2** for the open output-shape decision.
