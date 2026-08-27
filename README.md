@@ -16,6 +16,11 @@ Two measurement modes, picked with the first GUI field:
   instrument's internal dwell, summed. This mode owns the SR400's scan machinery and
   is where gate-delay scanning will land.
 
+A single count period is quantised — the T preset keeps one significant digit, so
+there is no 1.5 s count period. But *N* periods of a settable length reach an exact
+total, so `Count time mode = Total live time (auto-split)` takes 1.5 s and runs
+3 × 0.5 s, exact to the timebase's 25 ppm. See gotcha 3 in the driver README.
+
 Every command the driver sends is documented in the SR400 manual, chapter *Remote
 Programming – Detailed Command List* (manual pp. 37–47). Nothing is inferred from
 generic SCPI conventions: the SR400 predates IEEE-488.2 and has **no `*IDN?`,
@@ -84,13 +89,14 @@ whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-187 checks: both measurement modes, the count-period model including EXTERNAL dwell, the one-significant-
+265 checks: both measurement modes, the count-time planner, the count-period model including EXTERNAL dwell, the one-significant-
 digit preset rounding, `A for B preset` mode's `NaN` columns, every range check,
 the OR-accumulating status-byte poll, the echo-on and timeout failure paths,
 interface-specific command gating on GPIB versus RS-232, the front-panel lock
 lifecycle, the GUI options, latency-timer detection and both actions, batched
 readout proved equal to unbatched for 1/2/10/17/33 periods plus its desync and
-buffer-limit failure paths, and a round trip of every wrapped command.
+buffer-limit failure paths, every count-time split named in the specification, and
+a round trip of every wrapped command.
 
 It does **not** cover anything about the real instrument: response *formats*,
 command-processing latency, and all electrical behaviour need hardware. Passing

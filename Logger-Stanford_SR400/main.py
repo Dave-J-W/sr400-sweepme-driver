@@ -39,8 +39,158 @@ import math
 import os
 import sys
 import time
+from typing import NamedTuple
 
 from pysweepme.EmptyDeviceClass import EmptyDevice
+
+
+
+# ======================================================================
+#  Count-time planner -- module level and pure, so it is testable alone
+# ======================================================================
+
+CLOCK_FREQUENCY = 1e7
+"""Internal timebase in Hz. Device.CLOCK_FREQUENCY mirrors this."""
+
+
+class CountPlan(NamedTuple):
+    """How to reach a requested total live time out of representable count periods."""
+
+    periods: int
+    count_time: float
+    total_time: float
+    is_exact: bool
+    duty_cycle: float
+    note: str
+
+
+def representable_presets() -> list[int]:
+    """The settable T presets, largest first.
+
+    CP keeps only the most significant digit (manual p. 39), so the reachable presets are
+    d x 10^k for d in 1..9 -- 108 values between 1 and 9E11. Integers, so that divisibility
+    can be tested exactly rather than in floating point.
+    """
+    presets = [d * 10**k for k in range(12) for d in range(1, 10)]
+    return sorted((p for p in presets if 1 <= p <= 9 * 10**11), reverse=True)
+
+
+def plan_count_time(
+    total_time: float,
+    dwell: float = 2e-3,
+    min_periods: int = 1,
+    max_periods: int = 2000,
+    min_duty: float = 0.5,
+    soft_max_periods: int = 100,
+) -> CountPlan:
+    """Split a requested total live time into N representable count periods.
+
+    A single count period is quantised: the T preset must be d x 10^k, so 1.5 s is not a
+    settable count *period*. But N periods of a representable length reach an exact total live
+    time -- 3 x 0.5 s is exactly 1.5 s of counting -- so the quantisation is a constraint on
+    one period, not on the experiment.
+
+    Selection: prefer the *exact* split with the fewest periods, subject to a soft cap on N and
+    a minimum duty cycle. Minimising N maximises the count time, which also maximises duty, so
+    the single objective covers both. Failing that, take the closest approximation that still
+    meets the duty floor, and record in 'note' what exactness would have cost.
+
+    Duty matters because the dwell between periods is dead time: N periods of 'count_time' take
+    N*count_time + (N-1)*dwell of wall clock but only N*count_time of live counting. A dwell of
+    0 selects the SR400's EXTERNAL dwell, which has no gap to pay for, so duty is 1.0
+    throughout.
+
+    Returns a CountPlan. 'is_exact' compares the achieved total against the request, so an
+    exact split that merely exceeds 'soft_max_periods' is still reported as exact.
+    """
+    if not math.isfinite(total_time) or total_time <= 0.0:
+        msg = f"The total count time {total_time} s must be positive and finite."
+        raise ValueError(msg)
+
+    cycles_f = total_time * CLOCK_FREQUENCY
+    cycles = round(cycles_f)
+    exact_possible = abs(cycles_f - cycles) <= max(1e-6, abs(cycles_f) * 1e-12)
+
+    def duty_of(periods: int, count_time: float) -> float:
+        if periods <= 1 or dwell <= 0.0:
+            return 1.0
+        live = periods * count_time
+        return live / (live + (periods - 1) * dwell)
+
+    def clamp(periods: float) -> int:
+        return max(min_periods, min(max_periods, int(periods)))
+
+    # (periods, count_time, duty), and for the approximate list also the relative error.
+    best_exact = None
+    best_qualified = None
+    best_approx = None
+
+    for preset in representable_presets():
+        count_time = preset / CLOCK_FREQUENCY
+
+        if exact_possible and cycles > 0 and cycles % preset == 0:
+            periods = cycles // preset
+            if min_periods <= periods <= max_periods:
+                duty = duty_of(periods, count_time)
+                if best_exact is None or periods < best_exact[0]:
+                    best_exact = (periods, count_time, duty)
+                if periods <= soft_max_periods and duty >= min_duty:
+                    if best_qualified is None or periods < best_qualified[0]:
+                        best_qualified = (periods, count_time, duty)
+
+        periods = clamp(round(cycles_f / preset))
+        duty = duty_of(periods, count_time)
+        if duty >= min_duty:
+            error = abs(periods * count_time - total_time) / total_time
+            # Two splits that both land on the requested total do not land on it *equally*
+            # in binary: 111 x 0.009 and 333 x 0.003 both make 0.999, with relative errors
+            # differing around 1e-16. Comparing those raw would let float noise pick the
+            # split, so an improvement has to beat the incumbent by more than that noise,
+            # and a genuine tie is broken on fewest periods -- which is the same preference
+            # the exact branch applies, and which also maximises duty.
+            if best_approx is None:
+                best_approx = (error, periods, count_time, duty)
+            else:
+                tie_epsilon = 1e-12
+                clearly_better = error < best_approx[0] - tie_epsilon
+                tied_but_shorter = (
+                    abs(error - best_approx[0]) <= tie_epsilon and periods < best_approx[1]
+                )
+                if clearly_better or tied_but_shorter:
+                    best_approx = (error, periods, count_time, duty)
+
+    if best_qualified is not None:
+        periods, count_time, duty = best_qualified
+    else:
+        _, periods, count_time, duty = best_approx
+
+    achieved = periods * count_time
+    is_exact = abs(achieved - total_time) <= max(1e-15, abs(total_time) * 1e-9)
+
+    if is_exact and periods > soft_max_periods:
+        note = (
+            f"Exact, but {periods} periods is above the soft preference of {soft_max_periods}; "
+            f"wall time exceeds live time by {(periods - 1) * dwell:.4g} s of dwell."
+        )
+    elif not is_exact and best_exact is not None:
+        note = (
+            f"Nearest representable. An exact split exists but was rejected: "
+            f"{best_exact[0]} x {best_exact[1]:.4g} s at {best_exact[2]:.1%} duty "
+            f"(needs <= {soft_max_periods} periods and >= {min_duty:.0%} duty)."
+        )
+    elif not is_exact:
+        note = "Nearest representable; no exact split of this total is reachable."
+    else:
+        note = ""
+
+    return CountPlan(
+        periods=int(periods),
+        count_time=count_time,
+        total_time=achieved,
+        is_exact=is_exact,
+        duty_cycle=duty,
+        note=note,
+    )
 
 
 class Device(EmptyDevice):
@@ -126,6 +276,9 @@ class Device(EmptyDevice):
         "B": ("INPUT 1", "INPUT 2"),
         "T": ("10 MHz", "INPUT 2", "TRIG"),
     }
+    COUNT_TIME_MODES = ("Per period", "Total live time (auto-split)")
+    """Whether 'Count time in s' means one count period or the total. See plan_count_time()."""
+
     MEASUREMENT_MODES = ("Single count period", "Scan of N periods")
     """How one SweepMe! point maps onto SR400 count periods. See _apply_measurement_mode()."""
 
@@ -245,6 +398,7 @@ class Device(EmptyDevice):
 
         # --- GUI parameters (set in get_GUIparameter) -------------------------
         self.measurement_mode: str = self.MEASUREMENT_MODES[0]
+        self.count_time_mode: str = self.COUNT_TIME_MODES[0]
         self.counting_mode: str = "A, B for T preset"
         self.counter_a_input: str = "INPUT 1"
         self.counter_b_input: str = "INPUT 1"
@@ -276,6 +430,9 @@ class Device(EmptyDevice):
         self.requested_count_time: float = 1.0
         self.requested_periods: int = 1
         self.requested_dwell_time: float = self.DEFAULT_DWELL_TIME
+        self.requested_total_time: float = 1.0
+        self.count_plan: CountPlan | None = None
+        self.auto_split_promoted_mode: bool = False
         self.actual_count_time: float = float("nan")
         self.actual_preset_counts: float = float("nan")
         self.actual_dwell_time: float = 0.0
@@ -306,6 +463,7 @@ class Device(EmptyDevice):
             "Counter A input": list(self.ALLOWED_COUNTER_INPUTS["A"]),
             "Counter B input": list(self.ALLOWED_COUNTER_INPUTS["B"]),
             "Counter T input": list(self.ALLOWED_COUNTER_INPUTS["T"]),
+            "Count time mode": list(self.COUNT_TIME_MODES),
             "Count time in s": 1.0,
             "Preset counts (T or B)": 1e6,
             "  ": None,
@@ -352,6 +510,7 @@ class Device(EmptyDevice):
         self.is_rs232 = self.port_string.upper().startswith(("COM", "ASRL"))
 
         self.measurement_mode = parameter.get("Measurement mode", self.MEASUREMENT_MODES[0])
+        self.count_time_mode = parameter.get("Count time mode", self.COUNT_TIME_MODES[0])
 
         self.counting_mode = parameter.get("Count mode", "A, B for T preset")
         self.counter_a_input = parameter.get("Counter A input", "INPUT 1")
@@ -395,6 +554,13 @@ class Device(EmptyDevice):
         # Ignored by the port manager for GPIB ports; only the COM branch reads it.
         self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
 
+        # Captured before either mode function can override them, so the messages can name
+        # what the user actually typed rather than what was derived from it.
+        self.requested_periods = self.periods
+        self.requested_dwell_time = self.dwell_time
+        self.requested_total_time = self.count_time
+
+        self._apply_count_time_mode()
         self._apply_measurement_mode()
 
         # Derived flags that only depend on GUI settings
@@ -403,6 +569,47 @@ class Device(EmptyDevice):
         self.count_time_is_known = (
             self.counting_mode != "A for B preset" and self.counter_t_input == "10 MHz"
         )
+
+    def _apply_count_time_mode(self) -> None:
+        """Turn 'Count time mode' into the count time and period count to program.
+
+        In "Per period" (the default) nothing happens: 'Count time in s' is one count period,
+        exactly as before. In "Total live time (auto-split)" it is the total, and the planner
+        decides how to reach it -- which means it, not the user, owns 'Periods per point'.
+
+        A multi-period plan needs the instrument to run a scan, so the measurement mode is
+        promoted to "Scan of N periods". _check_configuration() reports that, along with the
+        plan itself.
+        """
+        self.count_plan = None
+        self.auto_split_promoted_mode = False
+
+        if self.count_time_mode not in self.COUNT_TIME_MODES:
+            allowed = ", ".join(f"'{mode}'" for mode in self.COUNT_TIME_MODES)
+            msg = f"Unknown count time mode '{self.count_time_mode}'. Allowed: {allowed}."
+            raise Exception(msg)
+
+        if self.count_time_mode == "Per period":
+            return
+
+        # The shortest legal dwell maximises duty, so auto-split always asks for it -- unless
+        # the user chose EXTERNAL (0), which has no inter-period gap to pay for at all.
+        uses_external = self.dwell_time == 0.0
+        plan = plan_count_time(
+            self.count_time,
+            dwell=0.0 if uses_external else self.DWELL_MIN,
+            max_periods=self.PERIODS_MAX,
+        )
+
+        self.count_plan = plan
+        self.count_time = plan.count_time
+        self.periods = plan.periods
+        if not uses_external:
+            self.dwell_time = self.DWELL_MIN
+
+        if plan.periods > 1 and self.measurement_mode == "Single count period":
+            self.measurement_mode = "Scan of N periods"
+            self.auto_split_promoted_mode = True
 
     def _apply_measurement_mode(self) -> None:
         """Turn 'Measurement mode' into the NP and DT the rest of the driver works from.
@@ -426,10 +633,6 @@ class Device(EmptyDevice):
             allowed = ", ".join(f"'{mode}'" for mode in self.MEASUREMENT_MODES)
             msg = f"Unknown measurement mode '{self.measurement_mode}'. Allowed: {allowed}."
             raise Exception(msg)
-
-        # Kept for _check_configuration(), which needs to know what was asked for.
-        self.requested_periods = self.periods
-        self.requested_dwell_time = self.dwell_time
 
         if self.measurement_mode == "Single count period":
             self.periods = 1
@@ -713,7 +916,41 @@ class Device(EmptyDevice):
         the configuration. Saying so once at configure() time is cheaper than a puzzling
         data set.
         """
-        if self.measurement_mode == "Single count period":
+        if self.count_plan is not None:
+            plan = self.count_plan
+            exactness = (
+                "exactly the requested total"
+                if plan.is_exact
+                else f"the closest reachable total ({plan.total_time:.6g} s requested "
+                f"{self.requested_total_time:.6g} s)"
+            )
+            duty = (
+                "EXTERNAL dwell, so no inter-period dead time"
+                if self.uses_external_dwell
+                else f"{plan.duty_cycle:.1%} duty, i.e. wall time longer than live time by "
+                f"{(plan.periods - 1) * self.dwell_time:.4g} s of dwell"
+            )
+            message = (
+                f"SR400: auto-split -- {plan.periods} x {plan.count_time:.6g} s = "
+                f"{plan.total_time:.6g} s of live counting, {exactness}. {duty}."
+            )
+            if plan.note:
+                message += f" {plan.note}"
+            if self.auto_split_promoted_mode:
+                message += (
+                    " 'Measurement mode' was promoted to 'Scan of N periods', because running "
+                    "more than one count period per point is what that mode does."
+                )
+            # Only worth saying if the user actually set a period count of their own; the
+            # default of 1 is not a request the planner is overriding.
+            if self.requested_periods != 1 and self.requested_periods != plan.periods:
+                message += (
+                    f" 'Periods per point' ({self.requested_periods}) is computed by the "
+                    f"planner in this mode, not taken from the GUI."
+                )
+            self.message_info(message)
+
+        if self.measurement_mode == "Single count period" and self.count_plan is None:
             ignored = []
             if self.requested_periods != 1:
                 ignored.append(f"'Periods per point' ({self.requested_periods})")
@@ -753,6 +990,30 @@ class Device(EmptyDevice):
                 "'A for B preset', so 'Counter T input' has no effect on the result.",
             )
 
+    def _exact_split_hint(self, total_time: float) -> str:
+        """Name the exact N x count_time split of 'total_time', if a usable one exists.
+
+        The README's rule is that an exception or warning names the remedy inline, because the
+        person debugging reads the message and not the README. Rounding a count period is the
+        case where that matters most: the number is quietly wrong rather than absent, and the
+        remedy -- split it across periods -- is not something the user would guess.
+        """
+        try:
+            plan = plan_count_time(total_time, dwell=self.DEFAULT_DWELL_TIME)
+        except Exception:  # noqa: BLE001 -- a hint must never replace the warning it decorates
+            return ""
+
+        if not plan.is_exact or plan.periods <= 1:
+            return ""
+
+        return (
+            f" {total_time:.4g} s is reachable exactly as {plan.periods} count periods of "
+            f"{plan.count_time:.6g} s: set 'Count time in s' to {plan.count_time:.6g}, "
+            f"'Periods per point' to {plan.periods} and 'Measurement mode' to "
+            f"'Scan of N periods' -- or just set 'Count time mode' to "
+            f"'Total live time (auto-split)' and let the driver do it."
+        )
+
     def _read_back_timing(self) -> None:
         """Read the applied preset and dwell time and derive the acquisition timeout."""
         self.actual_dwell_time = self.get_dwell_time()
@@ -761,9 +1022,10 @@ class Device(EmptyDevice):
             self.actual_count_time = self.get_counter_preset("T") / self.CLOCK_FREQUENCY
             if not math.isclose(self.actual_count_time, self.requested_count_time, rel_tol=0.01):
                 self.message_info(
-                    f"SR400: the requested count time of {self.requested_count_time:.4g} s was rounded to "
-                    f"{self.actual_count_time:.4g} s, because the T preset keeps only one "
-                    f"significant digit.",
+                    f"SR400: {self.requested_count_time:.4g} s is not a settable count period, "
+                    f"so it was rounded to {self.actual_count_time:.4g} s -- the T preset keeps "
+                    f"only one significant digit."
+                    f"{self._exact_split_hint(self.requested_count_time)}",
                 )
             period_duration = self.actual_count_time + self.actual_dwell_time
         else:

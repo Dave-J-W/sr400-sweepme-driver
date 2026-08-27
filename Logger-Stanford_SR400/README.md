@@ -91,9 +91,10 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Measurement mode` | `NP`, `DT` | `Single count period` (default) forces `NP 1` + EXTERNAL dwell. `Scan of N periods` uses `Periods per point` and the internal dwell. See §2. |
 | `Count mode` | `CM` | Selects which counter is preset. Also resets the counters. |
 | `Counter A/B/T input` | `CI` | Hardware-restricted: A ∈ {10 MHz, INPUT 1}, B ∈ {INPUT 1, INPUT 2}, T ∈ {10 MHz, INPUT 2, TRIG}. Wrong combinations are rejected before anything is sent. |
-| `Count time in s` | `CP 2` | Used when `Counter T input = 10 MHz`. Converted to clock cycles. |
+| `Count time mode` | — | `Per period` (default): `Count time in s` is one count period, rounded to the nearest settable value. `Total live time (auto-split)`: it is the **total**, and the driver splits it across periods. See gotcha 3. |
+| `Count time in s` | `CP 2` | Used when `Counter T input = 10 MHz`. Converted to clock cycles. One period, or the total, per `Count time mode`. |
 | `Preset counts (T or B)` | `CP 1/2` | Used when T counts INPUT 2 / TRIG, or in `A for B preset` mode. |
-| `Periods per point` | `NP` | 1…2000. Counts are summed. **`Scan of N periods` only.** |
+| `Periods per point` | `NP` | 1…2000. Counts are summed. **`Scan of N periods` only**, and computed by the planner in auto-split mode rather than read from here. |
 | `Dwell time in s` | `DT` | 2 ms…60 s, or **exactly 0** for EXTERNAL dwell. **`Scan of N periods` only.** |
 | `Trigger slope` / `Trigger level in V` | `TS` / `TL` | ±2.000 V, 1 mV resolution. |
 | `Discriminator A/B/T slope` / `level in V` | `DS` / `DL` | ±0.3000 V, 0.2 mV resolution. Mode is forced to FIXED (`DM i,0`). |
@@ -136,15 +137,56 @@ explicitly rather than failing with a parse error.
 ### 3. Presets and the dwell time keep only ONE significant digit
 
 `CP` and `DT` silently truncate. The manual is explicit: `CP2,10`, `CP2,1E1`, `CP2,0.1E2` and
-`CP2,12` **all** set T SET to `1E1`. So:
+`CP2,12` **all** set T SET to `1E1`.
 
-- Achievable count times are `d × 10ᵏ / 10 MHz` with d ∈ 1…9 — i.e. 1, 2, 3 … 9 ms, then 10, 20,
-  30 … 90 ms. **There is no 1.5 s count time, no 250 ms, no 15 ms.**
-- The driver rounds to the *nearest* achievable value (the instrument would truncate), sends an
-  unambiguous `2E4`-style string, reads the applied value back, and reports the **real** count time
-  in the `Count time` variable. Ask for 3.4 ms and you get 3 ms plus a message telling you so.
-- Consequence: if you ever step `Count time in s` across runs, the achievable values are
-  logarithmically spaced, not linear. Use explicit values of the form d×10ᵏ.
+There are exactly **108** settable presets — `d × 10ᵏ` for d ∈ 1…9, k ∈ 0…11, spanning 1 count to
+9E11 (25 hours). So the settable count *periods* are those 108 values over 10 MHz: 1, 2, 3 … 9 ms,
+then 10, 20, 30 … 90 ms, and so on.
+
+Two claims follow, and they are easy to conflate:
+
+**(a) There is no 1.5 s count period.** Nor 250 ms, nor 15 ms. In `Count time mode = Per period`
+the driver rounds to the *nearest* settable value (the instrument would truncate), sends an
+unambiguous `2E4`-style string, reads the applied value back, and reports the **real** count time
+in the `Count time` variable. Ask for 3.4 ms and you get 3 ms, plus a message saying so.
+
+**(b) 1.5 s of total counting is available.** *N* periods of a settable length reach an exact
+total live time, because the quantisation constrains one period, not the experiment:
+
+| Split of 1.5 s | Live time | Wall time (2 ms dwell) | Duty |
+|---|---|---|---|
+| 3 × 0.5 s | 1.5 s | 1.504 s | 99.73 % |
+| 5 × 0.3 s | 1.5 s | 1.508 s | 99.47 % |
+| 15 × 0.1 s | 1.5 s | 1.528 s | 98.17 % |
+
+Set `Count time mode` to **`Total live time (auto-split)`** and `Count time in s` to 1.5, and the
+driver picks the first row: it prefers the exact split with the **fewest** periods, which is also
+the one with the highest duty cycle, so one preference covers both. It reports the plan once, and
+it computes `Periods per point` rather than reading it. A multi-period plan needs the instrument to
+run a scan, so `Measurement mode` is promoted to `Scan of N periods` and the message says so.
+
+**Live time is crystal-accurate; wall time is not the same thing.** The count period is a whole
+number of 10 MHz cycles and the timebase is specified at **25 ppm from 0 to 50 °C** (manual p. 5),
+so *N* periods of *t* is exactly *N × t* of counting to 25 ppm no matter how it is split.
+Splitting costs wall clock, not accuracy: the run takes `(N−1) × dwell` longer than it counts. The
+manual notes the internal dwell "may have 200 ns of indeterminacy" — that is in the **dead** time
+between periods, so it never touches the live time or the counts.
+
+**Below roughly 20 ms of total, do not split.** The 2 ms minimum dwell is then a large fraction of
+each period, and the planner's 50 % duty floor will refuse most splits and hand back a single
+rounded period instead — which is the right answer. Worked examples: 15 ms → 3 × 5 ms at 79 % duty
+(taken, exact); 3.4 ms → 1 × 3 ms, *not* the exact 17 × 0.2 ms, which would be 9.6 % duty. In
+`Per period` mode the rounding warning names the exact decomposition inline when a usable one
+exists, so you do not have to work it out or find this section:
+
+> 1.5 s is not a settable count period, so it was rounded to 2 s — the T preset keeps only one
+> significant digit. 1.5 s is reachable exactly as 3 count periods of 0.5 s: set `Count time in s`
+> to 0.5, `Periods per point` to 3 and `Measurement mode` to `Scan of N periods` — or just set
+> `Count time mode` to `Total live time (auto-split)` and let the driver do it.
+
+**If you step `Count time in s` across runs** in `Per period` mode, the reachable values are
+logarithmically spaced, not linear; use explicit `d × 10ᵏ` values. In auto-split mode any total is
+accepted and you get the closest reachable one, labelled exact or not.
 
 ### 4. Gate delay and width have variable resolution
 
@@ -310,7 +352,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "187/187 checks passed"
+python tests/test_sr400_virtual.py   # expect "265/265 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`

@@ -1592,6 +1592,254 @@ def test_batched_readout(driver):
     )
 
 
+def test_count_time_planner(driver):
+    print("\n[21] the count-time planner, as a pure function")
+
+    check(len(driver.representable_presets()) == 108, "there are 108 representable T presets")
+    check(driver.representable_presets()[0] == 9 * 10**11, "the largest preset is 9E11")
+    check(driver.representable_presets()[-1] == 1, "the smallest preset is 1")
+
+    # (total, periods, count_time, is_exact) -- every case named in the specification.
+    table = [
+        (1.5, 3, 0.5, True),
+        (2.5, 5, 0.5, True),
+        (1.2, 2, 0.6, True),
+        (0.15, 3, 0.05, True),
+        (7.7, 11, 0.7, True),
+        (0.5, 1, 0.5, True),
+        (1e-4, 1, 1e-4, True),
+        (3.4e-3, 1, 3e-3, False),
+        (1.5e-6, 1, 2e-6, False),
+        # Exact splits that exceed the soft cap on periods. These are the is_exact labelling
+        # cases: the plan is rejected by the *preference* and then chosen by the fallback, so
+        # a driver that derived is_exact from which branch ran would get both of these wrong.
+        (0.999, 111, 9e-3, True),
+        (1234.0, 617, 2.0, True),
+    ]
+
+    for total, periods, count_time, is_exact in table:
+        plan = driver.plan_count_time(total)
+        check(
+            plan.periods == periods,
+            f"{total:g} s splits into {periods} periods (got {plan.periods})",
+        )
+        check(
+            math.isclose(plan.count_time, count_time, rel_tol=1e-9),
+            f"{total:g} s uses a {count_time:g} s count period (got {plan.count_time:g})",
+        )
+        check(
+            plan.is_exact is is_exact,
+            f"{total:g} s is labelled is_exact={is_exact} (got {plan.is_exact})",
+        )
+        if is_exact:
+            check(
+                math.isclose(plan.total_time, total, rel_tol=1e-9),
+                f"{total:g} s is reached exactly (got {plan.total_time:g})",
+            )
+
+    # The rejected-exact note has to say what exactness would have cost, or it is not
+    # actionable -- 3.4 ms is reachable as 17 x 0.2 ms, at a duty cycle nobody wants.
+    plan = driver.plan_count_time(3.4e-3)
+    check("17" in plan.note and "duty" in plan.note, f"the note prices the exact split: {plan.note}")
+
+    # An exact split that is merely large says so rather than claiming it was rejected.
+    plan = driver.plan_count_time(0.999)
+    check(plan.is_exact and "111" in plan.note, f"the over-cap note explains itself: {plan.note}")
+
+    # EXTERNAL dwell has no inter-period gap, so duty never constrains the choice.
+    plan = driver.plan_count_time(3.4e-3, dwell=0.0)
+    check(
+        plan.is_exact and plan.periods == 17 and plan.duty_cycle == 1.0,
+        f"with EXTERNAL dwell the exact 17-period split is taken (got {plan})",
+    )
+
+    # Duty is real arithmetic, not a label.
+    plan = driver.plan_count_time(1.5)
+    expected_duty = 1.5 / (1.5 + 2 * 2e-3)
+    check(
+        math.isclose(plan.duty_cycle, expected_duty, rel_tol=1e-9),
+        f"duty is live/(live+dead) (got {plan.duty_cycle:.6f}, expected {expected_duty:.6f})",
+    )
+    check(driver.plan_count_time(0.5).duty_cycle == 1.0, "a single period is 100% duty")
+
+    # Guard rails.
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        try:
+            driver.plan_count_time(bad)
+            check(False, f"a total of {bad} is refused")
+        except ValueError:
+            check(True, f"a total of {bad} is refused")
+        except Exception as exc:
+            check(False, f"a total of {bad} is refused with ValueError (got {type(exc).__name__})")
+
+    # Never exceed the instrument's own NP limit, whatever is asked for.
+    plan = driver.plan_count_time(1e-3, min_duty=0.0, soft_max_periods=100000)
+    check(plan.periods <= 2000, f"the plan never exceeds NP 2000 (got {plan.periods})")
+
+
+def test_auto_split_mode(driver):
+    print("\n[22] auto-split mode against the instrument, and the Per-period remedy")
+
+    # --- the plan is what actually gets programmed ------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Count time mode": "Total live time (auto-split)",
+            "Counter A input": "10 MHz",
+            "Count time in s": 1.5,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+
+    check(sr400.periods == 3, f"NP 3 was programmed (instrument holds {sr400.periods})")
+    check(
+        math.isclose(sr400.preset[2] / 1e7, 0.5, rel_tol=1e-9),
+        f"the T preset is a 0.5 s count period (holds {sr400.preset[2] / 1e7} s)",
+    )
+    check(sr400.dwell == 2e-3, f"the dwell was set to the 2 ms minimum (holds {sr400.dwell})")
+    check(
+        device.measurement_mode == "Scan of N periods",
+        "a multi-period plan promotes the measurement mode to the scan",
+    )
+
+    counts_a, _, rate_a, _, count_time = run_point(device)
+    # 10 MHz for 0.5 s per period, three periods.
+    check(counts_a == 3 * 5e6, f"the summed counts are periods x per-period counts (got {counts_a})")
+    check(
+        math.isclose(count_time, 1.5, rel_tol=1e-9),
+        f"the reported Count time is the achieved total (got {count_time})",
+    )
+    check(math.isclose(rate_a, 1e7, rel_tol=1e-6), f"the rate is still 10 MHz (got {rate_a})")
+    check(
+        any("3 x 0.5" in str(m) and "exactly" in str(m) for m in messages),
+        f"the plan is reported once, with the split and its exactness (got {messages})",
+    )
+
+    # --- a total that needs no split leaves the mode alone ----------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Count time mode": "Total live time (auto-split)",
+            "Counter A input": "10 MHz",
+            "Count time in s": 0.5,
+        },
+    )
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(sr400.periods == 1, "an already-representable total stays at NP 1")
+    check(
+        device.measurement_mode == "Single count period",
+        "a single-period plan does not promote the measurement mode",
+    )
+    check(run_point(device)[0] == 5e6, "the single-period auto-split point still counts")
+
+    # --- an inexact total is reported as inexact --------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Count time mode": "Total live time (auto-split)",
+            "Counter A input": "10 MHz",
+            "Count time in s": 3.4e-3,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(
+        any("closest reachable" in str(m) for m in messages),
+        f"an inexact auto-split says so rather than implying exactness (got {messages})",
+    )
+
+    # --- EXTERNAL dwell survives auto-split ------------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Count time mode": "Total live time (auto-split)",
+            "Counter A input": "10 MHz",
+            "Count time in s": 1.5,
+            "Dwell time in s": 0,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(sr400.dwell == 0.0, f"an EXTERNAL dwell is kept, not raised to 2 ms (holds {sr400.dwell})")
+    check(sr400.periods == 3, "the split is unchanged by the EXTERNAL dwell")
+    check(
+        any("EXTERNAL" in str(m) for m in messages),
+        f"the message drops the duty term for an EXTERNAL dwell (got {messages})",
+    )
+    check(run_point(device)[0] == 3 * 5e6, "the EXTERNAL-dwell auto-split point counts correctly")
+
+    # --- Per period is untouched, and now names the remedy ---------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{"Counter A input": "10 MHz", "Count time in s": 1.5},
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(sr400.periods == 1, "Per period mode does not split anything")
+    check(
+        math.isclose(sr400.preset[2] / 1e7, 2.0, rel_tol=1e-9),
+        f"Per period still rounds 1.5 s to the nearest settable 2 s (holds {sr400.preset[2] / 1e7})",
+    )
+    warning = " ".join(str(m) for m in messages)
+    check("not a settable count period" in warning, "the rounding is still reported")
+    check(
+        "3 count periods of 0.5" in warning,
+        f"the warning names the exact decomposition (got {warning!r})",
+    )
+    check(
+        "auto-split" in warning,
+        "the warning names the mode that would do it for you",
+    )
+
+    # A representable per-period count time must stay silent.
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "10 MHz", "Count time in s": 0.5})
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(
+        not any("settable count period" in str(m) for m in messages),
+        f"a representable count time produces no rounding warning (got {messages})",
+    )
+
+    # --- an unknown mode is refused -------------------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "10 MHz"})
+    device.count_time_mode = "Whatever"
+    try:
+        device._apply_count_time_mode()
+        check(False, "an unknown count time mode is refused")
+    except Exception as exc:
+        check("Whatever" in str(exc), f"an unknown count time mode is refused: {exc}")
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -1620,6 +1868,8 @@ def main() -> int:
         test_latency_detection,
         test_latency_actions,
         test_batched_readout,
+        test_count_time_planner,
+        test_auto_split_mode,
     ):
         test(driver)
 

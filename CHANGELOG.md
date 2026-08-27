@@ -7,6 +7,15 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **`Count time mode`**, with `Per period` (default, unchanged behaviour) and
+  `Total live time (auto-split)`. A single count period is quantised to `d × 10ᵏ` cycles, so 1.5 s
+  is not a settable period — but *N* settable periods reach an exact total, and auto-split finds
+  the split with the fewest periods (equivalently the highest duty cycle) subject to a soft cap on
+  *N* and a 50 % duty floor. 1.5 s becomes 3 × 0.5 s, exact to the timebase's 25 ppm. The planner
+  is the module-level pure function `plan_count_time()`, testable without a `Device`. In
+  `Per period` mode the rounding warning now names the exact decomposition inline. Documents
+  **gotcha 3**, which is split into its two separate claims.
+
 - **USB-serial latency-timer detection.** `connect()` reads the selected COM port's FTDI latency
   timer and warns once if it is above 4 ms, with the estimated per-point cost for the current
   settings. FTDI-only, RS-232-only, and an unknown value is reported as unknown rather than as
