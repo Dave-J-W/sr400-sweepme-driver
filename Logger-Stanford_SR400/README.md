@@ -80,9 +80,11 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Gate A/B delay in s` | `GD` | 0…999.2 ms. |
 | `Gate A/B width in s` | `GW` | 5 ns…999.2 ms. |
 | `Set PORT levels` + `PORT1/2 level in V` | `PM`, `PL` | **Off by default** so the driver never disturbs external hardware wired to the analog outputs. |
+| `Baudrate` | — | COM ports only; must match the SR400's own `BAUD` setting. Ignored on GPIB. |
 | `Timeout in s` | — | Margin *added* to the predicted acquisition time. |
 | `Reset instrument at start` | `CL` | Off by default. See gotcha 5. |
-| `Lock front panel` | `MI` | RS-232 only; released again in `unconfigure()`. |
+| `Lock front panel` | `MI` | RS-232 only; released again in `unconfigure()`. See gotcha 14. |
+| `Print SweepMe! phase` | — | Debug aid. Prints the name of each semantic function as SweepMe! calls it (`connect`, `initialize`, `configure`, `measure`, `call`, `unconfigure`) to the SweepMe! debug console. Off by default and silent when off. |
 
 All of these are applied once, in `configure()`. To vary one of them across a run you currently
 have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §8.
@@ -203,6 +205,15 @@ power-up fails, send a few bare carriage returns to flush both UARTs.
 
 ---
 
+### 14. A knob turned mid-run silently invalidates the configuration
+
+Status bit 0 means a parameter was changed from the front panel. The driver reports it as a
+message, because it cannot undo it and the counts themselves are still valid — but the instrument
+is no longer necessarily in the state `configure()` left it in, so anything you infer from the GUI
+settings may now be wrong. Enable `Lock front panel` (RS-232 only) for unattended runs.
+
+---
+
 ## 5. Test procedures
 
 ### 5.1 Virtual bench (no hardware needed)
@@ -215,7 +226,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "96/96 checks passed"
+python tests/test_sr400_virtual.py   # expect "109/109 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`

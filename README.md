@@ -41,6 +41,17 @@ returns one row. That decision is written up in
 [§7.2 of the driver README](Logger-Stanford_SR400/README.md) and should be settled
 before any gate-scan GUI parameters are added.
 
+## Where the driver came from
+
+[`docs/`](docs/) holds the record. Three drafts were written before the driver was
+settled; two of them turned out to be byte-identical copies of each other, and the
+third — [`docs/drafts/SRS_SR400.py`](docs/drafts/SRS_SR400.py) — was a genuinely
+independent 595-line implementation. **Start with
+[`docs/README.md`](docs/README.md):** it records what was taken from that draft and
+what was deliberately not, two defects in it that are easy to reproduce by accident,
+and the one question the two drafts disagree on that only hardware can settle (the
+RS-232 line terminator).
+
 ## Tests
 
 The suite needs no SR400. `tests/test_sr400_virtual.py` implements a simulator of
@@ -51,11 +62,11 @@ whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-96 checks: the count-period model including EXTERNAL dwell, the one-significant-
+109 checks: the count-period model including EXTERNAL dwell, the one-significant-
 digit preset rounding, `A for B preset` mode's `NaN` columns, every range check,
 the OR-accumulating status-byte poll, the echo-on and timeout failure paths,
 interface-specific command gating on GPIB versus RS-232, the front-panel lock
-lifecycle, and a round trip of every wrapped command.
+lifecycle, the GUI options, and a round trip of every wrapped command.
 
 It does **not** cover anything about the real instrument: response *formats*,
 command-processing latency, and all electrical behaviour need hardware. Passing

@@ -1069,6 +1069,91 @@ def test_reset_at_start(driver):
     check(device.call()[0] == 100, "a measurement works after the reset")
 
 
+def test_ported_gui_options(driver):
+    print("\n[16] Baudrate, phase printing, front-panel changes, CH on timeout")
+    import io
+    import contextlib
+
+    # --- Baudrate reaches the port properties -----------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Baudrate": "19200", "Counter A input": "INPUT 1"})
+    check(
+        device.port_properties["baudrate"] == 19200,
+        f"the Baudrate field reaches port_properties as an int (got "
+        f"{device.port_properties['baudrate']!r})",
+    )
+
+    # --- 'Print SweepMe! phase' off by default, and silent ----------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1", "Count time in s": 0.002})
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        device.connect()
+        device.initialize()
+        device.configure()
+        run_point(device)
+    check(captured.getvalue() == "", f"nothing is printed while the option is off (got {captured.getvalue()!r})")
+
+    # --- ... and names every phase when on --------------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{"Print SweepMe! phase": True, "Counter A input": "INPUT 1", "Count time in s": 0.002},
+    )
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        device.connect()
+        device.initialize()
+        device.configure()
+        run_point(device)
+        device.unconfigure()
+    printed = captured.getvalue()
+    for phase in ("connect", "initialize", "configure", "measure", "call", "unconfigure"):
+        check(f": {phase}" in printed, f"the '{phase}' phase is printed")
+    check("COM3" in printed, "the phase line names the port")
+
+    # --- a front-panel change during the run is reported, not raised ------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1", "Count time in s": 0.002})
+    device.connect()
+    device.initialize()
+    device.configure()
+    messages = []
+    device.message_info = messages.append
+    sr400.status |= 1 << 0  # PARAMETER CHANGED, as if someone turned a knob
+    counts = run_point(device)[0]
+    check(counts == 100, f"the point still returns data (got {counts})")
+    check(
+        any("front panel" in str(message) for message in messages),
+        f"the front-panel change is reported as a message (got {messages})",
+    )
+
+    # --- a timeout leaves the instrument paused rather than counting ------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Counter A input": "INPUT 1",
+            "Counter T input": "TRIG",
+            "Preset counts (T or B)": 1e6,
+            "Dwell time in s": 2e-3,
+            "Timeout in s": 1.0,
+        },
+    )
+    sr400.rate["TRIG"] = 1e-6
+    device.connect()
+    device.initialize()
+    device.configure()
+    try:
+        device.measure()
+    except Exception:
+        pass
+    check("CH" in sr400.log, "CH was sent so the SR400 is not left counting after a timeout")
+    check(not sr400.running, "the simulator is no longer counting")
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -1092,6 +1177,7 @@ def main() -> int:
         test_front_panel_lock_lifecycle,
         test_gpib_specifics,
         test_reset_at_start,
+        test_ported_gui_options,
     ):
         test(driver)
 

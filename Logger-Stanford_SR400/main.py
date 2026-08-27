@@ -206,6 +206,7 @@ class Device(EmptyDevice):
         self.extra_timeout: float = 20.0
         self.reset_at_start: bool = False
         self.lock_front_panel: bool = False
+        self.print_phase: bool = False
 
         # --- internal state --------------------------------------------------
         self.is_rs232: bool = True
@@ -258,9 +259,11 @@ class Device(EmptyDevice):
             "PORT1 level in V": 0.0,
             "PORT2 level in V": 0.0,
             "     ": None,
+            "Baudrate": ["9600", "19200", "4800", "2400", "1200", "600", "300"],
             "Timeout in s": 20.0,
             "Reset instrument at start": False,
             "Lock front panel": False,
+            "Print SweepMe! phase": False,
         }
 
     def get_GUIparameter(self, parameter: dict) -> None:  # noqa: N802
@@ -305,6 +308,10 @@ class Device(EmptyDevice):
         self.extra_timeout = self._as_float(parameter, "Timeout in s", 20.0)
         self.reset_at_start = bool(parameter.get("Reset instrument at start", False))
         self.lock_front_panel = bool(parameter.get("Lock front panel", False))
+        self.print_phase = bool(parameter.get("Print SweepMe! phase", False))
+
+        # Ignored by the port manager for GPIB ports; only the COM branch reads it.
+        self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
 
         # Derived flags that only depend on GUI settings
         self.uses_external_dwell = self.dwell_time == 0.0
@@ -317,11 +324,23 @@ class Device(EmptyDevice):
     #  SweepMe! semantic functions
     # ==================================================================
 
+    def _phase(self, name: str) -> None:
+        """Announce the SweepMe! phase now running, if 'Print SweepMe! phase' is enabled.
+
+        Every semantic function opens with a call to this, so the guard lives here once
+        instead of wrapping each call site in an 'if'. Output goes to the SweepMe! debug
+        console, which is where a driver's print() lands.
+        """
+        if self.print_phase:
+            print(f"SR400 [{self.port_string or 'no port'}]: {name}")
+
     def connect(self) -> None:
         """Check that the SR400 really answers on the selected port.
 
         The SR400 has no identification command, so the counting mode (CM) is read instead.
         """
+        self._phase("connect")
+
         try:
             response = self._query("CM")
         except Exception as exc:
@@ -351,6 +370,7 @@ class Device(EmptyDevice):
 
     def initialize(self) -> None:
         """Bring the communication into a defined state."""
+        self._phase("initialize")
         if self.reset_at_start:
             # CL restores the default settings, clears the buffers, the SRQ mask and the
             # RS-232 terminator sequence. It must be the only command on its line.
@@ -367,6 +387,7 @@ class Device(EmptyDevice):
 
     def configure(self) -> None:
         """Apply all one-time settings taken from the GUI."""
+        self._phase("configure")
         self._check_configuration()
 
         self.requested_count_time = self.count_time
@@ -425,6 +446,7 @@ class Device(EmptyDevice):
 
     def unconfigure(self) -> None:
         """Leave the instrument in a safe, idle state."""
+        self._phase("unconfigure")
         self.reset_counters()
 
         if self.front_panel_was_locked and self.is_rs232:
@@ -433,6 +455,7 @@ class Device(EmptyDevice):
 
     def measure(self) -> None:
         """Run one scan of 'Periods per point' count periods and read the counts."""
+        self._phase("measure")
         self.reset_counters()
 
         # "the status byte should be cleared before starting a scan and then polled to
@@ -476,6 +499,7 @@ class Device(EmptyDevice):
 
     def call(self) -> list[float]:
         """Hand the measured values over to SweepMe!, in the order of 'self.variables'."""
+        self._phase("call")
         count_time = self.measured_count_time
         if count_time > 0.0:
             rate_a = self.measured_counts["A"] / count_time
@@ -640,10 +664,13 @@ class Device(EmptyDevice):
                 return accumulated
 
             if self.is_run_stopped():
+                self.pause_counting()
                 msg = "The measurement was stopped while waiting for the SR400 count data."
                 raise Exception(msg)
 
             if time.time() > deadline:
+                # Leave the instrument idle rather than counting into a scan nobody reads.
+                self.pause_counting()
                 self._check_status(accumulated, context="measurement")
                 msg = (
                     f"The SR400 did not finish the count periods within {timeout:.4g} s "
@@ -679,6 +706,16 @@ class Device(EmptyDevice):
             self.message_info(
                 "SR400: rate error, at least one gate was missed. The gate delay or width may "
                 "exceed the trigger period minus 1 us.",
+            )
+
+        # Bit 0 means someone turned a knob on the front panel. Not fatal, and not something
+        # the driver can undo, but the instrument is no longer necessarily in the state
+        # configure() left it in -- which is worth knowing before trusting the numbers.
+        if status & self.STATUS_PARAMETER_CHANGED:
+            self.message_info(
+                f"SR400: a parameter was changed from the front panel during the {context}, so "
+                f"the instrument may no longer match the configuration. Consider 'Lock front "
+                f"panel'.",
             )
 
     # ==================================================================
