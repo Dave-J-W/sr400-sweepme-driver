@@ -1,7 +1,14 @@
-# Historical record: the drafts this driver came from
+# Historical record: the drafts and plans this driver came from
 
 Nothing in this folder is loadable by SweepMe!. It is kept so the reasoning
 behind [`Logger-Stanford_SR400`](../Logger-Stanford_SR400/) stays recoverable.
+
+## Contents
+
+- [`plans/`](plans/) — the latency-and-batching implementation plan, kept verbatim, plus the
+  rebase note recording what it assumed, where each task landed, and two deliberate deviations.
+  All three of its tiers are implemented.
+- [`drafts/`](drafts/) — an independent early implementation of the driver, kept verbatim.
 
 ## What the drafts were
 

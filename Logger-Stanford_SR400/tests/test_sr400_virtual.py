@@ -81,10 +81,20 @@ class VirtualSR400:
         self.status = 0
         self.secondary = 0
 
+        # set by the buffer-limit guards; asserted by the batching tests
+        self.line_overflowed = False
+        self.buffer_overflowed = False
+
         self.running = False
         self.period_start = 0.0
         self.points_done = 0
         self.buffer: list[tuple[int, int]] = []
+
+    # SR400 buffer limits (manual, "ERRORS/DATA WINDOW" and the interface sections). The
+    # simulator enforces them so that a driver which overruns a buffer fails on the bench
+    # instead of appearing to work here and losing a scan on real hardware.
+    COMMAND_LINE_ERROR_CHARS = 240
+    OUTPUT_BUFFER_CHARS = 256
 
     # ---------------------------------------------------------------- port API
     def write(self, command: str) -> None:
@@ -92,11 +102,28 @@ class VirtualSR400:
         if self.echo:  # ECHO = ON returns the command and an OK> prompt
             self.out.append(command)
             self.out.append("OK>")
+
+        # Too long a command line sets the command-error bit and every command still queued on
+        # that line is discarded (manual: "any commands remaining on the current command line
+        # (up to the next <cr>) are lost").
+        if len(command) + 1 > self.COMMAND_LINE_ERROR_CHARS:
+            self.status |= 1 << 7
+            self.line_overflowed = True
+            return
+
         for single in command.split(";"):
             self._execute(single.strip())
 
     def read(self) -> str:
         return self.out.pop(0) if self.out else ""
+
+    def in_waiting(self) -> int:
+        """Pending response characters, as a COM port would report them."""
+        return sum(len(entry) + 1 for entry in self.out)
+
+    def inject_stale_response(self, text: str) -> None:
+        """Prepend a bogus pending response, simulating a desynchronised link."""
+        self.out.insert(0, text)
 
     # ------------------------------------------------------------ count model
     @property
@@ -181,6 +208,13 @@ class VirtualSR400:
         self._advance()
 
     def _answer(self, text: str) -> None:
+        # DATA BUFFER OVERFLOW: the output buffer is finite and overrunning it erases
+        # everything buffered, which costs the whole scan rather than one value.
+        if sum(len(entry) + 1 for entry in self.out) + len(text) + 1 > self.OUTPUT_BUFFER_CHARS:
+            self.out.clear()
+            self.buffer_overflowed = True
+            return
+
         self.out.append(text)
 
     @staticmethod
@@ -536,6 +570,13 @@ def make_device(driver, instrument, **overrides):
     parameters.update(overrides)
     device.get_GUIparameter(parameters)
     device.port = instrument
+
+    # The latency lookup reads the host's registry or sysfs, so leaving it live would make this
+    # bench depend on whether the machine running it happens to have an FTDI adapter on the same
+    # port name. It does on at least one development machine. Tests that care about the latency
+    # timer override this themselves.
+    device._get_com_latency_timer = lambda: None
+
     return device
 
 
@@ -1292,6 +1333,259 @@ def test_measurement_modes(driver):
     )
 
 
+def test_latency_detection(driver):
+    print("\n[18] USB-serial latency timer detection")
+
+    # --- the lookup is incapable of raising, whatever the port string ----------
+    device = driver.Device()
+    for port in ("COM3", "/dev/ttyUSB0", "ttyUSB9", "GPIB0::23::INSTR", ""):
+        device.port_string = port
+        try:
+            value = device._get_com_latency_timer()
+            ok = value is None or isinstance(value, int)
+        except Exception:
+            ok = False
+        check(ok, f"the latency lookup returns None or an int for {port!r} and does not raise")
+
+    # --- a high value warns once, and only once -------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: 16
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    check(device._latency_warning_shown, "a 16 ms latency timer sets the warning flag")
+    check(
+        any("16 ms" in str(m) and "replug" in str(m).lower() for m in messages),
+        f"the warning names the value and the replug requirement (got {len(messages)} messages)",
+    )
+    device.connect()
+    check(len(messages) == 1, f"the warning is emitted once per run (got {len(messages)})")
+
+    # --- a low value says nothing ---------------------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: 1
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    check(not device._latency_warning_shown, "a 1 ms latency timer does not warn")
+    check(messages == [], f"nothing is reported for a good value (got {messages})")
+
+    # --- an unknown value is not treated as bad, and not as good either --------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: None
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    check(messages == [], f"an unknown latency timer produces no scary message (got {messages})")
+
+    # --- a raising lookup must not break connect() ----------------------------
+    def boom():
+        raise RuntimeError("registry on fire")
+
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = boom
+    try:
+        device.connect()
+        check(True, "a raising latency lookup does not break connect()")
+    except Exception as exc:
+        check(False, f"a raising latency lookup does not break connect() (raised {exc})")
+
+    # --- GPIB never triggers the check ----------------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Port": "GPIB0::23::INSTR", "Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: 16
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    check(not device._latency_warning_shown, "a GPIB port never warns about a latency timer")
+
+
+def test_latency_actions(driver):
+    print("\n[19] the two latency actions send the instrument nothing")
+
+    check(
+        driver.Device.actions == ["report_com_port_latency", "reduce_com_port_latency"],
+        f"both actions are declared (got {driver.Device.actions})",
+    )
+
+    for port in ("COM3", "GPIB0::23::INSTR", ""):
+        for name in ("report_com_port_latency", "reduce_com_port_latency"):
+            sr400 = VirtualSR400()
+            device = make_device(driver, sr400, **{"Port": port, "Counter A input": "INPUT 1"})
+            boxes = []
+            device.message_box = boxes.append
+            action = getattr(device, name, None)
+            check(callable(action), f"{name} resolves to a callable")
+            traffic_before = len(sr400.log)
+            try:
+                action()
+                raised = False
+            except Exception:
+                raised = True
+            check(not raised, f"{name} does not raise for port {port!r}")
+            check(len(boxes) >= 1, f"{name} says something for port {port!r}")
+            # I4: a diagnostic must be safe to click mid-experiment.
+            check(
+                len(sr400.log) == traffic_before,
+                f"{name} sends the instrument nothing for port {port!r}",
+            )
+
+    # the report names the port when there is one
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: 16
+    boxes = []
+    device.message_box = boxes.append
+    device.report_com_port_latency()
+    check(any("COM3" in str(t) for t in boxes), f"the report names the port (got {boxes})")
+
+    # an already-low value is left alone
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device._get_com_latency_timer = lambda: 1
+    boxes = []
+    device.message_box = boxes.append
+    device.reduce_com_port_latency()
+    check(
+        any("already" in str(t) for t in boxes),
+        f"an already-low latency timer is not rewritten (got {boxes})",
+    )
+
+
+def test_batched_readout(driver):
+    print("\n[20] batched readout equals unbatched readout, and fails safe")
+
+    def one_point(periods, batched, seed_rate=5.0e4):
+        sr400 = VirtualSR400(rate_input1=seed_rate)
+        device = make_device(
+            driver,
+            sr400,
+            **{
+                "Measurement mode": "Scan of N periods",
+                "Counter A input": "INPUT 1",
+                "Counter B input": "INPUT 1",
+                "Count time in s": 0.002,
+                "Dwell time in s": 2e-3,
+                "Periods per point": periods,
+                "Fast readout (batch queries)": batched,
+            },
+        )
+        device.connect()
+        device.initialize()
+        device.configure()
+        writes_before = len(sr400.log)
+        values = run_point(device)
+        return values, sr400, len(sr400.log) - writes_before
+
+    # --- equivalence: this is the test that actually matters -------------------
+    for periods in (1, 2, 10, 17, 33):
+        plain, _, plain_writes = one_point(periods, False)
+        fast, sr_fast, fast_writes = one_point(periods, True)
+        check(
+            plain == fast,
+            f"{periods} periods: batched and unbatched agree ({plain} vs {fast})",
+        )
+        if periods > 1:
+            check(
+                fast_writes < plain_writes,
+                f"{periods} periods: batching cuts round trips ({fast_writes} < {plain_writes})",
+            )
+
+    # --- chunking respects the buffer limits ----------------------------------
+    _, sr400, _ = one_point(33, True)
+    device = driver.Device()
+    long_lines = [c for c in sr400.log if len(c) > device.BATCH_MAX_LINE_CHARS]
+    crowded = [c for c in sr400.log if c.count(";") + 1 > device.BATCH_MAX_COMMANDS]
+    check(not long_lines, f"no command line exceeds {device.BATCH_MAX_LINE_CHARS} chars")
+    check(not crowded, f"no line carries more than {device.BATCH_MAX_COMMANDS} commands")
+    check(not sr400.buffer_overflowed, "the output buffer never overflowed")
+    check(not sr400.line_overflowed, "no command line was long enough to be truncated")
+
+    # --- stale bytes are detected, not paired up ------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Measurement mode": "Scan of N periods",
+            "Counter A input": "INPUT 1",
+            "Count time in s": 0.002,
+            "Dwell time in s": 2e-3,
+            "Periods per point": 4,
+            "Fast readout (batch queries)": True,
+        },
+    )
+    messages = []
+    device.message_info = messages.append
+    device.connect()
+    device.initialize()
+    device.configure()
+
+    # The stale byte has to appear immediately before the batched read, not before the status
+    # poll -- otherwise it desynchronises the status byte instead, which is a different failure.
+    original_batched = device._query_batched
+    injected = {"done": False}
+
+    def inject_then_batch(queries):
+        if not injected["done"]:
+            injected["done"] = True
+            sr400.inject_stale_response("999999")
+        return original_batched(queries)
+
+    device._query_batched = inject_then_batch
+    values = run_point(device)
+    check(injected["done"], "the stale response was injected before a batched read")
+    check(values[0] == 4 * 100, f"the desynchronised point still returns correct data ({values[0]})")
+    check(not device.batch_queries, "fast readout disabled itself after the desync")
+    check(
+        any("fast readout" in str(m).lower() for m in messages),
+        f"the fallback is reported to the user (got {messages})",
+    )
+
+    # --- a dead link raises, naming the offending line ------------------------
+    class SilentPort(VirtualSR400):
+        def read(self):
+            return ""
+
+    sr400 = SilentPort()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device.batch_queries = True
+    device.periods = 3
+    device.counter_b_is_readable = False
+    try:
+        device._query_batched(device._scan_point_queries())
+        check(False, "a port that answers nothing raises")
+    except Exception as exc:
+        check("QA 1" in str(exc), f"the failure names the command line: {exc}")
+
+    # --- over-long batches are refused before anything is written -------------
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    before = len(sr400.log)
+    try:
+        device._query_batch([f"QA {i}" for i in range(1, device.BATCH_MAX_COMMANDS + 5)])
+        check(False, "an oversized batch is refused")
+    except Exception:
+        check(True, "an oversized batch is refused")
+    check(len(sr400.log) == before, "the oversized batch was not written to the port")
+
+    # --- configuration and status polling are never batched -------------------
+    _, sr400, _ = one_point(10, True)
+    config_lines = sr400.log[: sr400.log.index("CS")]
+    check(
+        not any(";" in line for line in config_lines),
+        "no configuration command line was batched",
+    )
+    check(
+        not any(";" in line and "SS" in line for line in sr400.log),
+        "the status poll was never batched",
+    )
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -1317,6 +1611,9 @@ def main() -> int:
         test_reset_at_start,
         test_ported_gui_options,
         test_measurement_modes,
+        test_latency_detection,
+        test_latency_actions,
+        test_batched_readout,
     ):
         test(driver)
 

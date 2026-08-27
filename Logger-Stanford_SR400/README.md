@@ -103,6 +103,7 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Set PORT levels` + `PORT1/2 level in V` | `PM`, `PL` | **Off by default** so the driver never disturbs external hardware wired to the analog outputs. |
 | `Baudrate` | — | COM ports only; must match the SR400's own `BAUD` setting. Ignored on GPIB. |
 | `Timeout in s` | — | Margin *added* to the predicted acquisition time. |
+| `Fast readout (batch queries)` | — | Chains several `QA`/`QB` queries per line. **Off by default**, and deliberately so — see gotcha 16. Only helps `Scan of N periods`. |
 | `Reset instrument at start` | `CL` | Off by default. See gotcha 5. |
 | `Lock front panel` | `MI` | RS-232 only; released again in `unconfigure()`. See gotcha 14. |
 | `Print SweepMe! phase` | — | Debug aid. Prints the name of each semantic function as SweepMe! calls it (`connect`, `initialize`, `configure`, `measure`, `call`, `unconfigure`) to the SweepMe! debug console. Off by default and silent when off. |
@@ -235,6 +236,68 @@ settings may now be wrong. Enable `Lock front panel` (RS-232 only) for unattende
 
 ---
 
+### 15. The USB-serial latency timer costs more than the baud rate
+
+Not an SR400 quirk at all — a host one, and the most common reason a working SR400 feels broken.
+
+An FTDI or Prolific USB-serial adapter does not deliver a short inbound packet immediately. It
+holds it until its **latency timer** expires. The Windows default is **16 ms**. This driver makes
+several *read* round trips per measurement point, and the timer is charged per read transaction,
+not per byte — so at the default it costs tens of ms per point. That is more than the actual bit
+time at 19200 baud, and more than doubling the baud rate would win back.
+
+`connect()` reads the timer and warns **once** if it is above 4 ms. Two actions (§8) report it and
+try to change it. What the warning tells you, and why each part matters:
+
+- **FTDI-based adapters only.** A native RS-232 port and most non-FTDI adapters have no such
+  setting, and the driver then reports the value as *unknown* — never as *fine*.
+- **RS-232 only.** GPIB has no equivalent and is never checked.
+- **Windows needs administrator rights** to write it, which is why the action generates a `.reg`
+  file rather than demanding elevation. Linux sysfs writes usually succeed for the owning user.
+- **Windows needs a replug** (or a reboot) before the new value takes effect. Skipping this is the
+  reason people report that changing it "did not work".
+- **The setting is global to that adapter and persists** after SweepMe! closes. Changing it on a
+  shared machine changes it for everyone and everything using that adapter.
+
+The driver never changes it on its own. Nothing happens without an explicit action click.
+
+### 16. Batched queries: the manual argues with itself, so this is opt-in
+
+The SR400 accepts several commands on one line separated by `;`, **including queries**, and answers
+each in order. The manual's own example is `CM;CI0;GD0<cr>` → `1<cr>1<cr>1.2E-6<cr>`.
+
+The same manual also says: *"In general, it is good programming practice to receive the response
+from one query command before sending another command."*
+
+Both statements are the manual's. This feature lives in the gap between them, which is exactly why
+`Fast readout (batch queries)` is **off by default and never enabled automatically**. Do not
+"simplify" the driver by flipping that default — the conservative choice is documented here so it
+survives contact with a future maintainer.
+
+Why it is worth having anyway: chained answers arrive in one USB packet, so the first read pulls
+the whole packet in and later reads return with no latency wait (gotcha 15). The saving scales with
+`Periods per point`, which is precisely the setting someone reaches for when they want throughput.
+
+What the driver does to keep it safe:
+
+- Lines are capped at 180 characters and 10 commands, both well below the 240-character
+  command-line error threshold and the 256-character output buffer. Overrunning the *output*
+  buffer erases every buffered value, which costs the whole scan, not one number.
+- Before every batched write, the port is checked for unread bytes. Stale bytes are the one
+  corruption that counting answers cannot catch — you get the right *number* of answers, shifted
+  by one, and every value is silently wrong. If any are found the driver drains and refuses.
+- On any batched failure it resynchronises (drain, then a validated `CM` — **never** `CL`, which
+  would wipe the user's setup mid-run), re-reads the point one query at a time, tells you, and
+  disables fast readout for the rest of the run.
+- Configuration and status polling are **never** batched. Writes do not pay the latency penalty,
+  a batch discards everything after an error on the line, and the status poll must be a fresh read
+  each time or the OR-accumulation in gotcha 6 breaks.
+
+Batched and unbatched readout are asserted to return identical values on the bench for 1, 2, 10,
+17 and 33 periods. If they ever diverge, that is a bug in the driver, not a tuning knob.
+
+---
+
 ## 5. Test procedures
 
 ### 5.1 Virtual bench (no hardware needed)
@@ -247,7 +310,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "125/125 checks passed"
+python tests/test_sr400_virtual.py   # expect "187/187 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -278,28 +341,35 @@ Escalate only after each step passes. Steps 1–3 are non-destructive.
    print(sr.get_status_byte(), sr.get_secondary_status_byte())
    ```
    This is where the two remaining format assumptions get confirmed — see §7.1.
-3. **Configuration.** `configure()`, then verify on the front panel that COUNT, A/B/T inputs,
+3. **Host latency, before timing anything.** Click `report_com_port_latency` (§8) and write the
+   number down. Everything in §6.2 is unreliable until you know it, and if it reads 16 ms then
+   fixing that is worth more than any other change you can make. Re-run step 6 below with and
+   without `Fast readout` once you have it, and use *your* numbers rather than the table's.
+4. **Configuration.** `configure()`, then verify on the front panel that COUNT, A/B/T inputs,
    T SET, N PERIODS, DWELL, TRIG LVL, disc levels and gate values match what you asked for. Then
    check `get_status_byte()` returns 0 (no command error from any of the ~25 setup commands).
-4. **The 10 MHz self-test.** `Counter A input = 10 MHz`, count time 1 s, gate A CW, one point.
+5. **The 10 MHz self-test.** `Counter A input = 10 MHz`, count time 1 s, gate A CW, one point.
    Expect exactly 10 000 000 counts and Rate A = 1.0e7. Any other number means the preset
    arithmetic or the buffer read is wrong; stop and investigate before trusting real data.
-5. **Timing sanity.** Repeat with count time 0.1 s → 1 000 000 counts, and 0.01 s → 100 000.
+6. **Timing sanity.** Repeat with count time 0.1 s → 1 000 000 counts, and 0.01 s → 100 000.
    Then ask for 3.4 ms and confirm the reported `Count time` comes back as 3 ms (gotcha 3).
-6. **Real signal.** `Counter A input = INPUT 1`, gate A CW, discriminator A slope matching your
-   pulse polarity (negative NIM pulses → `Fall`), level around −10 mV. Sweep the discriminator level
-   from −0.3 V to 0 V — you should see a plateau (the discriminator curve). If counts are zero
-   everywhere, the slope is wrong.
-7. **Gates.** `Gate A mode = Fixed`, width ≈ your expected signal duration, then sweep
-   `Gate A delay in s` across the trigger period. You should recover the time profile of the signal.
-   Watch for the rate-error message near the end of the range (gotcha 8).
-8. **Multi-period.** `Periods per point = 10`. Counts should scale ×10 and `Count time` ×10.
-9. **EXTERNAL dwell.** `Dwell time in s = 0`, `Periods per point = 3`. Confirm three `CS` are sent
-   and the point completes.
-10. **Failure behaviour.** Unplug the interface cable mid-run. The driver must raise, not return
+7. **Real signal.** `Counter A input = INPUT 1`, gate A CW, discriminator A slope matching your
+   pulse polarity (negative NIM pulses → `Fall`), level around −10 mV. Step the discriminator level
+   from −0.3 V to 0 V across several runs — you should see a plateau (the discriminator curve). If
+   counts are zero everywhere, the slope is wrong.
+8. **Gates.** `Gate A mode = Fixed`, width ≈ your expected signal duration, then step
+   `Gate A delay in s` across the trigger period. You should recover the time profile of the
+   signal. Watch for the rate-error message near the end of the range (gotcha 8). One delay per
+   run until §7.2 is settled.
+9. **Multi-period.** `Measurement mode = Scan of N periods`, `Periods per point = 10`. Counts
+   should scale ×10 and `Count time` ×10. Then repeat with `Fast readout` on and confirm the
+   numbers are unchanged and the point is faster.
+10. **EXTERNAL dwell.** `Measurement mode = Scan of N periods`, `Dwell time in s = 0`,
+    `Periods per point = 3`. Confirm three `CS` are sent and the point completes.
+11. **Failure behaviour.** Unplug the interface cable mid-run. The driver must raise, not return
     zeros. Then set `Counter T input = TRIG` with no trigger connected and confirm it times out with
     the "did not finish the count periods" message after roughly `Timeout in s`.
-11. **Safety/idle.** After the run, confirm `unconfigure()` left the counters reset and the front
+12. **Safety/idle.** After the run, confirm `unconfigure()` left the counters reset and the front
     panel unlocked. PORT levels are deliberately **left as set** — the driver does not zero analog
     outputs that may be driving your experiment.
 
@@ -337,6 +407,21 @@ Bit time at 8N1 is 10 bits/character.
 | RS-232 via USB adapter, 19200, latency timer set to 1 ms | ~24 ms | ~40–65 ms | ~15–25 |
 | GPIB via USB controller (e.g. NI GPIB-USB-HS) | negligible | ~10–30 ms | ~30–100 |
 | RS-232, 19200, `SW` left at the default 6 | ~24 ms + ~400 ms wait | ~450 ms | ~2 |
+
+Ten periods per point, where the readout dominates and batching has something to work with
+(**derived** from the read-transaction counts, using the bench's measured round-trip reduction):
+
+| Path, `Periods per point = 10` | Read transactions | Latency cost alone | Fast readout |
+|---|---|---|---|
+| USB adapter, 16 ms timer, `Fast readout` off | ~25 | ~400 ms | — |
+| USB adapter, 16 ms timer, `Fast readout` on | ~7 | ~112 ms | ~3.5× fewer round trips |
+| USB adapter, 1 ms timer, `Fast readout` off | ~25 | ~25 ms | — |
+| USB adapter, 1 ms timer, `Fast readout` on | ~7 | ~7 ms | fixing the timer matters more |
+
+The transaction counts are **measured on the bench** (the suite asserts the reduction); the latency
+products are **derived** from them and the adapter's documented default. Note the ordering: fixing
+the latency timer beats enabling fast readout, and doing both is barely better than fixing the
+timer alone. Reach for gotcha 15 before gotcha 16.
 
 The "realistic total" column adds per-command instrument processing latency. **The manual does not
 specify the SR400's command-processing time**, so that part is an estimate (a few ms per command for
@@ -406,6 +491,13 @@ stated as grammars. All three are parsed through `float()`, so plain integers, r
 3. **`TL`/`DL` response sign and decimal formatting.** Assumed `+2.000` / `-0.0100`. Again
    `float()`-parsed.
 
+4. **Chained queries on the user's firmware revision.** The manual documents `;`-separated
+   queries and gives a worked example, but whether a given firmware answers a 10-deep chain in
+   order, within the output buffer, is the one genuinely new assumption behind `Fast readout`
+   (gotcha 16). The bench asserts batched and unbatched agree against a simulator built from the
+   same manual, which is not the same as confirming it on your instrument. Compare a batched and
+   an unbatched point during hardware step 9 before trusting it.
+
 Everything else in the driver traces to an explicit statement in the command list.
 
 ### 7.2 How to expose a gate-delay scan
@@ -438,3 +530,25 @@ none free:
 Decide this before adding the gate-scan GUI parameters, because the choice determines whether
 `self.variables` stays fixed-length. Worth weighing a fourth option: add a **third** mode rather
 than overloading `Scan of N periods`, so summing and scanning never share a code path.
+
+---
+
+## 8. Actions
+
+SweepMe! renders `Device.actions` as buttons. Both of this driver's actions are **host-side only
+and send the SR400 nothing at all**, so either is safe to click at any time, including in the
+middle of a run. Both are also written so they cannot raise; a failure is reported as text.
+
+| Action | Does |
+|---|---|
+| `report_com_port_latency` | Reads the selected COM port's USB-serial latency timer and reports it with the estimated per-point cost for the *current* GUI settings. Read-only. Says "select a port first" rather than failing when no port is chosen, and says the setting does not apply on GPIB. |
+| `reduce_com_port_latency` | Tries to set the timer to 1 ms. On Linux it writes sysfs, which takes effect immediately. On Windows it attempts the registry write and, if that is refused for want of administrator rights, writes a `.reg` file into the SweepMe! TEMP folder and tells you the path — run it as administrator, then replug the adapter. |
+
+Why the `.reg` file instead of just writing the key: the measurement path must never require
+elevation, or the driver is unusable on a shared lab machine. The action does the diagnosis and
+produces the exact remedy without demanding privileges it should not have, and it never half-
+succeeds silently. See gotcha 15 for the platform, privilege, replug and persistence caveats — all
+four matter, and omitting any one of them generates a bug report.
+
+The driver never touches the latency timer on its own, and never enables `Fast readout` on its
+own. Both are absent behaviours on purpose.

@@ -36,6 +36,8 @@
 from __future__ import annotations
 
 import math
+import os
+import sys
 import time
 
 from pysweepme.EmptyDeviceClass import EmptyDevice
@@ -43,6 +45,10 @@ from pysweepme.EmptyDeviceClass import EmptyDevice
 
 class Device(EmptyDevice):
     """Driver for the Stanford Research Systems SR400 two-channel gated photon counter."""
+
+    actions = ["report_com_port_latency", "reduce_com_port_latency"]
+    """Buttons SweepMe! renders for this driver. Both are host-side only and send the SR400
+    nothing at all, so either is safe to click mid-experiment."""
 
     description = """
         <h3>Stanford Research Systems SR400</h3>
@@ -149,6 +155,34 @@ class Device(EmptyDevice):
     GATE_STEP_MAX = 99.92e-3
     RS232_WAIT_MAX = 25
 
+    # --- command/response buffer limits (manual, interface sections) -----------
+    COMMAND_BUFFER_CHARS = 256
+    """Command input buffer."""
+
+    OUTPUT_BUFFER_CHARS = 256
+    """Output buffer, per interface. Overrunning it erases every buffered value."""
+
+    BUFFER_ERROR_CHARS = 240
+    """Exceeding this on one command line sets the command-error bit."""
+
+    BATCH_MAX_LINE_CHARS = 180
+    """Self-imposed, a margin below BUFFER_ERROR_CHARS."""
+
+    BATCH_MAX_RESPONSE_CHARS = 180
+    """Self-imposed, a margin below OUTPUT_BUFFER_CHARS."""
+
+    BATCH_MAX_COMMANDS = 10
+    """At most 10 queued count values, so about 100 characters of response."""
+
+    # --- USB-serial latency timer (host side, nothing to do with the SR400) ---
+    LATENCY_TIMER_WARN_MS = 4
+    """Warn above this. FTDI ships 16 ms; 1-2 ms is what a query-per-point driver wants."""
+
+    LATENCY_TIMER_TARGET_MS = 1
+
+    FTDI_PORTNAME_SEARCH_DEPTH = 4
+    """FTDIBUS\\<vid+pid+serial>\\<0000>\\Device Parameters is three levels; one spare."""
+
     # status byte bits (manual, section "STATUS BYTE")
     STATUS_PARAMETER_CHANGED = 1 << 0
     STATUS_DATA_READY = 1 << 1
@@ -220,6 +254,7 @@ class Device(EmptyDevice):
         self.reset_at_start: bool = False
         self.lock_front_panel: bool = False
         self.print_phase: bool = False
+        self.batch_queries: bool = False
 
         # --- internal state --------------------------------------------------
         self.is_rs232: bool = True
@@ -235,6 +270,7 @@ class Device(EmptyDevice):
         self.acquisition_timeout: float = 30.0
         self.poll_interval: float = 0.05
         self.front_panel_was_locked: bool = False
+        self._latency_warning_shown: bool = False
 
         self.measured_counts: dict[str, float] = {"A": float("nan"), "B": float("nan")}
         self.measured_count_time: float = float("nan")
@@ -245,18 +281,27 @@ class Device(EmptyDevice):
 
     def set_GUIparameter(self) -> dict:  # noqa: N802
         """Return the GUI elements shown in the SweepMe! module."""
+        # A text key with a None value renders as a heading, a whitespace-only key as a blank
+        # spacer. The layout matters here: everything above "Scan of N periods only" applies in
+        # both modes, and the two fields under that heading are inert in the default mode. The
+        # common case is "count, minimal overhead", so that case reads top to bottom without
+        # stepping over parameters it does not use.
         return {
             "Measurement mode": list(self.MEASUREMENT_MODES),
             " ": None,
+            "Counting -- applies in both modes": None,
             "Count mode": list(self.COUNTING_MODES.keys()),
             "Counter A input": list(self.ALLOWED_COUNTER_INPUTS["A"]),
             "Counter B input": list(self.ALLOWED_COUNTER_INPUTS["B"]),
             "Counter T input": list(self.ALLOWED_COUNTER_INPUTS["T"]),
             "Count time in s": 1.0,
             "Preset counts (T or B)": 1e6,
+            "  ": None,
+            "Scan of N periods only -- ignored in Single count period": None,
             "Periods per point": 1,
             "Dwell time in s": self.DEFAULT_DWELL_TIME,
-            "  ": None,
+            "   ": None,
+            "Signal path": None,
             "Trigger slope": list(self.SLOPES.keys()),
             "Trigger level in V": 0.0,
             "Discriminator A slope": ["Fall", "Rise"],
@@ -265,20 +310,24 @@ class Device(EmptyDevice):
             "Discriminator B level in V": -0.010,
             "Discriminator T slope": ["Fall", "Rise"],
             "Discriminator T level in V": -0.010,
-            "   ": None,
+            "    ": None,
+            "Gating": None,
             "Gate A mode": list(self.GATE_MODES.keys()),
             "Gate A delay in s": 0.0,
             "Gate A width in s": 1e-6,
             "Gate B mode": list(self.GATE_MODES.keys()),
             "Gate B delay in s": 0.0,
             "Gate B width in s": 1e-6,
-            "    ": None,
+            "     ": None,
+            "Analog outputs": None,
             "Set PORT levels": False,
             "PORT1 level in V": 0.0,
             "PORT2 level in V": 0.0,
-            "     ": None,
+            "      ": None,
+            "Interface and diagnostics": None,
             "Baudrate": ["9600", "19200", "4800", "2400", "1200", "600", "300"],
             "Timeout in s": 20.0,
+            "Fast readout (batch queries)": False,
             "Reset instrument at start": False,
             "Lock front panel": False,
             "Print SweepMe! phase": False,
@@ -326,6 +375,7 @@ class Device(EmptyDevice):
         self.port_levels[2] = self._as_float(parameter, "PORT2 level in V", 0.0)
 
         self.extra_timeout = self._as_float(parameter, "Timeout in s", 20.0)
+        self.batch_queries = bool(parameter.get("Fast readout (batch queries)", False))
         self.reset_at_start = bool(parameter.get("Reset instrument at start", False))
         self.lock_front_panel = bool(parameter.get("Lock front panel", False))
         self.print_phase = bool(parameter.get("Print SweepMe! phase", False))
@@ -420,6 +470,10 @@ class Device(EmptyDevice):
         if counting_mode not in self.COUNTING_MODES.values():
             msg = f"The SR400 returned the invalid counting mode {counting_mode} for command 'CM'."
             raise Exception(msg)
+
+        # Only once the link is known good, so a latency note never competes with a real
+        # connection error for the user's attention.
+        self._warn_about_com_latency()
 
     def initialize(self) -> None:
         """Bring the communication into a defined state."""
@@ -537,12 +591,7 @@ class Device(EmptyDevice):
 
         self._check_status(status, context="measurement")
 
-        counts_a = 0
-        counts_b = 0
-        for point in range(1, self.periods + 1):
-            counts_a += self.get_scan_point("A", point)
-            if self.counter_b_is_readable:
-                counts_b += self.get_scan_point("B", point)
+        counts_a, counts_b = self._read_scan_buffer()
 
         self.measured_counts["A"] = float(counts_a)
         self.measured_counts["B"] = float(counts_b) if self.counter_b_is_readable else float("nan")
@@ -797,6 +846,508 @@ class Device(EmptyDevice):
                 f"the instrument may no longer match the configuration. Consider 'Lock front "
                 f"panel'.",
             )
+
+    def _scan_point_queries(self) -> list[str]:
+        """The QA/QB query list for one point, in the order the answers must come back."""
+        queries = []
+        for point in range(1, self.periods + 1):
+            queries.append(f"QA {point}")
+            if self.counter_b_is_readable:
+                queries.append(f"QB {point}")
+
+        return queries
+
+    def _parse_scan_point(self, command: str, response: str) -> int:
+        """Turn one QA/QB answer into counts. Shared by the batched and unbatched paths."""
+        try:
+            counts = int(float(response))
+        except (TypeError, ValueError) as exc:
+            msg = f"Unexpected answer {response!r} of the SR400 to the command '{command}'."
+            raise Exception(msg) from exc
+
+        if counts < 0:
+            msg = (
+                f"The SR400 returned -1 for '{command}': the count period is not completed "
+                f"yet, or counter B is the preset counter."
+            )
+            raise Exception(msg)
+
+        return counts
+
+    def _read_scan_buffer(self) -> tuple[int, int]:
+        """Sum the scan buffer over the point's count periods, batched or not.
+
+        Both transports feed the same parser, so a value can never be interpreted one way when
+        batched and another way when not.
+        """
+        queries = self._scan_point_queries()
+
+        if not self.batch_queries:
+            answers = [self._query(command) for command in queries]
+        else:
+            try:
+                answers = self._query_batched(queries)
+            except Exception as exc:  # noqa: BLE001 -- one retry, unbatched, then give up
+                self._resync_after_batch_failure()
+                self.batch_queries = False
+                self.message_info(
+                    f"SR400: the fast readout failed ({exc}). It has been disabled for the "
+                    f"rest of this run and the point was re-read one query at a time.",
+                )
+                answers = [self._query(command) for command in queries]
+
+        counts_a = 0
+        counts_b = 0
+        for command, response in zip(queries, answers):
+            counts = self._parse_scan_point(command, response)
+            if command.startswith("QA"):
+                counts_a += counts
+            else:
+                counts_b += counts
+
+        return counts_a, counts_b
+
+    def _query_batched(self, queries: list[str]) -> list[str]:
+        """Send the queries in chunks of several per line and return every answer in order."""
+        answers: list[str] = []
+        chunk: list[str] = []
+
+        def flush() -> None:
+            if chunk:
+                answers.extend(self._query_batch(chunk))
+                chunk.clear()
+
+        for query in queries:
+            # +1 for the ';' that will join it.
+            candidate = len(";".join([*chunk, query]))
+            if chunk and (
+                len(chunk) >= self.BATCH_MAX_COMMANDS or candidate > self.BATCH_MAX_LINE_CHARS
+            ):
+                flush()
+            chunk.append(query)
+
+        flush()
+        return answers
+
+    def _query_batch(self, commands: list[str]) -> list[str]:
+        """Send several queries on one line and return their answers in order.
+
+        The SR400 processes commands in the order received and terminates each answer, so N
+        chained queries produce N answers; the manual's own example is
+        'CM;CI0;GD0<cr>' -> '1<cr>1<cr>1.2E-6<cr>'.
+
+        The same manual also says it is "good programming practice to receive the response from
+        one query command before sending another command". Both statements are true, and this
+        method lives in the gap between them -- which is why it is opt-in, never automatic, and
+        why flipping the default would be wrong rather than merely bold. See README gotcha 16.
+        """
+        if len(commands) > self.BATCH_MAX_COMMANDS:
+            msg = (
+                f"A batch of {len(commands)} queries exceeds BATCH_MAX_COMMANDS "
+                f"({self.BATCH_MAX_COMMANDS}). This is a driver bug, not a user error."
+            )
+            raise Exception(msg)
+
+        line = ";".join(commands)
+        if len(line) > self.BATCH_MAX_LINE_CHARS:
+            msg = (
+                f"A batched command line of {len(line)} characters exceeds "
+                f"BATCH_MAX_LINE_CHARS ({self.BATCH_MAX_LINE_CHARS}). This is a driver bug."
+            )
+            raise Exception(msg)
+
+        # Stale bytes are the one corruption that counting the answers cannot catch: the right
+        # number of answers arrives, shifted by one, and every value is silently wrong. Refuse
+        # rather than pair them up.
+        if hasattr(self.port, "in_waiting"):
+            try:
+                pending = int(self.port.in_waiting())
+            except Exception:  # noqa: BLE001 -- not every port object implements it usefully
+                pending = 0
+            if pending:
+                self._drain_port()
+                msg = (
+                    f"The SR400 link was already out of step before a batched read "
+                    f"({pending} unread characters). The port has been drained."
+                )
+                raise Exception(msg)
+
+        self.port.write(line)
+
+        answers = []
+        for index in range(len(commands)):
+            response = str(self.port.read()).strip()
+            if response == "":
+                msg = (
+                    f"The SR400 returned only {index} of {len(commands)} answers to the "
+                    f"batched line {line!r}. Answers so far: {answers}."
+                )
+                raise Exception(msg)
+            answers.append(response)
+
+        return answers
+
+    def _drain_port(self) -> None:
+        """Read until the port is empty, bounded so a chatty port cannot hang the run."""
+        for _ in range(20):
+            if str(self.port.read()).strip() == "":
+                return
+
+    def _resync_after_batch_failure(self) -> None:
+        """Get back in step after a batched read went wrong, without losing the setup.
+
+        Deliberately does not send CL: that would restore the front-panel defaults and destroy
+        the user's configuration in the middle of a run, which is a worse outcome than the
+        failure being recovered from.
+        """
+        self._drain_port()
+        try:
+            counting_mode = int(float(self._query("CM")))
+        except (TypeError, ValueError) as exc:
+            msg = "The SR400 link could not be resynchronised after a failed batched read."
+            raise Exception(msg) from exc
+
+        if counting_mode not in self.COUNTING_MODES.values():
+            msg = (
+                f"The SR400 returned the invalid counting mode {counting_mode} while "
+                f"resynchronising after a failed batched read."
+            )
+            raise Exception(msg)
+
+    # ==================================================================
+    #  USB-serial latency timer -- host side only, sends the SR400 nothing
+    # ==================================================================
+    #
+    # An FTDI/Prolific USB-serial adapter holds a short inbound packet until its latency timer
+    # expires before completing a read. The Windows default is 16 ms. This driver makes several
+    # query round trips per measurement point, so the default costs tens of ms per point --
+    # more than the actual bit time, and more than doubling the baud rate would win back. It is
+    # the single most common reason a working SR400 feels slow, and nothing in the instrument or
+    # its manual mentions it, because it is not the instrument's fault.
+    #
+    # None of this code touches the port or the instrument. It reads (and, on explicit request,
+    # writes) an OS setting, and it is written so that it cannot raise: an unknown value is
+    # reported as unknown, never as "fine".
+
+    def _get_com_latency_timer(self) -> int | None:
+        """Return the selected COM port's USB-serial latency timer in ms, or None.
+
+        None means "unknown or not applicable" -- a native UART, a non-FTDI adapter, macOS
+        (which has no equivalent knob), or a permission failure. It never means "fine", so
+        callers must not treat None as a low value.
+        """
+        try:
+            if not self.port_string:
+                return None
+            if sys.platform.startswith("win"):
+                return self._get_latency_timer_windows()
+            if sys.platform.startswith("linux"):
+                return self._get_latency_timer_linux()
+        except Exception:  # noqa: BLE001 -- a diagnostic must never break a measurement
+            return None
+
+        return None
+
+    def _get_latency_timer_linux(self) -> int | None:
+        """Read the latency timer from sysfs. Accepts 'ttyUSB0' and '/dev/ttyUSB0' alike."""
+        tty = os.path.basename(self.port_string)
+        path = f"/sys/bus/usb-serial/devices/{tty}/latency_timer"
+        try:
+            with open(path) as handle:
+                return int(handle.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    def _find_ftdi_device_parameters_key(self) -> str | None:
+        """Return the registry path of the 'Device Parameters' key for our COM port, or None.
+
+        Which enumeration tree carries 'Device Parameters' depends on the FTDI driver version,
+        so both are searched: FTDIBUS first, then the FTDI vendor ID under USB. Returns a path
+        relative to HKEY_LOCAL_MACHINE so that both the read here and the write in
+        reduce_com_port_latency() resolve the same key.
+        """
+        import winreg  # noqa: PLC0415 -- Windows only, must not break the Linux bench
+
+        wanted = self.port_string.upper()
+
+        def walk(path: str, depth: int) -> str | None:
+            if depth > self.FTDI_PORTNAME_SEARCH_DEPTH:
+                return None
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, winreg.KEY_READ) as key:
+                    try:
+                        name, _ = winreg.QueryValueEx(key, "PortName")
+                        if str(name).upper() == wanted:
+                            return path
+                    except FileNotFoundError:
+                        pass
+
+                    children = []
+                    index = 0
+                    while True:
+                        try:
+                            children.append(winreg.EnumKey(key, index))
+                        except OSError:
+                            break
+                        index += 1
+            except (OSError, ValueError):
+                return None
+
+            for child in children:
+                found = walk(f"{path}\\{child}", depth + 1)
+                if found is not None:
+                    return found
+
+            return None
+
+        for root, prefix in (
+            (r"SYSTEM\CurrentControlSet\Enum\FTDIBUS", ""),
+            (r"SYSTEM\CurrentControlSet\Enum\USB", "VID_0403"),
+        ):
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root, 0, winreg.KEY_READ) as key:
+                    index = 0
+                    names = []
+                    while True:
+                        try:
+                            names.append(winreg.EnumKey(key, index))
+                        except OSError:
+                            break
+                        index += 1
+            except (OSError, ValueError):
+                continue
+
+            for name in names:
+                # Only descend into FTDI devices when walking the whole USB tree, which is
+                # otherwise large enough that a diagnostic click would visibly stall.
+                if prefix and not name.upper().startswith(prefix):
+                    continue
+                found = walk(f"{root}\\{name}", 1)
+                if found is not None:
+                    return found
+
+        return None
+
+    def _get_latency_timer_windows(self) -> int | None:
+        """Read LatencyTimer from the port's Device Parameters key."""
+        import winreg  # noqa: PLC0415
+
+        path = self._find_ftdi_device_parameters_key()
+        if path is None:
+            return None
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, winreg.KEY_READ) as key:
+                value, _ = winreg.QueryValueEx(key, "LatencyTimer")
+                return int(value)
+        except (OSError, ValueError):
+            return None
+
+    def _estimated_reads_per_point(self) -> int:
+        """Lower bound on read round trips per measurement point, from the GUI settings.
+
+        One status read to clear, at least one poll, then one or two counter reads per period.
+        The real number is higher because the poll loop usually iterates more than once, which
+        is why every message built from this says "at least".
+        """
+        per_period = 2 if self.counter_b_is_readable else 1
+        return 2 + self.periods * per_period
+
+    def _latency_advice(self, latency: int | None) -> str:
+        """One reusable block of prose about the latency timer, for messages and the actions."""
+        if latency is None:
+            return (
+                f"The USB-serial latency timer for '{self.port_string or 'no port selected'}' "
+                f"could not be determined. That is normal for a native RS-232 port or a "
+                f"non-FTDI adapter, where the setting does not exist. It is not a problem, and "
+                f"it is not a confirmation that the value is low."
+            )
+
+        reads = self._estimated_reads_per_point()
+        return (
+            f"The USB-serial latency timer for '{self.port_string}' is {latency} ms. This "
+            f"driver makes at least {reads} read round trips per measurement point in the "
+            f"current configuration, so the adapter alone costs at least about "
+            f"{reads * latency} ms per point (an estimate: the status poll usually runs more "
+            f"than once). Recommended value {self.LATENCY_TIMER_TARGET_MS} ms.\n\n"
+            f"On Windows: Device Manager -> the COM port -> Port Settings -> Advanced -> "
+            f"Latency Timer -> {self.LATENCY_TIMER_TARGET_MS}, then unplug and replug the "
+            f"adapter. The 'reduce_com_port_latency' action tries to do this for you.\n\n"
+            f"Scope: the setting belongs to the adapter, not to SweepMe!. It is global, it "
+            f"persists after the run, and on Windows it needs a replug or reboot to take "
+            f"effect."
+        )
+
+    def _warn_about_com_latency(self) -> None:
+        """Warn once per run if the adapter's latency timer will dominate the timing."""
+        if not self.is_rs232 or self._latency_warning_shown:
+            return
+
+        # _get_com_latency_timer() already cannot raise, so this guard is redundant today. It
+        # stays because connect() is the measurement path: a host-side convenience must not be
+        # able to stop a run, however the lookup is changed or replaced later.
+        try:
+            latency = self._get_com_latency_timer()
+        except Exception:  # noqa: BLE001
+            return
+
+        if latency is None or latency <= self.LATENCY_TIMER_WARN_MS:
+            return
+
+        self._latency_warning_shown = True
+        self.message_info(f"SR400: {self._latency_advice(latency)}")
+
+    # ------------------------------------------------------------------ actions
+
+    def report_com_port_latency(self) -> None:
+        """Report the COM port's latency timer. Reads only; sends the SR400 nothing."""
+        try:
+            if not self.port_string:
+                self.message_box(
+                    "SR400: select a port first -- the latency timer belongs to the port, so "
+                    "there is nothing to look up yet.",
+                )
+                return
+
+            if not self.is_rs232:
+                self.message_box(
+                    f"SR400: '{self.port_string}' is not a COM port. The USB-serial latency "
+                    f"timer applies to RS-232 over a USB adapter only; GPIB has no equivalent.",
+                )
+                return
+
+            self.message_box(f"SR400: {self._latency_advice(self._get_com_latency_timer())}")
+        except Exception as exc:  # noqa: BLE001 -- an action must never raise
+            self.message_box(f"SR400: could not report the latency timer ({exc}).")
+
+    def reduce_com_port_latency(self) -> None:
+        """Try to set the latency timer to 1 ms, or hand over the exact remedy if not allowed.
+
+        The write is privileged on Windows and does not take effect until the adapter is
+        replugged. Rather than demand elevation -- which would make the driver unusable on a
+        shared machine -- a failed write produces a .reg file the user can run themselves. The
+        measurement path never needs administrator rights.
+        """
+        try:
+            if not self.port_string:
+                self.message_box("SR400: select a port first.")
+                return
+
+            if not self.is_rs232:
+                self.message_box(
+                    f"SR400: '{self.port_string}' is not a COM port; there is no latency timer "
+                    f"to change.",
+                )
+                return
+
+            current = self._get_com_latency_timer()
+            if current is None:
+                self.message_box(f"SR400: {self._latency_advice(None)}")
+                return
+
+            if current <= self.LATENCY_TIMER_WARN_MS // 2:
+                self.message_box(
+                    f"SR400: the latency timer for '{self.port_string}' is already {current} "
+                    f"ms. Nothing was changed.",
+                )
+                return
+
+            if sys.platform.startswith("linux"):
+                self._reduce_latency_linux(current)
+            elif sys.platform.startswith("win"):
+                self._reduce_latency_windows(current)
+            else:
+                self.message_box(
+                    "SR400: this platform has no USB-serial latency timer to change.",
+                )
+        except Exception as exc:  # noqa: BLE001 -- an action must never raise
+            self.message_box(f"SR400: could not change the latency timer ({exc}).")
+
+    def _reduce_latency_linux(self, current: int) -> None:
+        """Write sysfs directly; it takes effect immediately when it is permitted at all."""
+        tty = os.path.basename(self.port_string)
+        path = f"/sys/bus/usb-serial/devices/{tty}/latency_timer"
+        try:
+            with open(path, "w") as handle:
+                handle.write(str(self.LATENCY_TIMER_TARGET_MS))
+        except OSError as exc:
+            self.message_box(
+                f"SR400: could not write {path} ({exc}). Run this yourself:\n\n"
+                f"  sudo sh -c 'echo {self.LATENCY_TIMER_TARGET_MS} > {path}'\n\n"
+                f"To make it persist, add a udev rule:\n\n"
+                f'  ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", '
+                f'ATTR{{latency_timer}}="{self.LATENCY_TIMER_TARGET_MS}"',
+            )
+            return
+
+        self.message_box(
+            f"SR400: the latency timer for '{self.port_string}' was changed from {current} ms "
+            f"to {self.LATENCY_TIMER_TARGET_MS} ms. This takes effect immediately on Linux; no "
+            f"replug is needed. It will revert when the adapter is replugged unless a udev rule "
+            f"makes it persistent.",
+        )
+
+    def _reduce_latency_windows(self, current: int) -> None:
+        """Try the registry write; on refusal, write a .reg file the user can run as admin."""
+        import winreg  # noqa: PLC0415
+
+        path = self._find_ftdi_device_parameters_key()
+        if path is None:
+            self.message_box(f"SR400: {self._latency_advice(None)}")
+            return
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(
+                    key,
+                    "LatencyTimer",
+                    0,
+                    winreg.REG_DWORD,
+                    self.LATENCY_TIMER_TARGET_MS,
+                )
+        except (OSError, PermissionError) as exc:
+            self._write_latency_reg_file(path, current, exc)
+            return
+
+        self.message_box(
+            f"SR400: the latency timer for '{self.port_string}' was changed from {current} ms "
+            f"to {self.LATENCY_TIMER_TARGET_MS} ms.\n\n**Unplug and replug the adapter** (or "
+            f"reboot) before it takes effect. The change is global to this adapter and persists "
+            f"after SweepMe! closes.",
+        )
+
+    def _write_latency_reg_file(self, key_path: str, current: int, exc: Exception) -> None:
+        """Generate the remedy instead of demanding elevation."""
+        safe_port = "".join(c for c in self.port_string if c.isalnum()) or "port"
+        target = os.path.join(
+            self.get_folder("TEMP"),
+            f"SR400_set_latency_timer_{safe_port}.reg",
+        )
+        content = (
+            "Windows Registry Editor Version 5.00\r\n\r\n"
+            f"[HKEY_LOCAL_MACHINE\\{key_path}]\r\n"
+            f'"LatencyTimer"=dword:{self.LATENCY_TIMER_TARGET_MS:08x}\r\n'
+        )
+        try:
+            with open(target, "w") as handle:
+                handle.write(content)
+        except OSError as write_exc:
+            self.message_box(
+                f"SR400: the latency timer is {current} ms and could not be changed ({exc}), "
+                f"and the .reg remedy could not be written either ({write_exc}). Set it by "
+                f"hand: Device Manager -> {self.port_string} -> Port Settings -> Advanced -> "
+                f"Latency Timer -> {self.LATENCY_TIMER_TARGET_MS}, then replug the adapter.",
+            )
+            return
+
+        self.message_box(
+            f"SR400: the latency timer for '{self.port_string}' is {current} ms and could not "
+            f"be changed from here, because writing it needs administrator rights ({exc}).\n\n"
+            f"The exact change has been written to:\n  {target}\n\n"
+            f"Run that file as administrator, then **unplug and replug the adapter**. Or set it "
+            f"by hand: Device Manager -> {self.port_string} -> Port Settings -> Advanced -> "
+            f"Latency Timer -> {self.LATENCY_TIMER_TARGET_MS}.",
+        )
 
     # ==================================================================
     #  wrapped instrument commands -- MODE

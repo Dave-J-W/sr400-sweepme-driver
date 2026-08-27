@@ -61,6 +61,19 @@ what was deliberately not, two defects in it that are easy to reproduce by accid
 and the one question the two drafts disagree on that only hardware can settle (the
 RS-232 line terminator).
 
+## Host-side performance
+
+Two things dominate RS-232 throughput and neither is the baud rate. The SR400 pads
+every transmitted character by `WAIT × 3.3 ms` (default 20 ms), which the driver
+zeroes automatically. And an FTDI USB-serial adapter holds short reads for its
+**latency timer**, 16 ms by default, charged per read transaction — which the
+driver detects and warns about, with two actions to report and fix it.
+
+`Fast readout (batch queries)` chains counter queries to cut round trips. It is off
+by default because the manual both documents chained queries and advises against
+them; see gotcha 16 in the driver README. Fixing the latency timer is worth more
+than enabling it.
+
 ## Tests
 
 The suite needs no SR400. `tests/test_sr400_virtual.py` implements a simulator of
@@ -71,11 +84,13 @@ whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-125 checks: both measurement modes, the count-period model including EXTERNAL dwell, the one-significant-
+187 checks: both measurement modes, the count-period model including EXTERNAL dwell, the one-significant-
 digit preset rounding, `A for B preset` mode's `NaN` columns, every range check,
 the OR-accumulating status-byte poll, the echo-on and timeout failure paths,
 interface-specific command gating on GPIB versus RS-232, the front-panel lock
-lifecycle, the GUI options, and a round trip of every wrapped command.
+lifecycle, the GUI options, latency-timer detection and both actions, batched
+readout proved equal to unbatched for 1/2/10/17/33 periods plus its desync and
+buffer-limit failure paths, and a round trip of every wrapped command.
 
 It does **not** cover anything about the real instrument: response *formats*,
 command-processing latency, and all electrical behaviour need hardware. Passing
