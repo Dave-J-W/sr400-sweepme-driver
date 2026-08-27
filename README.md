@@ -18,8 +18,10 @@ Two measurement modes, picked with the first GUI field:
 
 A single count period is quantised — the T preset keeps one significant digit, so
 there is no 1.5 s count period. But *N* periods of a settable length reach an exact
-total, so `Count time mode = Total live time (auto-split)` takes 1.5 s and runs
-3 × 0.5 s, exact to the timebase's 25 ppm. See gotcha 3 in the driver README.
+total, so `Count time mode = Total live time (auto-split)` takes 1.6 s and runs
+2 × 0.8 s, exact to the timebase's 25 ppm. It holds a 80 % duty floor by default,
+with a tick box for 99 %, and refuses where a preset is not a time. See gotcha 3
+in the driver README.
 
 Every command the driver sends is documented in the SR400 manual, chapter *Remote
 Programming – Detailed Command List* (manual pp. 37–47). Nothing is inferred from
@@ -89,7 +91,7 @@ whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-265 checks: both measurement modes, the count-time planner, the count-period model including EXTERNAL dwell, the one-significant-
+348 checks: both measurement modes, the count-time planner at every duty floor, the count-period model including EXTERNAL dwell, the one-significant-
 digit preset rounding, `A for B preset` mode's `NaN` columns, every range check,
 the OR-accumulating status-byte poll, the echo-on and timeout failure paths,
 interface-specific command gating on GPIB versus RS-232, the front-panel lock

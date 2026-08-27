@@ -75,38 +75,24 @@ def representable_presets() -> list[int]:
     return sorted((p for p in presets if 1 <= p <= 9 * 10**11), reverse=True)
 
 
-def plan_count_time(
+DUTY_TIERS = (0.5, 0.8, 0.99)
+"""Duty floors the planner evaluates together. 0.8 is the driver default; 0.99 is the
+'quantize to >99% duty cycle' option. Every tier always yields a plan, because a single
+count period has no inter-period gap and so sits at 100% duty by definition."""
+
+
+def _count_time_candidates(
     total_time: float,
-    dwell: float = 2e-3,
-    min_periods: int = 1,
-    max_periods: int = 2000,
-    min_duty: float = 0.5,
-    soft_max_periods: int = 100,
-) -> CountPlan:
-    """Split a requested total live time into N representable count periods.
+    dwell: float,
+    min_periods: int,
+    max_periods: int,
+) -> tuple[list, list]:
+    """Enumerate every (periods, count_time, duty) worth considering, once.
 
-    A single count period is quantised: the T preset must be d x 10^k, so 1.5 s is not a
-    settable count *period*. But N periods of a representable length reach an exact total live
-    time -- 3 x 0.5 s is exactly 1.5 s of counting -- so the quantisation is a constraint on
-    one period, not on the experiment.
-
-    Selection: prefer the *exact* split with the fewest periods, subject to a soft cap on N and
-    a minimum duty cycle. Minimising N maximises the count time, which also maximises duty, so
-    the single objective covers both. Failing that, take the closest approximation that still
-    meets the duty floor, and record in 'note' what exactness would have cost.
-
-    Duty matters because the dwell between periods is dead time: N periods of 'count_time' take
-    N*count_time + (N-1)*dwell of wall clock but only N*count_time of live counting. A dwell of
-    0 selects the SR400's EXTERNAL dwell, which has no gap to pay for, so duty is 1.0
-    throughout.
-
-    Returns a CountPlan. 'is_exact' compares the achieved total against the request, so an
-    exact split that merely exceeds 'soft_max_periods' is still reported as exact.
+    Duty depends only on the split and the dwell, never on which duty floor is being applied,
+    so the enumeration is shared across all the tiers rather than repeated per tier. Returns
+    (exact, approximate); approximate entries carry their relative error.
     """
-    if not math.isfinite(total_time) or total_time <= 0.0:
-        msg = f"The total count time {total_time} s must be positive and finite."
-        raise ValueError(msg)
-
     cycles_f = total_time * CLOCK_FREQUENCY
     cycles = round(cycles_f)
     exact_possible = abs(cycles_f - cycles) <= max(1e-6, abs(cycles_f) * 1e-12)
@@ -117,13 +103,8 @@ def plan_count_time(
         live = periods * count_time
         return live / (live + (periods - 1) * dwell)
 
-    def clamp(periods: float) -> int:
-        return max(min_periods, min(max_periods, int(periods)))
-
-    # (periods, count_time, duty), and for the approximate list also the relative error.
-    best_exact = None
-    best_qualified = None
-    best_approx = None
+    exact = []
+    approximate = []
 
     for preset in representable_presets():
         count_time = preset / CLOCK_FREQUENCY
@@ -131,66 +112,134 @@ def plan_count_time(
         if exact_possible and cycles > 0 and cycles % preset == 0:
             periods = cycles // preset
             if min_periods <= periods <= max_periods:
-                duty = duty_of(periods, count_time)
-                if best_exact is None or periods < best_exact[0]:
-                    best_exact = (periods, count_time, duty)
-                if periods <= soft_max_periods and duty >= min_duty:
-                    if best_qualified is None or periods < best_qualified[0]:
-                        best_qualified = (periods, count_time, duty)
+                exact.append((int(periods), count_time, duty_of(int(periods), count_time)))
 
-        periods = clamp(round(cycles_f / preset))
-        duty = duty_of(periods, count_time)
-        if duty >= min_duty:
-            error = abs(periods * count_time - total_time) / total_time
-            # Two splits that both land on the requested total do not land on it *equally*
-            # in binary: 111 x 0.009 and 333 x 0.003 both make 0.999, with relative errors
-            # differing around 1e-16. Comparing those raw would let float noise pick the
-            # split, so an improvement has to beat the incumbent by more than that noise,
-            # and a genuine tie is broken on fewest periods -- which is the same preference
-            # the exact branch applies, and which also maximises duty.
-            if best_approx is None:
-                best_approx = (error, periods, count_time, duty)
-            else:
-                tie_epsilon = 1e-12
-                clearly_better = error < best_approx[0] - tie_epsilon
-                tied_but_shorter = (
-                    abs(error - best_approx[0]) <= tie_epsilon and periods < best_approx[1]
-                )
-                if clearly_better or tied_but_shorter:
-                    best_approx = (error, periods, count_time, duty)
+        periods = max(min_periods, min(max_periods, int(round(cycles_f / preset))))
+        error = abs(periods * count_time - total_time) / total_time
+        approximate.append((error, periods, count_time, duty_of(periods, count_time)))
 
-    if best_qualified is not None:
-        periods, count_time, duty = best_qualified
-    else:
-        _, periods, count_time, duty = best_approx
+    return exact, approximate
 
-    achieved = periods * count_time
-    is_exact = abs(achieved - total_time) <= max(1e-15, abs(total_time) * 1e-9)
 
-    if is_exact and periods > soft_max_periods:
-        note = (
-            f"Exact, but {periods} periods is above the soft preference of {soft_max_periods}; "
-            f"wall time exceeds live time by {(periods - 1) * dwell:.4g} s of dwell."
+def plan_count_time_tiers(
+    total_time: float,
+    dwell: float = 2e-3,
+    min_periods: int = 1,
+    max_periods: int = 2000,
+    duty_tiers: tuple = DUTY_TIERS,
+    soft_max_periods: int = 100,
+) -> dict:
+    """Plan the same total live time against several duty floors at once.
+
+    One enumeration, one plan per tier, keyed by the tier. Doing them together is what makes
+    the trade-off visible: the caller can hold the 80% plan and the 99% plan side by side and
+    say what tightening the duty actually cost, instead of re-planning and guessing.
+
+    Every tier is guaranteed a plan. A single count period is 100% duty by definition, so the
+    approximate fallback can always satisfy any floor -- worst case by rounding to one period.
+    """
+    if not math.isfinite(total_time) or total_time <= 0.0:
+        msg = f"The total count time {total_time} s must be positive and finite."
+        raise ValueError(msg)
+
+    exact, approximate = _count_time_candidates(total_time, dwell, min_periods, max_periods)
+
+    # The best exact split overall, ignoring both the duty floor and the soft cap. Used only to
+    # price what a rejected exact split would have cost.
+    best_exact_overall = min(exact, default=None, key=lambda c: c[0])
+
+    plans = {}
+    for tier in duty_tiers:
+        qualified = [c for c in exact if c[2] >= tier and c[0] <= soft_max_periods]
+        if qualified:
+            periods, count_time, duty = min(qualified, key=lambda c: c[0])
+        else:
+            allowed = [c for c in approximate if c[3] >= tier]
+            # Two splits that both land on the requested total do not land on it *equally* in
+            # binary: 111 x 0.009 and 333 x 0.003 both make 0.999, with relative errors
+            # differing around 1e-16. Sorting on the raw error would let float noise pick the
+            # split, so the error is quantised before it is compared and ties fall to the
+            # fewest periods -- the same preference the exact branch applies, and the one that
+            # also maximises duty.
+            _, periods, count_time, duty = min(
+                allowed,
+                key=lambda c: (round(c[0] / 1e-12), c[1]),
+            )
+
+        achieved = periods * count_time
+        is_exact = abs(achieved - total_time) <= max(1e-15, abs(total_time) * 1e-9)
+
+        if is_exact and periods > soft_max_periods:
+            note = (
+                f"Exact, but {periods} periods is above the soft preference of "
+                f"{soft_max_periods}; wall time exceeds live time by "
+                f"{(periods - 1) * dwell:.4g} s of dwell."
+            )
+        elif not is_exact and best_exact_overall is not None:
+            note = (
+                f"Nearest representable at the {tier:.0%} duty floor. An exact split exists but "
+                f"was rejected: {best_exact_overall[0]} x {best_exact_overall[1]:.4g} s at "
+                f"{best_exact_overall[2]:.1%} duty."
+            )
+        elif not is_exact:
+            note = (
+                f"Nearest representable at the {tier:.0%} duty floor; no exact split of this "
+                f"total is reachable."
+            )
+        else:
+            note = ""
+
+        plans[tier] = CountPlan(
+            periods=int(periods),
+            count_time=count_time,
+            total_time=achieved,
+            is_exact=is_exact,
+            duty_cycle=duty,
+            note=note,
         )
-    elif not is_exact and best_exact is not None:
-        note = (
-            f"Nearest representable. An exact split exists but was rejected: "
-            f"{best_exact[0]} x {best_exact[1]:.4g} s at {best_exact[2]:.1%} duty "
-            f"(needs <= {soft_max_periods} periods and >= {min_duty:.0%} duty)."
-        )
-    elif not is_exact:
-        note = "Nearest representable; no exact split of this total is reachable."
-    else:
-        note = ""
 
-    return CountPlan(
-        periods=int(periods),
-        count_time=count_time,
-        total_time=achieved,
-        is_exact=is_exact,
-        duty_cycle=duty,
-        note=note,
-    )
+    return plans
+
+
+def plan_count_time(
+    total_time: float,
+    dwell: float = 2e-3,
+    min_periods: int = 1,
+    max_periods: int = 2000,
+    min_duty: float = 0.8,
+    soft_max_periods: int = 100,
+) -> CountPlan:
+    """Split a requested total live time into N representable count periods.
+
+    A single count period is quantised: the T preset must be d x 10^k, so 1.6 s is not a
+    settable count *period*. But N periods of a representable length reach an exact total live
+    time -- 4 x 0.4 s is exactly 1.6 s of counting -- so the quantisation constrains one
+    period, not the experiment.
+
+    Selection: prefer the *exact* split with the fewest periods, subject to a soft cap on N and
+    the duty floor. Minimising N maximises the count time, which also maximises duty, so the
+    single objective covers both. Failing that, take the closest approximation that still meets
+    the floor, and record in 'note' what exactness would have cost.
+
+    Duty matters because the dwell between periods is dead time: N periods of 'count_time' take
+    N*count_time + (N-1)*dwell of wall clock but only N*count_time of live counting. A dwell of
+    0 selects the SR400's EXTERNAL dwell, which has no gap to pay for, so duty is 1.0
+    throughout.
+
+    Returns a CountPlan. 'is_exact' compares the achieved total against the request, so an
+    exact split that merely exceeds 'soft_max_periods' is still reported as exact.
+
+    This is the single-floor convenience wrapper; plan_count_time_tiers() evaluates several
+    floors in one pass, which is what the driver uses so it can price the 99% option.
+    """
+    return plan_count_time_tiers(
+        total_time,
+        dwell=dwell,
+        min_periods=min_periods,
+        max_periods=max_periods,
+        duty_tiers=(min_duty,),
+        soft_max_periods=soft_max_periods,
+    )[min_duty]
 
 
 class Device(EmptyDevice):
@@ -276,6 +325,13 @@ class Device(EmptyDevice):
         "B": ("INPUT 1", "INPUT 2"),
         "T": ("10 MHz", "INPUT 2", "TRIG"),
     }
+    DEFAULT_MIN_DUTY = 0.8
+    """Duty floor for auto-split. Most people type a count time and start counting; below this
+    the dead time between periods starts to matter to the answer rather than just the clock."""
+
+    HIGH_MIN_DUTY = 0.99
+    """Duty floor when 'Quantize count time to >99% duty cycle' is ticked."""
+
     COUNT_TIME_MODES = ("Per period", "Total live time (auto-split)")
     """Whether 'Count time in s' means one count period or the total. See plan_count_time()."""
 
@@ -399,6 +455,7 @@ class Device(EmptyDevice):
         # --- GUI parameters (set in get_GUIparameter) -------------------------
         self.measurement_mode: str = self.MEASUREMENT_MODES[0]
         self.count_time_mode: str = self.COUNT_TIME_MODES[0]
+        self.quantize_high_duty: bool = False
         self.counting_mode: str = "A, B for T preset"
         self.counter_a_input: str = "INPUT 1"
         self.counter_b_input: str = "INPUT 1"
@@ -432,6 +489,8 @@ class Device(EmptyDevice):
         self.requested_dwell_time: float = self.DEFAULT_DWELL_TIME
         self.requested_total_time: float = 1.0
         self.count_plan: CountPlan | None = None
+        self.count_plan_alternative: CountPlan | None = None
+        self.auto_split_refusal: str = ""
         self.auto_split_promoted_mode: bool = False
         self.actual_count_time: float = float("nan")
         self.actual_preset_counts: float = float("nan")
@@ -464,6 +523,7 @@ class Device(EmptyDevice):
             "Counter B input": list(self.ALLOWED_COUNTER_INPUTS["B"]),
             "Counter T input": list(self.ALLOWED_COUNTER_INPUTS["T"]),
             "Count time mode": list(self.COUNT_TIME_MODES),
+            "Quantize count time to >99% duty cycle": False,
             "Count time in s": 1.0,
             "Preset counts (T or B)": 1e6,
             "  ": None,
@@ -511,6 +571,9 @@ class Device(EmptyDevice):
 
         self.measurement_mode = parameter.get("Measurement mode", self.MEASUREMENT_MODES[0])
         self.count_time_mode = parameter.get("Count time mode", self.COUNT_TIME_MODES[0])
+        self.quantize_high_duty = bool(
+            parameter.get("Quantize count time to >99% duty cycle", False),
+        )
 
         self.counting_mode = parameter.get("Count mode", "A, B for T preset")
         self.counter_a_input = parameter.get("Counter A input", "INPUT 1")
@@ -582,7 +645,9 @@ class Device(EmptyDevice):
         plan itself.
         """
         self.count_plan = None
+        self.count_plan_alternative = None
         self.auto_split_promoted_mode = False
+        self.auto_split_refusal = ""
 
         if self.count_time_mode not in self.COUNT_TIME_MODES:
             allowed = ", ".join(f"'{mode}'" for mode in self.COUNT_TIME_MODES)
@@ -592,16 +657,42 @@ class Device(EmptyDevice):
         if self.count_time_mode == "Per period":
             return
 
+        # Auto-split only means anything when the T preset is a number of clock cycles, because
+        # only then does a preset correspond to a time that can be divided up. Recorded here and
+        # raised by _check_configuration(), so the refusal arrives at configure() time with the
+        # rest of the configuration checks rather than while the GUI is being edited.
+        if self.counting_mode == "A for B preset":
+            self.auto_split_refusal = (
+                "the counting mode 'A for B preset' presets counter B, so the length of a count "
+                "period is set by the signal rather than by a preset and there is no total live "
+                "time to divide up"
+            )
+            return
+        if self.counter_t_input != "10 MHz":
+            self.auto_split_refusal = (
+                f"'Counter T input' is '{self.counter_t_input}', so the T preset counts events "
+                f"rather than clock cycles and does not correspond to a time at all"
+            )
+            return
+
         # The shortest legal dwell maximises duty, so auto-split always asks for it -- unless
         # the user chose EXTERNAL (0), which has no inter-period gap to pay for at all.
         uses_external = self.dwell_time == 0.0
-        plan = plan_count_time(
+        wanted = self.HIGH_MIN_DUTY if self.quantize_high_duty else self.DEFAULT_MIN_DUTY
+        other = self.DEFAULT_MIN_DUTY if self.quantize_high_duty else self.HIGH_MIN_DUTY
+
+        # Both floors come out of one enumeration, so the message can price the difference
+        # instead of leaving the user to re-plan by hand to find out what the tick box cost.
+        tiers = plan_count_time_tiers(
             self.count_time,
             dwell=0.0 if uses_external else self.DWELL_MIN,
             max_periods=self.PERIODS_MAX,
+            duty_tiers=(wanted, other),
         )
+        plan = tiers[wanted]
 
         self.count_plan = plan
+        self.count_plan_alternative = tiers[other]
         self.count_time = plan.count_time
         self.periods = plan.periods
         if not uses_external:
@@ -916,6 +1007,16 @@ class Device(EmptyDevice):
         the configuration. Saying so once at configure() time is cheaper than a puzzling
         data set.
         """
+        if self.auto_split_refusal:
+            msg = (
+                f"SR400: 'Count time mode' = 'Total live time (auto-split)' cannot be used "
+                f"because {self.auto_split_refusal}. Either set 'Counter T input' to '10 MHz' "
+                f"and use a counting mode other than 'A for B preset', or set 'Count time mode' "
+                f"to 'Per period' and give the preset directly in "
+                f"'Preset counts (T or B)'."
+            )
+            raise Exception(msg)
+
         if self.count_plan is not None:
             plan = self.count_plan
             exactness = (
@@ -934,8 +1035,26 @@ class Device(EmptyDevice):
                 f"SR400: auto-split -- {plan.periods} x {plan.count_time:.6g} s = "
                 f"{plan.total_time:.6g} s of live counting, {exactness}. {duty}."
             )
+            floor = self.HIGH_MIN_DUTY if self.quantize_high_duty else self.DEFAULT_MIN_DUTY
+            message += f" Duty floor {floor:.0%}."
             if plan.note:
                 message += f" {plan.note}"
+
+            # The other floor was planned in the same pass, so saying what it would have given
+            # costs nothing and turns the tick box from a guess into a decision.
+            other = self.count_plan_alternative
+            if other is not None and (other.periods, other.count_time) != (
+                plan.periods,
+                plan.count_time,
+            ):
+                other_floor = (
+                    self.DEFAULT_MIN_DUTY if self.quantize_high_duty else self.HIGH_MIN_DUTY
+                )
+                exactness = "exact" if other.is_exact else f"{other.total_time:.6g} s"
+                message += (
+                    f" At the {other_floor:.0%} floor it would instead be {other.periods} x "
+                    f"{other.count_time:.6g} s ({exactness}, {other.duty_cycle:.1%} duty)."
+                )
             if self.auto_split_promoted_mode:
                 message += (
                     " 'Measurement mode' was promoted to 'Scan of N periods', because running "

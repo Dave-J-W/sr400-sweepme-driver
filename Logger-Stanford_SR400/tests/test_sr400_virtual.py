@@ -1637,6 +1637,24 @@ def test_count_time_planner(driver):
                 f"{total:g} s is reached exactly (got {plan.total_time:g})",
             )
 
+    # is_exact must come from comparing the achieved total against the request, never from
+    # which branch produced the candidate. These two are the cases that tell the difference:
+    # each has an exact split that the *preference* rejects for exceeding the soft cap, and
+    # that the fallback then chooses anyway. Assert the over-cap condition explicitly, or a
+    # future change to soft_max_periods would quietly stop exercising the distinction and the
+    # mislabelling it guards against is silent.
+    for total, periods in ((0.999, 111), (1234.0, 617)):
+        plan = driver.plan_count_time(total)
+        check(
+            plan.periods == periods > 100,
+            f"{total:g} s needs {periods} periods, above the soft cap of 100 "
+            f"(got {plan.periods})",
+        )
+        check(
+            plan.is_exact,
+            f"{total:g} s is still labelled exact despite exceeding the soft cap",
+        )
+
     # The rejected-exact note has to say what exactness would have cost, or it is not
     # actionable -- 3.4 ms is reachable as 17 x 0.2 ms, at a duty cycle nobody wants.
     plan = driver.plan_count_time(3.4e-3)
@@ -1675,6 +1693,58 @@ def test_count_time_planner(driver):
     # Never exceed the instrument's own NP limit, whatever is asked for.
     plan = driver.plan_count_time(1e-3, min_duty=0.0, soft_max_periods=100000)
     check(plan.periods <= 2000, f"the plan never exceeds NP 2000 (got {plan.periods})")
+
+    # --- several duty floors, planned together ---------------------------------
+    check(driver.DUTY_TIERS == (0.5, 0.8, 0.99), f"the tiers are 50/80/99% (got {driver.DUTY_TIERS})")
+
+    # The driver's default floor is 80%: typing a count time and starting should not need a
+    # decision about dead time.
+    plan_default = driver.plan_count_time(0.015)
+    plan_80 = driver.plan_count_time(0.015, min_duty=0.8)
+    check(
+        (plan_default.periods, plan_default.count_time) == (plan_80.periods, plan_80.count_time),
+        "the default duty floor is 80%",
+    )
+
+    # A plan at *every* tier, for every total -- that is what makes the 99% option always
+    # offerable rather than something that can fail. A single period is 100% duty by
+    # definition, so the fallback can always satisfy any floor.
+    for total in (1.6, 1.5, 0.15, 0.05, 0.015, 3.4e-3, 1.5e-6, 1234.0):
+        tiers = driver.plan_count_time_tiers(total)
+        check(
+            set(tiers) == set(driver.DUTY_TIERS),
+            f"{total:g} s yields a plan at every tier (got {sorted(tiers)})",
+        )
+        for floor, plan in tiers.items():
+            check(
+                plan.duty_cycle >= floor - 1e-12,
+                f"{total:g} s at a {floor:.0%} floor actually meets it "
+                f"(got {plan.duty_cycle:.1%})",
+            )
+            check(
+                1 <= plan.periods <= 2000,
+                f"{total:g} s at a {floor:.0%} floor stays within NP limits",
+            )
+
+    # One enumeration, so a tier read together must equal the same tier read alone.
+    tiers = driver.plan_count_time_tiers(0.15)
+    check(
+        tiers[0.99] == driver.plan_count_time(0.15, min_duty=0.99),
+        "a tier from the joint pass equals the same floor planned on its own",
+    )
+
+    # Tightening the floor can only cost accuracy, never improve it. 0.15 s is exactly
+    # 3 x 0.05 s at 97.4% duty, which a 99% floor refuses.
+    tiers = driver.plan_count_time_tiers(0.15)
+    check(tiers[0.8].is_exact and tiers[0.8].periods == 3, "0.15 s is exact at an 80% floor")
+    check(
+        not tiers[0.99].is_exact and tiers[0.99].periods == 1,
+        f"a 99% floor gives up exactness on 0.15 s (got {tiers[0.99]})",
+    )
+    check(
+        tiers[0.99].duty_cycle >= tiers[0.8].duty_cycle,
+        "the tighter floor does deliver the better duty it was asked for",
+    )
 
 
 def test_auto_split_mode(driver):
@@ -1828,6 +1898,124 @@ def test_auto_split_mode(driver):
         not any("settable count period" in str(m) for m in messages),
         f"a representable count time produces no rounding warning (got {messages})",
     )
+
+    # --- 1.6 s, the case this mode exists for ---------------------------------
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Count time mode": "Total live time (auto-split)",
+            "Counter A input": "10 MHz",
+            "Count time in s": 1.6,
+        },
+    )
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(sr400.periods == 2, f"1.6 s runs as 2 periods (instrument holds {sr400.periods})")
+    check(
+        math.isclose(sr400.preset[2] / 1e7, 0.8, rel_tol=1e-9),
+        f"1.6 s uses a 0.8 s count period (holds {sr400.preset[2] / 1e7})",
+    )
+    counts_a, _, _, _, count_time = run_point(device)
+    check(counts_a == 2 * 8e6, f"1.6 s of 10 MHz is 1.6e7 counts (got {counts_a})")
+    check(math.isclose(count_time, 1.6, rel_tol=1e-9), f"1.6 s is reported back (got {count_time})")
+
+    # --- the >99% duty tick box ------------------------------------------------
+    def configured(total, high_duty):
+        sr = VirtualSR400()
+        dev = make_device(
+            driver,
+            sr,
+            **{
+                "Count time mode": "Total live time (auto-split)",
+                "Quantize count time to >99% duty cycle": high_duty,
+                "Counter A input": "10 MHz",
+                "Count time in s": total,
+            },
+        )
+        notes = []
+        dev.message_info = notes.append
+        dev.connect()
+        dev.initialize()
+        dev.configure()
+        return dev, sr, notes
+
+    device, sr400, messages = configured(0.15, False)
+    check(sr400.periods == 3, f"0.15 s is 3 x 0.05 s at the default floor (holds {sr400.periods})")
+    check(
+        any("80%" in str(m) for m in messages),
+        f"the message names the duty floor in use (got {messages})",
+    )
+    check(
+        any("99%" in str(m) and "instead" in str(m) for m in messages),
+        f"the message prices the other floor (got {messages})",
+    )
+
+    device, sr400, messages = configured(0.15, True)
+    check(sr400.periods == 1, f"ticking >99% duty gives 1 period (holds {sr400.periods})")
+    check(
+        math.isclose(sr400.preset[2] / 1e7, 0.2, rel_tol=1e-9),
+        f"and a 0.2 s count period (holds {sr400.preset[2] / 1e7})",
+    )
+    check(
+        any("99%" in str(m) and "closest reachable" in str(m) for m in messages),
+        f"the >99% plan admits it is no longer exact (got {messages})",
+    )
+    check(
+        any("80%" in str(m) and "exact" in str(m) for m in messages),
+        f"and says the 80% floor would have been exact (got {messages})",
+    )
+
+    # 1.6 s is exact at both floors, so the tick box changes nothing and says nothing about it.
+    device, sr400, messages = configured(1.6, True)
+    check(sr400.periods == 2, "1.6 s is 2 x 0.8 s at a 99% floor too")
+    check(
+        not any("instead" in str(m) for m in messages),
+        f"no trade-off is reported when there is none (got {messages})",
+    )
+
+    # --- auto-split refuses where a preset is not a time -----------------------
+    for overrides, fragment in (
+        ({"Counter T input": "TRIG"}, "Counter T input"),
+        ({"Counter T input": "INPUT 2"}, "Counter T input"),
+        ({"Count mode": "A for B preset", "Counter B input": "INPUT 2"}, "A for B preset"),
+    ):
+        sr400 = VirtualSR400()
+        device = make_device(
+            driver,
+            sr400,
+            **{
+                "Count time mode": "Total live time (auto-split)",
+                "Counter A input": "10 MHz",
+                "Count time in s": 1.6,
+                **overrides,
+            },
+        )
+        device.connect()
+        device.initialize()
+        try:
+            device.configure()
+            check(False, f"auto-split is refused for {overrides}")
+        except Exception as exc:
+            check(
+                fragment in str(exc) and "Per period" in str(exc),
+                f"auto-split refusal names the cause and the remedy: {exc}",
+            )
+
+    # Per period is unaffected by the same configurations.
+    sr400 = VirtualSR400()
+    sr400.rate["TRIG"] = 1e5
+    device = make_device(
+        driver,
+        sr400,
+        **{"Counter A input": "10 MHz", "Counter T input": "TRIG", "Preset counts (T or B)": 1e5},
+    )
+    device.connect()
+    device.initialize()
+    device.configure()
+    check(True, "Per period still configures with counter T off the timebase")
 
     # --- an unknown mode is refused -------------------------------------------
     sr400 = VirtualSR400()

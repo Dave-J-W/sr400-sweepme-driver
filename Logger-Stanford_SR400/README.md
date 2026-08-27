@@ -36,7 +36,7 @@ route is the instrument's own scan machinery rather than a SweepMe! sweep: `Gate
 plus `GY` (delay step), `DT` (dwell) and `NP` (number of points) make the SR400 step its own gate
 and fill the scan buffer, which `EA` then dumps in one transfer. Every one of those commands is
 already implemented and round-trip tested below — what is missing is the decision about how to
-present a whole scan through `call()`, which returns one row per point. See §7.2.
+present a whole scan through `call()`, which returns one row per point. See §7.3, and §7.2 for the decision it shares with auto-split.
 
 ---
 
@@ -60,7 +60,7 @@ default in this mode, the driver says so once rather than letting the field look
 One SweepMe! point = one SR400 **scan** of `Periods per point` count periods, with the
 instrument's own internal dwell between them. The SR400 runs the whole scan from a single `CS`
 and the driver sums the buffer entries. This is the mode that owns the instrument's scan
-machinery, so it is where gate-delay scanning will land (§7.2).
+machinery, so it is where gate-delay scanning will land (§7.3).
 
 The command traffic below is the scan mode; the single-period mode is the same with `NP 1`:
 
@@ -92,6 +92,7 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Count mode` | `CM` | Selects which counter is preset. Also resets the counters. |
 | `Counter A/B/T input` | `CI` | Hardware-restricted: A ∈ {10 MHz, INPUT 1}, B ∈ {INPUT 1, INPUT 2}, T ∈ {10 MHz, INPUT 2, TRIG}. Wrong combinations are rejected before anything is sent. |
 | `Count time mode` | — | `Per period` (default): `Count time in s` is one count period, rounded to the nearest settable value. `Total live time (auto-split)`: it is the **total**, and the driver splits it across periods. See gotcha 3. |
+| `Quantize count time to >99% duty cycle` | — | Raises the auto-split duty floor from 80 % to 99 %. Costs accuracy on the total; the plan message says what the other floor would have given. Ignored in `Per period` mode. |
 | `Count time in s` | `CP 2` | Used when `Counter T input = 10 MHz`. Converted to clock cycles. One period, or the total, per `Count time mode`. |
 | `Preset counts (T or B)` | `CP 1/2` | Used when T counts INPUT 2 / TRIG, or in `A for B preset` mode. |
 | `Periods per point` | `NP` | 1…2000. Counts are summed. **`Scan of N periods` only**, and computed by the planner in auto-split mode rather than read from here. |
@@ -110,7 +111,7 @@ call()       → [Counter A, Counter B, Rate A, Rate B, Count time]
 | `Print SweepMe! phase` | — | Debug aid. Prints the name of each semantic function as SweepMe! calls it (`connect`, `initialize`, `configure`, `measure`, `call`, `unconfigure`) to the SweepMe! debug console. Off by default and silent when off. |
 
 All of these are applied once, in `configure()`. To vary one of them across a run you currently
-have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §7.2.
+have to change it in the GUI and start a new run — see "Why the *Logger* module" above and §7.3.
 
 ---
 
@@ -172,10 +173,35 @@ Splitting costs wall clock, not accuracy: the run takes `(N−1) × dwell` longe
 manual notes the internal dwell "may have 200 ns of indeterminacy" — that is in the **dead** time
 between periods, so it never touches the live time or the counts.
 
+**The duty floor is 80 % by default, and there is a tick box for 99 %.** Duty is
+`live / (live + dead)` — how much of the wall clock was actually spent counting. At 80 % most
+people never think about it: type 1.6 s, get 2 × 0.8 s, exact, 99.9 % duty. Tick
+**`Quantize count time to >99% duty cycle`** when the dead time itself matters — a drifting
+source, or anything where a 20 % longer wall clock changes the answer.
+
+Tightening the floor can only cost accuracy, never add it, because fewer periods means a coarser
+total. The driver plans **both** floors in one pass and tells you what the other would have given,
+so the tick box is a decision rather than a guess:
+
+> auto-split — 3 × 0.05 s = 0.15 s of live counting, exactly the requested total. 97.4 % duty …
+> Duty floor 80 %. At the 99 % floor it would instead be 1 × 0.2 s (0.2 s, 100.0 % duty).
+
+and with the box ticked, the same request reports the reverse:
+
+> auto-split — 1 × 0.2 s = 0.2 s of live counting, the closest reachable total (0.2 s requested
+> 0.15 s) … Duty floor 99 %. At the 80 % floor it would instead be 3 × 0.05 s (exact, 97.4 % duty).
+
+**Auto-split refuses unless a preset is a time.** It needs `Counter T input = 10 MHz` and a
+counting mode other than `A for B preset`. Anywhere else the T preset counts *events*, not clock
+cycles, so there is no total live time to divide up and the request is meaningless rather than
+merely awkward — `configure()` raises and names both remedies. `Per period` mode still works
+normally in those configurations, via `Preset counts (T or B)`.
+
 **Below roughly 20 ms of total, do not split.** The 2 ms minimum dwell is then a large fraction of
-each period, and the planner's 50 % duty floor will refuse most splits and hand back a single
-rounded period instead — which is the right answer. Worked examples: 15 ms → 3 × 5 ms at 79 % duty
-(taken, exact); 3.4 ms → 1 × 3 ms, *not* the exact 17 × 0.2 ms, which would be 9.6 % duty. In
+each period, and the duty floor will refuse most splits and hand back a single rounded period
+instead — which is the right answer. Worked examples at the 80 % default: 15 ms → 2 × 8 ms
+(88.9 % duty, *not* the exact 3 × 5 ms, which is only 78.9 %); 3.4 ms → 1 × 3 ms, *not* the exact
+17 × 0.2 ms, which would be 9.6 %. In
 `Per period` mode the rounding warning names the exact decomposition inline when a usable one
 exists, so you do not have to work it out or find this section:
 
@@ -352,7 +378,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "265/265 checks passed"
+python tests/test_sr400_virtual.py   # expect "348/348 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -402,7 +428,7 @@ Escalate only after each step passes. Steps 1–3 are non-destructive.
 8. **Gates.** `Gate A mode = Fixed`, width ≈ your expected signal duration, then step
    `Gate A delay in s` across the trigger period. You should recover the time profile of the
    signal. Watch for the rate-error message near the end of the range (gotcha 8). One delay per
-   run until §7.2 is settled.
+   run until §7.3 is settled.
 9. **Multi-period.** `Measurement mode = Scan of N periods`, `Periods per point = 10`. Counts
    should scale ×10 and `Count time` ×10. Then repeat with `Fast readout` on and confirm the
    numbers are unchanged and the point is faster.
@@ -542,13 +568,36 @@ both parsed through `float()` so integers, reals and `1E1`-style floats all work
 outright — *"In the above example, the string `1E1` is returned"* — so it is no longer an
 assumption.
 
-### 7.2 How to expose a gate-delay scan
+### 7.2 One unmade decision: what a multi-value acquisition returns
+
+Three features want the same thing and none of them can have it yet, so the decision below gets
+made **once** rather than three times. Nothing here needs doing now.
+
+| Wants | Status |
+|---|---|
+| Gate-delay scanning | Not implemented. The command layer is complete and tested; only the output shape is missing. |
+| `Total live time (auto-split)` | **Implemented**, and today it *sums* the *N* per-period values. That is the right default — the point of asking for 1.6 s of counting is to get one number for 1.6 s — and no change is wanted. |
+| Per-period statistics (mean, sample standard deviation, Fano factor) | Not implemented, and not wanted yet: an advanced-user feature. |
+
+They share one constraint: `call()` returns **one row per measurement point**, and all three
+produce *N* values in a single acquisition.
+
+Worth recording for whenever statistics does land: **the readout already reads every period
+individually.** `_read_scan_buffer()` issues `QA m`/`QB m` per period and adds them up as it goes,
+so there is nothing new to collect and no extra instrument traffic — retaining the list instead of
+a running total is the whole data-collection change. It is purely an output-shape change, which is
+exactly why it waits on the decision below rather than on any protocol work.
+
+### 7.3 How to expose a gate-delay scan
 
 This is the one real functional gap. The driver holds one gate delay for a whole run, so the
 SR400's characteristic time-resolved experiment cannot be run from it yet. The command layer is
 already complete and tested — `GM` (scan mode), `GY` (delay step), `GZ` (read the applied scan
 delay), `NP`, `DT`, `EA`/`EB` (buffer dump) — so this is a question of presentation, not of
 protocol.
+
+(This is the concrete version of the §7.2 decision, written up for the gate-scan case because
+that is the one that needs new GUI parameters.)
 
 The `Measurement mode` split settled where this belongs: `Scan of N periods` already owns `NP`,
 the internal dwell and the buffer readout, so gate scanning is an extension of that mode rather

@@ -15,6 +15,14 @@ Newest first. Gotcha and section numbers refer to
   is the module-level pure function `plan_count_time()`, testable without a `Device`. In
   `Per period` mode the rounding warning now names the exact decomposition inline. Documents
   **gotcha 3**, which is split into its two separate claims.
+- **`Quantize count time to >99% duty cycle`.** The auto-split duty floor is 80 % by default —
+  type a count time and start counting, without thinking about dead time — and this raises it to
+  99 % for when the dead time itself matters. `plan_count_time_tiers()` evaluates every floor in a
+  single enumeration, so a plan always exists at 99 % and the message can price what the other
+  floor would have given instead of leaving it to be guessed.
+- Auto-split **refuses** unless `Counter T input = 10 MHz` and the counting mode is not
+  `A for B preset`. Anywhere else the T preset counts events rather than clock cycles, so there is
+  no total live time to divide; `configure()` raises and names both remedies.
 
 - **USB-serial latency-timer detection.** `connect()` reads the selected COM port's FTDI latency
   timer and warns once if it is above 4 ms, with the estimated per-point cost for the current
