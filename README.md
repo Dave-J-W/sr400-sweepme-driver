@@ -8,7 +8,7 @@ SR400 two-channel gated photon counter, over RS-232 or GPIB.
 | Driver | [`Logger-Stanford_SR400/`](Logger-Stanford_SR400/) — `main.py` (~2400 lines), [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/), `license.txt` |
 | Columns | `Counter A`, `Counter B`, `Rate A`, `Rate B`, `Count time` |
 | Interfaces | RS-232 (COM) and GPIB, via the pysweepme port manager |
-| Tests | 348 checks, no hardware required |
+| Tests | 383 checks, no hardware required |
 | History | [`CHANGELOG.md`](CHANGELOG.md), [`docs/`](docs/) |
 
 Every command the driver sends is documented in the SR400 manual, Revision 2.7,
@@ -91,6 +91,14 @@ and two actions report and fix it: `report_com_port_latency` (read-only) and
 file rather than demanding administrator rights. Both are host-side only and send the
 instrument nothing, so either is safe to click mid-run. See §8 of the driver README.
 
+Two more actions run a **hardware self-test** in two tiers: `run_self_test` needs no cabling
+changes and writes the raw response-format table that retires the driver's remaining
+assumptions, and `run_self_test_loopback` uses one BNC from the A DISC output to SIGNAL
+INPUT 2 to give counters B and T an exact known pulse train — the only way to test counter B
+at all, since it cannot see the internal timebase. Both refuse while the instrument is
+counting, restore everything they touch without using a storage slot, and write a timestamped
+report. Driver README §9.
+
 `Fast readout (batch queries)` chains counter queries to cut round trips — about 3.5×
 fewer at 10 periods per point. Off by default, because the manual both documents chained
 queries and advises against them; gotcha 16 quotes both. **Fixing the latency timer is
@@ -107,7 +115,7 @@ instrument's buffer limits — and runs the whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-348 checks, covering:
+383 checks, covering:
 
 - both measurement modes, and both count-time modes
 - the count-time planner as a pure function: every split in the specification, at every
@@ -122,6 +130,9 @@ python Logger-Stanford_SR400/tests/test_sr400_virtual.py
   instrument
 - batched readout proved **identical** to unbatched for 1/2/10/17/33 periods, plus its
   desync, buffer-limit and dead-link failure paths
+- both hardware self-test actions: that they complete, restore every setting they touch
+  against a full state snapshot, refuse while the instrument reports counting, detect a
+  missing loopback cable and stop cleanly, and never send `SE`, `ST` or `RC`
 - a round trip of every wrapped command
 
 It does **not** cover anything about the real instrument: response *formats*,

@@ -43,6 +43,45 @@ from typing import NamedTuple
 
 from pysweepme.EmptyDeviceClass import EmptyDevice
 
+# --- sibling module loading -------------------------------------------------
+# A bare "import selftest" does NOT work: pysweepme loads main.py with
+# imp.load_source(), which never puts the driver folder on sys.path -- verified against
+# pysweepme 1.5.6.17 by loading a folder whose main.py imports a sibling, which raises
+# ImportError. So the sibling is loaded by explicit path, under a driver-name-qualified
+# module name, exactly as the LabJack T-series drivers load their base class: two SR400
+# drivers installed side by side then cannot collide in sys.modules.
+#
+# The self-test is a convenience, not part of measuring, so a failure to load it must not
+# stop the driver loading. selftest stays None and the two actions say so.
+try:
+    from pysweepme import load_source  # pysweepme >= 1.6.1.1
+except ImportError:
+    import importlib.machinery
+    import importlib.util
+    import types
+
+    def load_source(modname: str, filename: str) -> types.ModuleType:
+        """Load a .py file as a module registered in sys.modules under modname."""
+        loader = importlib.machinery.SourceFileLoader(modname, filename)
+        spec = importlib.util.spec_from_file_location(modname, filename, loader=loader)
+        if spec is None:
+            msg = f"Failed to import from {filename}"
+            raise ImportError(msg)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module.__name__] = module
+        loader.exec_module(module)
+        return module
+
+_main_path = os.path.dirname(os.path.abspath(__file__))
+_driver_name = os.path.basename(_main_path)
+
+try:
+    selftest = load_source(_driver_name + ".selftest", _main_path + os.sep + "selftest.py")
+    _selftest_error = ""
+except Exception as _exc:  # noqa: BLE001 -- the driver must load without it
+    selftest = None
+    _selftest_error = str(_exc)
+
 
 
 # ======================================================================
@@ -245,9 +284,22 @@ def plan_count_time(
 class Device(EmptyDevice):
     """Driver for the Stanford Research Systems SR400 two-channel gated photon counter."""
 
-    actions = ["report_com_port_latency", "reduce_com_port_latency"]
-    """Buttons SweepMe! renders for this driver. Both are host-side only and send the SR400
-    nothing at all, so either is safe to click mid-experiment."""
+    actions = [
+        "report_com_port_latency",
+        "reduce_com_port_latency",
+        "run_self_test",
+        "run_self_test_loopback",
+    ]
+    """Buttons SweepMe! renders for this driver.
+
+    The two latency actions are host-side only and send the SR400 nothing at all. The two
+    self-tests do reprogram the instrument, so they refuse to start while it is counting and
+    restore every setting they touch -- see README section 9.
+
+    Two self-test actions rather than one with a prompt, because an action takes no arguments
+    and message_box cannot return an answer. Consent to the loopback tier is expressed by
+    clicking it; declining is not clicking it. A prompt-and-branch design cannot work here.
+    """
 
     description = """
         <h3>Stanford Research Systems SR400</h3>
@@ -1688,6 +1740,60 @@ class Device(EmptyDevice):
             f"replug is needed. It will revert when the adapter is replugged unless a udev rule "
             f"makes it persistent.",
         )
+
+    # ------------------------------------------------------- self-test actions
+
+    def _run_self_test(self, tier: str, runner_name: str) -> None:
+        """Shared body for both self-test actions: refuse, run, report.
+
+        Thin on purpose. Everything substantive lives in selftest.py so that a syntax error or
+        a missing file there costs the user two buttons rather than the whole driver.
+        """
+        try:
+            if selftest is None:
+                self.message_box(
+                    f"SR400: the self-test module could not be loaded, so this action is "
+                    f"unavailable ({_selftest_error}). The driver itself is unaffected. Check "
+                    f"that selftest.py is present next to main.py in the driver folder.",
+                )
+                return
+
+            refusal = selftest._refuse_if_busy(self)
+            if refusal:
+                self.message_box(f"SR400 {tier}: {refusal}.")
+                return
+
+            report, path = getattr(selftest, runner_name)(self)
+
+            summary = f"SR400 {tier}: {report.passed}/{report.checks} checks passed."
+            if report.aborted:
+                summary += " ABORTED early -- the known-answer test failed, so nothing below it"
+                summary += " can be trusted."
+            if report.failures:
+                shown = report.failures[:5]
+                summary += "\n\nFailed:\n" + "\n".join(f"  - {f}" for f in shown)
+                if len(report.failures) > len(shown):
+                    summary += f"\n  ... and {len(report.failures) - len(shown)} more."
+            summary += (
+                f"\n\nFull report, including the raw response-format table:\n  {path}"
+                if path
+                else "\n\nThe report file could not be written; the checks above are all there is."
+            )
+            self.message_box(summary)
+        except Exception as exc:  # noqa: BLE001 -- an action must never raise
+            self.message_box(
+                f"SR400 {tier}: the self-test stopped with an error ({exc}). The instrument may "
+                f"be left mid-configuration -- enable 'Reset instrument at start', or press the "
+                f"front-panel RESET, before relying on it.",
+            )
+
+    def run_self_test(self) -> None:
+        """Tier 1: everything checkable with no cabling changes. See README section 9."""
+        self._run_self_test("self-test tier 1", "run_tier1")
+
+    def run_self_test_loopback(self) -> None:
+        """Tier 2: needs one BNC from the A DISC output to SIGNAL INPUT 2. README section 9."""
+        self._run_self_test("self-test tier 2", "run_tier2")
 
     def _reduce_latency_windows(self, current: int) -> None:
         """Try the registry write; on refusal, write a .reg file the user can run as admin."""

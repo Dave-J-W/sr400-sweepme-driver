@@ -1,7 +1,7 @@
 # SweepMe! driver — Stanford Research Systems SR400 photon counter
 
-Module: **Logger** · Interfaces: **RS-232 (COM)** and **GPIB** · Files: `main.py`, `README.md`,
-`license.txt`, `tests/test_sr400_virtual.py`
+Module: **Logger** · Interfaces: **RS-232 (COM)** and **GPIB**
+Files: `main.py`, `selftest.py` (§9), `README.md`, `license.txt`, `tests/test_sr400_virtual.py`
 
 Every command this driver sends is documented in the SR400 manual, chapter *Remote Programming –
 Detailed Command List* (manual pp. 37–47). Nothing is inferred from generic SCPI conventions; the
@@ -30,13 +30,14 @@ acquisition — `measure()` followed by `call()`. That is Logger semantics, and 
 folder-name prefix selects. There is no `apply()` and no `SweepMode`: the Logger module does not
 render a sweep field, so an `apply()` here would be code that SweepMe! never calls.
 
-**Sweeping a gate delay is therefore not yet wired up.** The SR400's characteristic experiment is
-a gate-delay scan, and this driver can currently only sit at one gate delay per run. The intended
-route is the instrument's own scan machinery rather than a SweepMe! sweep: `Gate A mode = Scan`
-plus `GY` (delay step), `DT` (dwell) and `NP` (number of points) make the SR400 step its own gate
-and fill the scan buffer, which `EA` then dumps in one transfer. Every one of those commands is
-already implemented and round-trip tested below — what is missing is the decision about how to
-present a whole scan through `call()`, which returns one row per point. See §7.3, and §7.2 for the decision it shares with auto-split.
+**Gate-delay scanning is therefore not yet wired up**, and that is the one real functional gap.
+The SR400's characteristic experiment is a gate-delay scan, and this driver can currently only sit
+at one gate delay per run. The route is the instrument's own scan machinery rather than a SweepMe!
+sweep — `Gate A mode = Scan` plus `GY` (delay step), `DT` and `NP` make the SR400 step its own gate
+and fill the scan buffer, which `EA` dumps in one transfer — and every one of those commands is
+already implemented and round-trip tested below. The output shape is settled too (§7.2): a scan
+returns one row of *N* columns per counter, and the mode picks the reduction. What remains is the
+code. §7.3 is the spec.
 
 ---
 
@@ -394,6 +395,12 @@ command-processing latency, or electrical behaviour.
 
 ### 5.2 Hardware, in this order
 
+**Most of this is automated — see §9.** `run_self_test` covers steps 1, 3, 5, 6, 9 and 10 below
+without any cabling change, and writes the response-format table that retires §7.1;
+`run_self_test_loopback` covers counter B and the discriminators, which the manual sequence here
+cannot reach without a cable. Run the actions first and use this list for what they leave: the real
+signal, the gates, and the failure behaviour.
+
 Escalate only after each step passes. Steps 1–3 are non-destructive.
 
 1. **Communication.** `connect()`. It reads `CM` and validates the answer is 0…3. Failure messages
@@ -548,7 +555,9 @@ than 10×.
 ### 7.1 Remaining assumptions
 
 Audited against the manual (Revision 2.7, 11/2018) — see [`docs/MANUAL_AUDIT.md`](../docs/MANUAL_AUDIT.md)
-for what was checked and what changed. Every command, every numeric limit and every status bit in
+for what was checked and what changed. **All four are retired by running `run_self_test` (§9)**:
+section 2 of its report is the raw response-format table, and sections 4 and 8 settle the
+behavioural two. That report is the artefact that closes this list out. Every command, every numeric limit and every status bit in
 this driver is now a quotation rather than an inference. Four assumptions survive. The first two
 are response-format details, and both are parsed through `float()` so integers, reals and
 `1E1`-style floats all work regardless; the last two are behavioural and need the bench.
@@ -690,6 +699,8 @@ middle of a run. Both are also written so they cannot raise; a failure is report
 | Action | Does |
 |---|---|
 | `report_com_port_latency` | Reads the selected COM port's USB-serial latency timer and reports it with the estimated per-point cost for the *current* GUI settings. Read-only. Says "select a port first" rather than failing when no port is chosen, and says the setting does not apply on GPIB. |
+| `run_self_test` | Tier 1 of the hardware self-test: everything checkable with no cabling changes. See §9. |
+| `run_self_test_loopback` | Tier 2: needs one BNC cable. See §9. |
 | `reduce_com_port_latency` | Tries to set the timer to 1 ms. On Linux it writes sysfs, which takes effect immediately. On Windows it attempts the registry write and, if that is refused for want of administrator rights, writes a `.reg` file into the SweepMe! TEMP folder and tells you the path — run it as administrator, then replug the adapter. |
 
 Why the `.reg` file instead of just writing the key: the measurement path must never require
@@ -699,4 +710,118 @@ succeeds silently. See gotcha 15 for the platform, privilege, replug and persist
 four matter, and omitting any one of them generates a bug report.
 
 The driver never touches the latency timer on its own, and never enables `Fast readout` on its
-own. Both are absent behaviours on purpose.
+own. Both are absent behaviours on purpose. Nor does it ever run a self-test on its own: §9's
+actions reprogram the instrument, so they only ever happen on a click.
+
+---
+
+## 9. Self-test actions
+
+The virtual bench proves the driver's *logic* against a simulator built from the same manual the
+driver was written from. It cannot prove anything about a real instrument: response formats, real
+latency, or any electrical behaviour. §7.1 lists exactly those assumptions. These two actions are
+how they get closed out, and **the report file is the deliverable** — it is what retires §7.1 and
+what to attach to a bug report.
+
+Both work over RS-232 or GPIB.
+
+### 9.1 Why two actions rather than one with a prompt
+
+An action takes no arguments, and `message_box` cannot return an answer. So there is no way to ask
+"is the loopback cable connected?" and branch on the reply. Consent to the loopback tier is
+expressed by **clicking `run_self_test_loopback`**; declining it is not clicking it. A
+prompt-and-branch design cannot work here, so it was not attempted.
+
+Tier 2 does not ask about cabling either — it **probes**. A count of zero on INPUT 2 is a more
+reliable answer than a human confirmation, and if the cable is absent the action names the two BNCs
+to join and stops without touching anything else.
+
+### 9.2 Safety
+
+An action can be clicked at any moment, including mid-run. Both tiers therefore:
+
+- **Refuse while the instrument is counting.** Checked against the instrument (`SI` bit 2), not
+  against driver state, because that is the condition where interfering actually destroys data.
+  Also refuses while a run is being stopped.
+- **Save and restore every setting they touch**, by querying it first and restoring in a `finally`.
+  **No storage slot is used**: `ST` would clobber one of the user's nine setup slots and `RC 0` is
+  destructive, so neither is ever sent. The report says so explicitly.
+- **Never send `SE`.** Reprogramming the RS-232 terminator mid-test can break communication with no
+  way back, so the terminator is read-only as far as the self-test is concerned.
+- **Leave PORT1/PORT2 alone in tier 1.** They may be driving apparatus. Tier 2 does drive PORT1 —
+  only if cable 2 is present — and restores it.
+- **Never raise.** A failure is reported as message text, like the latency actions.
+
+Progress arrives as one `message_info` per section; the end is a `message_box` with pass/fail counts
+and the report path.
+
+### 9.3 Tier 1 — `run_self_test`, no cabling changes
+
+| # | Section | Settles |
+|---|---|---|
+| 1 | **Known answer** — 10 MHz for 1 s must read exactly 10000000 (the manual's own test, p. 33) | If this fails the run **aborts**: the preset arithmetic, status polling and buffer read are all suspect, so nothing below it means anything |
+| 2 | **Response formats** — the RAW string from ~50 getters, verbatim, before any `float()` | §7.1 items 1–2. Whether `CP 2` answers `1E1` or `10`, what `TL`'s sign and decimals look like, and every other format currently *assumed* |
+| 3 | **One-significant-digit rule** — `CP 2,12` → `1E1`, `DT 2.2E-3` → `2E-3` | Gotcha 3, and the whole count-time planner, which is built on this being true |
+| 4 | **Chained queries** — `CM;CI 0;GD 0` must give three answers in order | §7.1 item 3, the only unverified assumption behind `Fast readout`. Reports an explicit **recommendation** on whether to enable it |
+| 5 | **Status byte semantics** — the read is destructive; `TL 5` really does set bit 7 | Gotcha 6, and that error detection is wired to reality rather than to the simulator |
+| 6 | **Buffer threshold** — a ~250-character line sets bit 7 | `BUFFER_ERROR_CHARS = 240`, which `BATCH_MAX_LINE_CHARS` derives from (gotcha 16) |
+| 7 | **Timebase cross-check** — count the crystal against `time.perf_counter()` | Catches a wrong preset scaling. It cannot measure the 25 ppm spec: a PC clock is not that good |
+| 8 | **Scan machinery** — 10 periods, buffer indexing, `NN`, and `QA 11` → −1 | The `Scan of N periods` mode, and §7.1 item 1 |
+| 9 | **EXTERNAL dwell** — three periods, one `CS` each | The `Single count period` mode's acquisition path |
+| 10 | **Throughput, measured** — ms/query with `SW 0` and `SW 6`, plus the latency timer | Converts §6.2 from *derived* to *measured* for your setup. Restores `SW 0` afterwards |
+| 11 | **Interface gating** — `MI`/`SW` refused on GPIB, `SV` refused on RS-232 | Gotcha 12 |
+
+**Counter B cannot be exercised in tier 1.** Counter A can count the internal 10 MHz timebase, but
+counter B accepts only INPUT 1 or INPUT 2 (manual, `CI`) — so with no cable there is no known pulse
+train to give it. That asymmetry is the entire reason tier 2 exists.
+
+The long durations are module constants in `selftest.py` (`KNOWN_ANSWER_SECONDS` and friends) so the
+bench can shrink them; on hardware the defaults are the values that matter.
+
+### 9.4 Tier 2 — `run_self_test_loopback`, one core cable
+
+```
+  CABLE 1 (required)         A DISC out  ──BNC──>  SIGNAL INPUT 2
+  CABLE 2 (optional)         PORT1 out   ──BNC──>  INHIBIT in
+  CABLE 3 (optional)         DWELL out   ──BNC──>  TRIGGER in
+```
+
+**Cable 1** is the whole idea. The A DISC output emits one NIM pulse per count A registers —
+*including* when A is counting the internal 10 MHz — so a single BNC hands counters B and T an
+exact, known pulse train. Impedances match: NIM into 50 Ω, and the signal inputs are internally
+50 Ω terminated, so no terminator or attenuator is needed. The −0.7 V pulse is outside the ±300 mV
+linear range but well inside the ±5 V protection limit and is short, so the manual's 10 µs overload
+caveat does not apply. The B discriminator is set to FALL at about −100 mV, comfortably above the
+≈10 mV region where the manual warns of DISC-to-signal pickup causing oscillation.
+
+With cable 1, tier 2 checks: counter B against an exact reference; both discriminators' slope and
+threshold behaviour; `A-B` and `A+B` modes (which must give 0 and 2×, since both counters see the
+same train); and `A for B preset` mode, confirming that `QB` really returns −1 by design — the
+behaviour an earlier draft treated as an error, which made that whole counting mode unusable.
+
+**Cable 2** is the only way to confirm the D/A produces actual voltage. The SR400 has no ADC, so
+`PL` readback proves only that the register was written. PORT1 at 0 V lets counting proceed; at
+**+5 V** it inhibits. Clamped to +5 V deliberately — never the full ±10 V range into a TTL input.
+
+**Cable 3** gives a real trigger (TTL, one pulse per dwell, threshold ≈ +1.5 V) and confirms the
+trigger discriminator and secondary status bit 0. Combined with cable 1 it enables a **gate-width
+calibration**: with T on TRIG preset to *N* gates and gate B FIXED at width *W*, counting the
+looped-back 10 MHz gives ≈ `1e7 × N × W` counts, so `counts / (1e7 × N)` is the *effective* gate
+width. Sweeping *W* across the resolution bands of gotcha 4 measures the gate generator against the
+crystal — the closest this instrument can come to putting a scope on itself.
+
+### 9.5 What neither tier verifies
+
+- **Absolute PORT output voltage** — needs a DVM. Tier 2 shows only that it swings.
+- **Gate timing to nanosecond accuracy** — needs an oscilloscope. The calibration above is good to
+  a few percent, not to nanoseconds.
+- **Signal-input linearity, offset and bandwidth** — needs a calibrated source.
+- **Real photon-counting behaviour** — PMT pulse-height distribution, dark counts, dead-time losses,
+  afterpulsing. A discriminator plateau on a real PMT is the only test for that, and it is an
+  experiment rather than a self-test.
+
+### 9.6 The report
+
+Written to `get_folder("TEMP")` as `SR400_self_test_tier_<n>_<timestamp>.txt`, with the port string,
+the interface, pass/fail per check, the raw response-format table, and the measured throughput
+numbers. If it cannot be written the message says why rather than just that it failed.

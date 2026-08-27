@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -43,9 +45,21 @@ CLOCK = 1e7
 class VirtualSR400:
     """A minimal but faithful SR400 that speaks the documented ASCII protocol."""
 
-    def __init__(self, rate_input1: float = 5.0e4, rate_input2: float = 1.0e3, echo: bool = False):
+    def __init__(
+        self,
+        rate_input1: float = 5.0e4,
+        rate_input2: float = 1.0e3,
+        echo: bool = False,
+        loopback: bool = False,
+    ):
         self.rate = {"10 MHz": CLOCK, "INPUT 1": rate_input1, "INPUT 2": rate_input2, "TRIG": 1.0e3}
         self.echo = echo
+
+        # Models self-test cable 1: a BNC from the A DISC output to SIGNAL INPUT 2, which
+        # feeds whatever counter A is counting -- including the internal 10 MHz -- back into
+        # INPUT 2. That is what gives counters B and T a known pulse train, and it is the only
+        # way the tier-2 pass path is reachable without hardware.
+        self.loopback = loopback
 
         self.log: list[str] = []
         self.out: list[str] = []
@@ -136,20 +150,56 @@ class VirtualSR400:
     def count_time(self) -> float:
         """Length of one count period, if it is determined by the T preset and the clock."""
         if self.counting_mode == 3:  # A for B preset
-            return self.preset[1] / max(self.rate[self._input_name(1)], 1e-12)
+            return self.preset[1] / max(self._rate_for(self._input_name(1)), 1e-12)
         source = self._input_name(2)
-        return self.preset[2] / max(self.rate[source], 1e-12)
+        return self.preset[2] / max(self._rate_for(source), 1e-12)
 
     def _input_name(self, counter: int) -> str:
         names = {0: "10 MHz", 1: "INPUT 1", 2: "INPUT 2", 3: "TRIG"}
         return names[self.counter_input[counter]]
 
+    DISC_PULSE_V = -0.7
+    """Amplitude of the A DISC output, a negative NIM pulse. Only relevant under loopback."""
+
+    def _discriminator_sees(self, counter: int) -> bool:
+        """Whether counter i's discriminator fires on the looped-back DISC pulse.
+
+        Cable 1 carries a negative NIM pulse of about -0.7 V. A discriminator set to RISE never
+        crosses upward on it, and a threshold outside the band (DISC_PULSE_V, 0) is either on
+        the wrong side of the baseline or deeper than the pulse ever goes. Modelled only under
+        loopback: without the cable there is no defined pulse shape to reason about.
+        """
+        if not self.loopback:
+            return True
+        if self._input_name(counter) not in ("INPUT 1", "INPUT 2"):
+            return True
+        if self.disc_slope[counter] != 1:  # 1 = FALL
+            return False
+        return self.DISC_PULSE_V < self.disc_level[counter] < 0.0
+
+    def _rate_for(self, source: str) -> float:
+        """Pulse rate at a source, with cable 1 feeding counter A's source into INPUT 2."""
+        if self.loopback and source == "INPUT 2":
+            return self.rate[self._input_name(0)]
+        return self.rate[source]
+
     def _counts_for_period(self) -> tuple[int, int]:
         duration = self.count_time
-        counts_a = int(round(self.rate[self._input_name(0)] * duration))
-        counts_b = int(round(self.rate[self._input_name(1)] * duration))
+        counts_a = int(round(self._rate_for(self._input_name(0)) * duration))
+        counts_b = int(round(self._rate_for(self._input_name(1)) * duration))
+
+        if not self._discriminator_sees(0):
+            counts_a = 0
+        if not self._discriminator_sees(1):
+            counts_b = 0
+
         if self.counting_mode == 3:
             counts_b = -1  # counter B is the preset counter
+        elif self.counting_mode == 1:
+            counts_a = counts_a - counts_b  # A-B for T preset
+        elif self.counting_mode == 2:
+            counts_a = counts_a + counts_b  # A+B for T preset
+
         return counts_a, counts_b
 
     def _complete_period(self) -> None:
@@ -1414,8 +1464,8 @@ def test_latency_actions(driver):
     print("\n[19] the two latency actions send the instrument nothing")
 
     check(
-        driver.Device.actions == ["report_com_port_latency", "reduce_com_port_latency"],
-        f"both actions are declared (got {driver.Device.actions})",
+        driver.Device.actions[:2] == ["report_com_port_latency", "reduce_com_port_latency"],
+        f"both latency actions are declared first (got {driver.Device.actions})",
     )
 
     for port in ("COM3", "GPIB0::23::INSTR", ""):
@@ -2028,6 +2078,252 @@ def test_auto_split_mode(driver):
         check("Whatever" in str(exc), f"an unknown count time mode is refused: {exc}")
 
 
+def _instrument_snapshot(sr400):
+    """Every piece of instrument state a self-test could plausibly disturb.
+
+    Compared before and after to prove the restore is complete. Deliberately includes the PORT
+    levels, which may be driving apparatus, and the RS-232 terminator, which must never be
+    touched at all.
+    """
+    return {
+        "counting_mode": sr400.counting_mode,
+        "counter_input": dict(sr400.counter_input),
+        "preset": dict(sr400.preset),
+        "periods": sr400.periods,
+        "scan_end_mode": sr400.scan_end_mode,
+        "dwell": sr400.dwell,
+        "dac_source": sr400.dac_source,
+        "dac_range": sr400.dac_range,
+        "display_mode": sr400.display_mode,
+        "trigger_slope": sr400.trigger_slope,
+        "trigger_level": sr400.trigger_level,
+        "disc_slope": dict(sr400.disc_slope),
+        "disc_mode": dict(sr400.disc_mode),
+        "disc_level": dict(sr400.disc_level),
+        "disc_step": dict(sr400.disc_step),
+        "port_mode": dict(sr400.port_mode),
+        "port_level": dict(sr400.port_level),
+        "port_step": dict(sr400.port_step),
+        "gate_mode": dict(sr400.gate_mode),
+        "gate_delay": dict(sr400.gate_delay),
+        "gate_width": dict(sr400.gate_width),
+        "gate_step": dict(sr400.gate_step),
+        "front_panel_mode": sr400.front_panel_mode,
+        "srq_mask": sr400.srq_mask,
+    }
+
+
+def _selftest_device(driver, sr400, tmpdir, **over):
+    device = make_device(driver, sr400, **over)
+    device.get_folder = lambda identifier: tmpdir
+    device._get_com_latency_timer = lambda: None
+    return device
+
+
+def test_self_test_actions(driver):
+    print("\n[23] the two hardware self-test actions, against the simulator")
+
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp(prefix="sr400_selftest_")
+
+    # The self-test's real timings are what matter on hardware -- the known-answer test is the
+    # manual's own one-second check. Against this simulator the counts are exact by
+    # construction whatever the duration, and the simulator advances on wall-clock time, so
+    # running them full length would add ~15 s to a suite meant to run after every edit.
+    # Shrink the durations, keep every code path.
+    st = driver.selftest
+    saved_timings = (
+        st.KNOWN_ANSWER_SECONDS,
+        st.TIMEBASE_REPEATS,
+        st.SCAN_COUNT_TIME,
+        st.EXTERNAL_COUNT_TIME,
+        st.THROUGHPUT_QUERIES,
+        st.TRIGGER_PROBE_TIMEOUT,
+    )
+    st.KNOWN_ANSWER_SECONDS = 0.01
+    st.TIMEBASE_REPEATS = 2
+    st.SCAN_COUNT_TIME = 0.002
+    st.EXTERNAL_COUNT_TIME = 0.002
+    st.THROUGHPUT_QUERIES = 10
+
+    check(
+        driver.selftest is not None,
+        f"the sibling selftest module loaded ({driver._selftest_error or 'no error'})",
+    )
+    for name in ("run_self_test", "run_self_test_loopback"):
+        check(name in driver.Device.actions, f"{name} is declared as an action")
+        check(callable(getattr(driver.Device, name, None)), f"{name} is callable")
+
+    # --- tier 1 completes, and restores everything -----------------------------
+    sr400 = VirtualSR400()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+
+    before = _instrument_snapshot(sr400)
+    try:
+        device.run_self_test()
+        raised = ""
+    except Exception as exc:
+        raised = str(exc)
+    check(not raised, f"tier 1 completes without raising ({raised or 'clean'})")
+    check(len(boxes) == 1, f"tier 1 reports exactly one message_box (got {len(boxes)})")
+    check("checks passed" in boxes[-1], f"the summary carries a pass count: {boxes[-1][:60]}...")
+
+    after = _instrument_snapshot(sr400)
+    differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    check(not differing, f"tier 1 restored every setting it touched (differing: {differing})")
+
+    # --- the forbidden commands ------------------------------------------------
+    for command in ("SE", "ST", "RC"):
+        offenders = [c for c in sr400.log if c.split()[0].upper() == command]
+        check(not offenders, f"tier 1 never sent {command} (found {offenders[:3]})")
+
+    # --- the report file is written and carries the deliverable ---------------
+    reports = [f for f in os.listdir(tmpdir) if f.startswith("SR400_self_test_tier_1")]
+    check(bool(reports), f"tier 1 wrote a report file (found {reports})")
+    if reports:
+        text = open(os.path.join(tmpdir, reports[0])).read()
+        check("response formats" in text, "the report contains the raw response-format table")
+        # The value depends on the count time, which the bench shrinks -- so assert the
+        # format. Whether CP answers "1E5" or "100000" is exactly what this table exists to
+        # record, and either is a valid raw response to capture.
+        cp_row = [l for l in text.splitlines() if l.strip().startswith("CP 2")]
+        check(bool(cp_row), f"the table has a CP 2 row (got {cp_row})")
+        check(
+            bool(cp_row) and re.search(r"'\s*[-+0-9.eE]+\s*'", cp_row[0]) is not None,
+            f"and it shows the raw response quoted verbatim: {cp_row[0].strip() if cp_row else ''}",
+        )
+        check("No instrument storage slot was used" in text, "the report states no slot was used")
+        check("throughput" in text, "the report contains the measured throughput section")
+        check(
+            "Counter B is untestable here" in text,
+            "the report explains why tier 2 exists",
+        )
+
+    # --- refuses while the instrument is counting ------------------------------
+    sr400 = VirtualSR400()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+    sr400.secondary |= 1 << 2  # the SR400 reports itself as counting
+    traffic_before = len(sr400.log)
+    device.run_self_test()
+    check(
+        any("counting" in str(t) for t in boxes),
+        f"tier 1 refuses while the SR400 is counting (got {boxes})",
+    )
+    # One status query to find out, and nothing else.
+    changed = [c for c in sr400.log[traffic_before:] if not c.startswith("SI")]
+    check(not changed, f"and it changed nothing while refusing (sent {changed})")
+
+    # --- and while a run is being stopped -------------------------------------
+    sr400 = VirtualSR400()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+    device.is_run_stopped = lambda: True
+    device.run_self_test()
+    check(
+        any("being stopped" in str(t) for t in boxes),
+        f"tier 1 refuses while a run is being stopped (got {boxes})",
+    )
+
+    # --- tier 2 stops cleanly with no cable ----------------------------------
+    sr400 = VirtualSR400()
+    sr400.rate["INPUT 2"] = 0.0  # nothing on INPUT 2: the loopback cable is absent
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+    before = _instrument_snapshot(sr400)
+    try:
+        device.run_self_test_loopback()
+        raised = ""
+    except Exception as exc:
+        raised = str(exc)
+    check(not raised, f"tier 2 completes without raising when the cable is absent ({raised or 'clean'})")
+    joined = " ".join(str(t) for t in boxes)
+    check("DISC output" in joined, f"it names the two BNCs to join (got {joined[:120]})")
+    check(
+        "INPUT 2" in joined,
+        "it names the destination input, not just 'connect a cable'",
+    )
+    after = _instrument_snapshot(sr400)
+    differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    check(not differing, f"and it restored everything before stopping (differing: {differing})")
+
+    # --- tier 2 passes with the cable modelled -------------------------------
+    sr400 = VirtualSR400(loopback=True)
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+    before = _instrument_snapshot(sr400)
+    try:
+        device.run_self_test_loopback()
+        raised = ""
+    except Exception as exc:
+        raised = str(exc)
+    check(not raised, f"tier 2 completes without raising with the cable ({raised or 'clean'})")
+    check(
+        "0 checks passed" not in boxes[-1] and "checks passed" in boxes[-1],
+        f"tier 2 ran its checks with the cable present: {boxes[-1][:80]}...",
+    )
+    check(
+        "Failed:" not in boxes[-1],
+        f"and every tier-2 check passed against the simulator: {boxes[-1][:200]}",
+    )
+
+    after = _instrument_snapshot(sr400)
+    differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    check(not differing, f"tier 2 restored every setting including PORT levels (differing: {differing})")
+
+    for command in ("SE", "ST", "RC"):
+        offenders = [c for c in sr400.log if c.split()[0].upper() == command]
+        check(not offenders, f"tier 2 never sent {command} (found {offenders[:3]})")
+
+    # --- a broken selftest module degrades to a message, not a crash ----------
+    sr400 = VirtualSR400()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    saved_module = driver.selftest
+    try:
+        driver.selftest = None
+        device.run_self_test()
+        check(
+            any("could not be loaded" in str(t) for t in boxes),
+            f"a missing selftest module degrades to a message (got {boxes})",
+        )
+    finally:
+        driver.selftest = saved_module
+
+    # --- no port selected ------------------------------------------------------
+    sr400 = VirtualSR400()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Port": "", "Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.run_self_test()
+    check(
+        any("select a port" in str(t) for t in boxes),
+        f"with no port selected it says so rather than failing (got {boxes})",
+    )
+
+    (
+        st.KNOWN_ANSWER_SECONDS,
+        st.TIMEBASE_REPEATS,
+        st.SCAN_COUNT_TIME,
+        st.EXTERNAL_COUNT_TIME,
+        st.THROUGHPUT_QUERIES,
+        st.TRIGGER_PROBE_TIMEOUT,
+    ) = saved_timings
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -2058,6 +2354,7 @@ def main() -> int:
         test_batched_readout,
         test_count_time_planner,
         test_auto_split_mode,
+        test_self_test_actions,
     ):
         test(driver)
 

@@ -7,6 +7,19 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **Two-tier hardware self-test, as SweepMe! actions** (`run_self_test`,
+  `run_self_test_loopback`), implemented in a new sibling module `selftest.py`. Tier 1 needs no
+  cabling change and covers the manual's known-answer test, the raw response format of ~50
+  getters, the one-significant-digit rule, chained queries, status-byte semantics, the 240-char
+  buffer threshold, the timebase, the scan machinery, EXTERNAL dwell, measured throughput and
+  interface gating. Tier 2 uses one BNC (A DISC output → SIGNAL INPUT 2) to give counters B and T
+  an exact known pulse train — the only way to exercise counter B, which cannot see the internal
+  timebase — plus two optional cables for the INHIBIT input and a gate-width calibration against
+  the crystal. Both refuse while the instrument is counting, restore every setting they touch
+  without using a storage slot, never send `SE`, and write a timestamped report to the TEMP
+  folder. The report's response-format table is what retires **§7.1**. Documents **§9**, and
+  **§5.2** and **§7.1** now point at it.
+
 - **`Count time mode`**, with `Per period` (default, unchanged behaviour) and
   `Total live time (auto-split)`. A single count period is quantised to `d × 10ᵏ` cycles, so 1.5 s
   is not a settable period — but *N* settable periods reach an exact total, and auto-split finds
