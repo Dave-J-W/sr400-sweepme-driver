@@ -90,9 +90,15 @@ class VirtualSR400:
         self.points_done = 0
         self.buffer: list[tuple[int, int]] = []
 
-    # SR400 buffer limits (manual, "ERRORS/DATA WINDOW" and the interface sections). The
-    # simulator enforces them so that a driver which overruns a buffer fails on the bench
-    # instead of appearing to work here and losing a scan on real hardware.
+    # SR400 buffer limits, enforced so that a driver which overruns a buffer fails here instead
+    # of appearing to work and then losing a scan on real hardware.
+    #
+    # 256 is quoted: "a command input buffer of 256 characters", and an output buffer "of 256
+    # characters" whose overflow "erases" all buffered data (manual p. 37). 240 is the manual's
+    # ERR-LED threshold for "a communication buffer has exceeded 240 characters" (p. 37);
+    # treating that as also setting status bit 7, and as discarding the rest of the line, is a
+    # deliberately strict *inference* -- the manual only states the discard for errors generally.
+    # Strict is the right direction for a simulator: the driver caps itself at 180.
     COMMAND_LINE_ERROR_CHARS = 240
     OUTPUT_BUFFER_CHARS = 256
 
@@ -103,9 +109,9 @@ class VirtualSR400:
             self.out.append(command)
             self.out.append("OK>")
 
-        # Too long a command line sets the command-error bit and every command still queued on
-        # that line is discarded (manual: "any commands remaining on the current command line
-        # (up to the next <cr>) are lost").
+        # Per the inference documented above: treat an over-long line as an error, and then
+        # apply the manual's stated consequence of an error -- "any commands remaining on the
+        # current command line (up to the next <cr>) are lost".
         if len(command) + 1 > self.COMMAND_LINE_ERROR_CHARS:
             self.status |= 1 << 7
             self.line_overflowed = True

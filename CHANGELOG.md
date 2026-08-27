@@ -30,6 +30,12 @@ Newest first. Gotcha and section numbers refer to
 
 ### Fixed
 
+- **Audited every command, numeric limit and status bit against the manual** (Revision 2.7). Nothing
+  was wrong. `BUFFER_ERROR_CHARS = 240` overclaimed its source and now distinguishes the manual quote
+  from the inference; the `CP` response format moved from assumption to quotation, shortening
+  **§7.1**; and the RS-232 terminator disagreement between the drafts turned out to be settled by the
+  manual rather than needing hardware. See [docs/MANUAL_AUDIT.md](docs/MANUAL_AUDIT.md).
+
 - **Preset rounding was silent in half the configurations.** `CP` keeps one significant digit. The
   driver rounded and read back the *count time*, but `Preset counts (T or B)` — which governs
   whenever counter T is off the timebase, and in `A for B preset` mode — was rounded with nothing

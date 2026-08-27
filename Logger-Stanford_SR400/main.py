@@ -157,13 +157,25 @@ class Device(EmptyDevice):
 
     # --- command/response buffer limits (manual, interface sections) -----------
     COMMAND_BUFFER_CHARS = 256
-    """Command input buffer."""
+    """Command input buffer (manual, "Communicating with the SR400", p. 37): "The SR400 has a
+    command input buffer of 256 characters and processes the commands in the order received."
+    """
 
     OUTPUT_BUFFER_CHARS = 256
-    """Output buffer, per interface. Overrunning it erases every buffered value."""
+    """Output buffer, per interface (same page): "If a buffer overflows, the message 'DATA BUFFER
+    OVERFLOW' appears on the LCD display for 5 s and all buffered data is erased." Overrunning
+    this therefore costs the whole scan, not one value.
+    """
 
     BUFFER_ERROR_CHARS = 240
-    """Exceeding this on one command line sets the command-error bit."""
+    """Error threshold on a communication buffer (manual, "Front Panel Status LED's", p. 37).
+
+    Exactly what the manual says is that the ERR LED flashes when "a communication buffer has
+    exceeded 240 characters", alongside an illegal command and an out-of-range parameter. It
+    does *not* say that this sets status bit 7, which is documented only as "set when an illegal
+    command is received". The driver stays well below 240 either way, so the distinction is
+    academic here -- but it is an inference, not a quotation, and is labelled as one.
+    """
 
     BATCH_MAX_LINE_CHARS = 180
     """Self-imposed, a margin below BUFFER_ERROR_CHARS."""
@@ -816,7 +828,8 @@ class Device(EmptyDevice):
             msg = (
                 f"The SR400 reported a command error during the {context} (illegal command or "
                 f"parameter out of range). The COM menu line 'DATA' of the instrument shows the "
-                f"last received characters."
+                f"last 254 characters it received; the spin knob scrolls through them. Note that "
+                f"on an error the SR400 also discards the rest of that command line."
             )
             raise Exception(msg)
 
@@ -932,14 +945,22 @@ class Device(EmptyDevice):
     def _query_batch(self, commands: list[str]) -> list[str]:
         """Send several queries on one line and return their answers in order.
 
-        The SR400 processes commands in the order received and terminates each answer, so N
-        chained queries produce N answers; the manual's own example is
-        'CM;CI0;GD0<cr>' -> '1<cr>1<cr>1.2E-6<cr>'.
+        Verified against the manual (Revision 2.7, "Command Syntax" / "Remote Programming",
+        pp. 37-38). Three statements there, all of them the manual's:
 
-        The same manual also says it is "good programming practice to receive the response from
-        one query command before sending another command". Both statements are true, and this
-        method lives in the gap between them -- which is why it is opt-in, never automatic, and
-        why flipping the default would be wrong rather than merely bold. See README gotcha 16.
+        1. "It is not necessary to wait between commands. The SR400 has a command input buffer
+           of 256 characters and processes the commands in the order received."
+        2. "the response to the command string CM;CI0;GD0<cr> while using the RS-232 non-echo
+           mode would be 1<cr>1<cr>1.2E-6<cr>" -- chained *queries*, answers in order, each with
+           its own terminator.
+        3. "In general, it is good programming practice to receive the response from one query
+           command before sending another command."
+
+        (1) and (2) describe the mechanism and (3) advises against relying on it. This method
+        lives in the gap, which is why it is opt-in and never automatic. What is *not* in the
+        manual is any statement about how deep a chain a given firmware will answer correctly,
+        so that remains the one unverified assumption behind the feature. See README gotcha 16
+        and section 7.1 item 3.
         """
         if len(commands) > self.BATCH_MAX_COMMANDS:
             msg = (

@@ -477,28 +477,28 @@ than 10×.
 
 ## 7. Open items
 
-### 7.1 Response formats needing hardware confirmation
+### 7.1 Remaining assumptions
 
-Low-risk, but honest: three response formats are inferred from the manual's examples rather than
-stated as grammars. All three are parsed through `float()`, so plain integers, reals and
-`1E1`-style floats all work — but confirm during test step 2.
+Audited against the manual (Revision 2.7, 11/2018) — see [`docs/MANUAL_AUDIT.md`](../docs/MANUAL_AUDIT.md)
+for what was checked and what changed. Every command, every numeric limit and every status bit in
+this driver is now a quotation rather than an inference. Two assumptions survive, both narrow, and
+both parsed through `float()` so integers, reals and `1E1`-style floats all work regardless.
 
-1. **`CP i` response format.** Assumed `1E1`-style (the manual's own example: *"the string `1E1` is
-   returned"*). If a firmware revision returns `10`, `float()` still handles it.
-2. **Scan-finished bit with `NP 1`.** The manual says bit 2 is set at the end of a scan when the end
-   mode is STOP; a one-period scan should qualify. The driver accepts data-ready **or**
-   scan-finished when `Periods per point = 1`, so either behaviour works.
-3. **`TL`/`DL` response sign and decimal formatting.** Assumed `+2.000` / `-0.0100`. Again
-   `float()`-parsed.
+1. **Scan-finished bit with `NP 1`.** The manual says bit 2 is set at the end of a scan when the
+   end mode is STOP, but does not say whether a one-period scan qualifies. The driver accepts
+   data-ready **or** scan-finished when `Periods per point = 1`, so either behaviour works.
+2. **`TL`/`DL` response sign and decimal formatting.** Assumed `+2.000` / `-0.0100`. The manual
+   specifies the *resolutions* (1 mV and 0.2 mV) and shows a `GD` response (`1.2E-6`) but no
+   worked `TL` or `DL` response. Confirm during hardware step 2.
+3. **How deep a chained query the firmware will answer.** The manual documents `;`-chaining, says
+   the SR400 "processes the commands in the order received", and gives a three-query worked
+   example — but says nothing about a ten-deep chain. This is the one genuinely new assumption
+   behind `Fast readout` (gotcha 16). Compare a batched and an unbatched point during hardware
+   step 9.
 
-4. **Chained queries on the user's firmware revision.** The manual documents `;`-separated
-   queries and gives a worked example, but whether a given firmware answers a 10-deep chain in
-   order, within the output buffer, is the one genuinely new assumption behind `Fast readout`
-   (gotcha 16). The bench asserts batched and unbatched agree against a simulator built from the
-   same manual, which is not the same as confirming it on your instrument. Compare a batched and
-   an unbatched point during hardware step 9 before trusting it.
-
-Everything else in the driver traces to an explicit statement in the command list.
+**Resolved by the audit, previously listed here:** the `CP i` response format. The manual states it
+outright — *"In the above example, the string `1E1` is returned"* — so it is no longer an
+assumption.
 
 ### 7.2 How to expose a gate-delay scan
 

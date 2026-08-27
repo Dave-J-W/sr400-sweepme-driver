@@ -5,6 +5,9 @@ behind [`Logger-Stanford_SR400`](../Logger-Stanford_SR400/) stays recoverable.
 
 ## Contents
 
+- [MANUAL_AUDIT.md](MANUAL_AUDIT.md) — every command, limit and status bit checked against
+  the SR400 manual Revision 2.7, what it fixed, and a pdftotext trap that mis-pairs the
+  abridged command list. The manual itself is SRS copyright and is not committed.
 - [`plans/`](plans/) — the latency-and-batching implementation plan, kept verbatim, plus the
   rebase note recording what it assumed, where each task landed, and two deliberate deviations.
   All three of its tiers are implemented.
@@ -99,21 +102,27 @@ driver reports  : [50.0, 1.0]   (variables: ['Count A', 'Count B'])
 The draft outputs no count-time or rate column, so a hand-computed rate is 33%
 low with nothing in the data to reveal it.
 
-## One unresolved question the drafts disagree on
+## Resolved: the terminator disagreement
 
-The two disagree about line terminators, and only hardware can settle it:
+The two drafts disagreed about line terminators. I recorded this as needing hardware. **It did
+not** — the manual settles it outright, and the kept driver is right:
+
+> The terminating sequence for the GPIB interface is always `<cr><lf>`. The default sequence for
+> RS-232 is `<cr>` when the echo mode is off, and `<cr><lf>` when the echo mode is on.
+>
+> — SR400 manual, Revision 2.7, "Command Syntax", p. 37
+
+So `SRS_SR400.py`'s uniform `\r\n` would wait for a line feed that never arrives on RS-232 with
+echo off, which is the configuration its own header tells the user to select. Every serial query
+would time out. The kept driver's split — `EOL: "\r"` with `GPIB_EOLread: "\n"` — matches the
+manual exactly.
+
+The original comparison, for the record:
 
 | | Kept driver | `SRS_SR400.py` |
 |---|---|---|
 | RS-232 | `EOL: "\r"` | `EOL: "\r\n"` |
 | GPIB | `GPIB_EOLwrite: "\r"`, `GPIB_EOLread: "\n"` | same `"\r\n"` both ways |
-
-The kept driver's split follows the manual's statement that with `ECHO=OFF` the
-SR400 answers on RS-232 with **CR only**, while GPIB always terminates CR LF. If
-that is right, the draft's reads wait for an LF that never arrives and every
-serial query times out. The simulator ignores terminators, so this cannot be
-tested off the bench — check it first during hardware bring-up (driver README
-§5.2).
 
 Related: the draft never sends `SW 0`. At the factory default `WAIT=6` the SR400
 pads **every character it transmits** by 6 × 3.3 ms ≈ 20 ms, so a nine-digit
