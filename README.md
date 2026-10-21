@@ -8,7 +8,7 @@ SR400 two-channel gated photon counter, over RS-232 or GPIB.
 | Driver | [`Logger-Stanford_SR400/`](Logger-Stanford_SR400/) — `main.py` (~2400 lines), [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/), `license.txt` |
 | Columns | `Counter A`, `Counter B`, `Rate A`, `Rate B`, `Count time` |
 | Interfaces | RS-232 (COM) and GPIB, via the pysweepme port manager |
-| Tests | 383 checks, no hardware required |
+| Tests | 431 checks, no hardware required |
 | History | [`CHANGELOG.md`](CHANGELOG.md), [`docs/`](docs/) |
 
 Every command the driver sends is documented in the SR400 manual, Revision 2.7,
@@ -97,7 +97,9 @@ assumptions, and `run_self_test_loopback` uses one BNC from the A DISC output to
 INPUT 2 to give counters B and T an exact known pulse train — the only way to test counter B
 at all, since it cannot see the internal timebase. Both refuse while the instrument is
 counting, restore everything they touch without using a storage slot, and write a timestamped
-report. Driver README §9.
+report. Two **threshold-scan** actions sweep discriminator A for the R8486: a dark scan for the
+lowest usable level and a light scan, up and down three times, for the upper bound —
+and from both together the level maximising S/√B. Driver README §9.
 
 `Fast readout (batch queries)` chains counter queries to cut round trips — about 3.5×
 fewer at 10 periods per point. Off by default, because the manual both documents chained
@@ -115,7 +117,7 @@ instrument's buffer limits — and runs the whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-383 checks, covering:
+431 checks, covering:
 
 - both measurement modes, and both count-time modes
 - the count-time planner as a pure function: every split in the specification, at every
@@ -133,6 +135,10 @@ python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 - both hardware self-test actions: that they complete, restore every setting they touch
   against a full state snapshot, refuse while the instrument reports counting, detect a
   missing loopback cable and stop cleanly, and never send `SE`, `ST` or `RC`
+- both threshold scans against a simulated R8486: adaptive dark timing, the light-leak and
+  no-signal refusals, the light probe's refusals, drift flagged, injected hysteresis
+  recovered in mV, and the S/√B optimum landing between the noise edge and the level
+  where dark counts vanish
 - a round trip of every wrapped command
 
 It does **not** cover anything about the real instrument: response *formats*,

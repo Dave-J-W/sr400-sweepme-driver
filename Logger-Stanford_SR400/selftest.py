@@ -34,6 +34,7 @@ class Report:
         self.failures: list[str] = []
         self.aborted = False
         self.write_error = ""
+        self.headline = ""  # one-line result for the end-of-run message
 
     # -- accumulating -------------------------------------------------------
     def check(self, condition: bool, description: str) -> bool:
@@ -89,17 +90,30 @@ class Report:
 
         safe = "".join(c if c.isalnum() else "_" for c in self.title.lower())
         name = f"SR400_{safe}_{timestamp.replace(':', '').replace(' ', '_')}.txt"
-        try:
-            path = os.path.join(self.device.get_folder("TEMP"), name)
-            with open(path, "w") as handle:
-                handle.write("\n".join(body) + "\n")
-        except Exception as exc:  # noqa: BLE001 -- the report is a bonus, not the point
-            # Keep the reason. "Could not be written" with no cause is the kind of message
-            # that wastes an afternoon, and the report is the deliverable here.
-            self.write_error = f"{type(exc).__name__}: {exc}"
-            return ""
 
-        return path
+        # DATADEVICES first: SweepMe!'s folder for device-specific data, under Public Documents
+        # (C:\Users\Public\Documents\SweepMe!\DataDevices), persistent and easy to find on a
+        # remote machine. TEMP is SweepMe!'s scratch area for the current measurement
+        # (AppData\Local\SweepMe!\temp) -- hidden, and not somewhere a deliverable should live --
+        # so it is only the fallback. Each failure's reason is kept: "could not be written"
+        # with no cause wastes an afternoon, and the report is the point of the exercise.
+        driver = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+        errors = []
+        for identifier in ("DATADEVICES", "TEMP"):
+            try:
+                folder = self.device.get_folder(identifier)
+                if identifier == "DATADEVICES":
+                    folder = os.path.join(folder, driver)
+                os.makedirs(folder, exist_ok=True)
+                path = os.path.join(folder, name)
+                with open(path, "w") as handle:
+                    handle.write("\n".join(body) + "\n")
+                return path
+            except Exception as exc:  # noqa: BLE001 -- try the next location
+                errors.append(f"{identifier}: {type(exc).__name__}: {exc}")
+
+        self.write_error = "; ".join(errors)
+        return ""
 
 
 # ==========================================================================
@@ -1076,3 +1090,821 @@ def _tier2_coverage_note(device, report) -> None:
         "losses and afterpulsing. A discriminator plateau on a real PMT is the only test for "
         "that, and it is an experiment rather than a self-test."
     )
+
+
+# ==========================================================================
+#  Discriminator threshold scans -- for the R8486 bare tube on SIGNAL INPUT 1
+# ==========================================================================
+#
+# A threshold scan measures the INTEGRAL pulse-height distribution: the count rate above each
+# discriminator level. Read from low to high |level| it shows three things in order -- a steep
+# noise edge, a valley, and the single-photoelectron shoulder -- and the operating threshold
+# belongs between the first and the third.
+#
+# Two actions, because the two halves of that answer need different light:
+#
+#   dark   -- PMT covered. Finds the noise edge, i.e. the LOWEST usable level, and where dark
+#             counts vanish. Vanishing dark counts are tempting and wrong: a level that kills
+#             every dark count is above most single-photoelectron pulses too, so it throws signal
+#             away. The light scan is what proves that, by measuring the loss at that level.
+#   light  -- gentle, steady light. Finds where the counts start falling because the threshold
+#             is cutting into real single-PE pulses, i.e. the HIGHEST usable level. Swept up and
+#             down, several times: up-versus-down disagreement is hysteresis, pass-to-pass
+#             disagreement is drift, and the two have different signatures so they are estimated
+#             separately rather than lumped together.
+#
+# Bench numbers for this tube (pmt-gain-noise-budget inventory, unit test sheet): gain 5.1e6 at
+# 1000 V, anode dark current 0.07 nA, mean single-PE amplitude ~10 mV into 50 ohm, valley
+# threshold ~3 mV. Measured dark rate ~8 cps at 1000 V at the lab's hand-tuned threshold; the
+# 0.07 nA / (5.1e6 * 1.602e-19 C) ~ 86 cps implied by dark current is only an upper bound, since
+# not all dark current arrives as countable pulses. The manual
+# (p. 22) warns that below 10 mV the 0.7 V DISC output pulses can be picked up by the signal
+# cables and make the discriminators oscillate -- squarely in this tube's valley region.
+
+import math as _math
+
+SCAN_COUNTER = "A"   # counter A, so discriminator A (manual: each counter has its own)
+SCAN_INPUT = "1"     # CI 0,1 -- SIGNAL INPUT 1
+SCAN_SLOPE = "Fall"  # a bare PMT anode pulse is negative
+
+DARK_TARGET_COUNTS = 200      # ~7 % Poisson per threshold
+DARK_MAX_SECONDS = 30.0       # per threshold: 200 counts at the measured ~8 cps is 25 s
+DARK_STOP_AFTER_ZEROS = 3     # consecutive zero-count thresholds: past the distribution, stop
+LIGHT_TARGET_COUNTS = 10_000  # 1 % Poisson per threshold per pass
+LIGHT_MAX_SECONDS = 5.0
+LIGHT_REPEATS = 3             # each repeat is one up pass and one down pass
+LIGHT_GRID_CUTOFF = 0.02      # first pass stops once the rate falls below 2 % of the probe
+MIN_PERIOD_SECONDS = 0.01
+MAX_PERIOD_SECONDS = 10.0     # one count period; longer points are accumulated
+
+DARK_RATE_CEILING_CPS = 500.0   # ~60x the measured ~8 cps at 1000 V; above it the tube is not dark
+OSCILLATION_RATE_CPS = 1e6      # no covered PMT does this; it is noise, pickup or oscillation
+LIGHT_FLOOR_CPS = 2000.0        # below this there is no usable light on the tube
+LIGHT_WARN_CPS = 2e5            # 0.1 % loss at the SR400's 5 ns pulse-pair resolution
+LIGHT_CEILING_CPS = 1e6         # 0.5 % loss, and threshold-dependent: would bend the curve
+
+NOISE_SLOPE_PER_MV = 0.5        # log-slope below which the curve has stopped being noise
+SLOPE_WINDOW_V = 0.001          # slope over 1 mV, not one 0.2 mV step: Poisson noise
+DIFF_WINDOW_V = 0.0005          # half-width of the differential stencil
+VALLEY_PV_RATIO = 1.2           # single-PE peak must stand this far above the valley
+DRIFT_TOLERANCE = 0.02          # pass-to-pass scale change worth flagging
+HYSTERESIS_RESOLUTION_V = 0.0002  # the discriminator's own 0.2 mV step
+PICKUP_SAFE_V = 0.010           # manual p. 22
+LOSS_LEVELS = (0.01, 0.02, 0.05, 0.10)
+FOM_MIN_DARK_COUNTS = 20        # below this sqrt(B) is too uncertain to divide by (> 11 %)
+FOM_BAND = 0.95                 # levels within 5 % of the best S/sqrt(B) are reported as a band
+
+PROMPT_DARK = (
+    "SR400 threshold scan, DARK.\n\n"
+    "1. Cover the R8486 and make sure NO light can reach it.\n"
+    "2. PMT high voltage on, at its operating value, and settled for a few minutes.\n"
+    "3. PMT anode on SIGNAL INPUT 1, 50 ohm, no attenuator.\n"
+    "4. Remove any loopback cable. Route the INPUT 1 cable away from the DISC output cables: "
+    "below 10 mV their pulses can be picked up and make the discriminator oscillate (manual "
+    "p. 22).\n\n"
+    "Never expose the PMT to room light with the high voltage on.\n\n"
+    "Takes roughly 15-20 minutes: at ~8 dark counts/s each threshold needs up to 30 s for "
+    "adequate statistics. Press OK to start."
+)
+
+PROMPT_LIGHT = (
+    "SR400 threshold scan, LIGHT.\n\n"
+    "1. Ensure gentle, STEADY light on the R8486 -- aim for roughly 1e4 to 1e5 counts/s. "
+    "Keep it unchanged for the whole scan.\n"
+    "2. Same high voltage and cabling as the dark scan (anode on SIGNAL INPUT 1).\n"
+    "3. Run the dark scan first in this session if you want the report to show what the "
+    "dark-optimised level would cost.\n\n"
+    "Never expose the PMT to room light with the high voltage on. Too much light distorts the "
+    "result and is refused.\n\n"
+    "Press OK to start."
+)
+
+
+def threshold_grid() -> list:
+    """|threshold| in volts: fine where the noise edge and valley live, coarser after.
+
+    0.2 mV steps to 6 mV (the discriminator's own resolution, over this tube's ~3 mV valley),
+    0.4 mV to 15.2 mV (through the ~10 mV single-PE mean), 2 mV to 40 mV (the tail). Every
+    level is a multiple of 0.2 mV: anything else would be rounded by the instrument, and the
+    table would then report a level the discriminator never applied.
+    """
+    levels = []
+    for start, stop, step in ((0.0004, 0.0060, 0.0002),
+                              (0.0064, 0.0152, 0.0004),
+                              (0.0160, 0.0400, 0.0020)):
+        count = int(round((stop - start) / step)) + 1
+        levels.extend(round(start + i * step, 4) for i in range(count))
+    return levels
+
+
+def _rate_row(point: dict) -> dict:
+    """Derived numbers for one measured point. Raw counts and live time stay alongside."""
+    counts, live = point["counts"], point["live_s"]
+    row = dict(point)
+    row["rate"] = counts / live if live > 0 else float("nan")
+    row["sigma"] = _math.sqrt(counts) / live if live > 0 else float("nan")
+    # Zero counts is an upper limit, not a rate: 3/T is the 95 % Poisson bound.
+    row["upper95"] = 3.0 / live if counts == 0 and live > 0 else None
+    return row
+
+
+def _value_at(rows: list, abs_v: float):
+    """The row whose |level| is nearest abs_v."""
+    return min(rows, key=lambda r: abs(r["abs_v"] - abs_v)) if rows else None
+
+
+def _noise_edge(rows: list):
+    """First |level| at which the curve stops falling like noise.
+
+    Log-slope is taken across a 1 mV baseline rather than between neighbouring 0.2 mV points:
+    at 200 counts a single step's slope carries ~0.7 /mV of Poisson noise, which would swamp a
+    0.5 /mV threshold. Heuristic, labelled as such in the report, and refuses (returns None)
+    rather than guessing when the curve never flattens.
+    """
+    slopes = []
+    for i, row in enumerate(rows):
+        if row["counts"] <= 0:
+            slopes.append(None)
+            continue
+        far = next((r for r in rows[i + 1:]
+                    if r["abs_v"] >= row["abs_v"] + SLOPE_WINDOW_V - 1e-9 and r["counts"] > 0),
+                   None)
+        if far is None:
+            slopes.append(None)
+            continue
+        span_mv = (far["abs_v"] - row["abs_v"]) * 1e3
+        slopes.append(_math.log(row["rate"] / far["rate"]) / span_mv)
+
+    for i in range(len(slopes) - 1):
+        a, b = slopes[i], slopes[i + 1]
+        if a is not None and b is not None and a < NOISE_SLOPE_PER_MV and b < NOISE_SLOPE_PER_MV:
+            return rows[i]["abs_v"], slopes
+    return None, slopes
+
+
+def analyse_dark(points: list) -> dict:
+    """Pure analysis of a covered-PMT scan. Returns findings; never raises on thin data."""
+    rows = sorted((_rate_row(p) for p in points), key=lambda r: r["abs_v"])
+    result = {"rows": rows, "valid": True, "reasons": [], "noise_edge_v": None,
+              "vanish_v": None, "oscillating_below_v": None, "lower_bound_v": None}
+    if not rows:
+        result["valid"] = False
+        result["reasons"].append("no thresholds were measured")
+        return result
+
+    if rows[0]["counts"] == 0:
+        result["valid"] = False
+        result["reasons"].append(
+            "no counts at all, even at the lowest threshold where electronic noise alone "
+            "should register: nothing is reaching SIGNAL INPUT 1. Check the PMT cable, the "
+            "high voltage, and that the anode is on INPUT 1",
+        )
+        return result
+
+    near_10 = _value_at(rows, PICKUP_SAFE_V)
+    if near_10 and near_10["abs_v"] >= PICKUP_SAFE_V - 1e-9 and near_10["rate"] > DARK_RATE_CEILING_CPS:
+        result["valid"] = False
+        result["reasons"].append(
+            f"{near_10['rate']:.4g} cps at {near_10['abs_v'] * 1e3:.1f} mV, where a covered "
+            f"R8486 gives ~8 cps (measured at 1000 V). Light is "
+            f"reaching the tube: check the cover, or the HV is far above its test-sheet value",
+        )
+
+    noisy = [r for r in rows if r["rate"] > OSCILLATION_RATE_CPS]
+    if noisy:
+        result["oscillating_below_v"] = max(r["abs_v"] for r in noisy)
+
+    edge, slopes = _noise_edge(rows)
+    for row, slope in zip(rows, slopes):
+        row["log_slope_per_mv"] = slope
+    result["noise_edge_v"] = edge
+    if edge is None:
+        result["reasons"].append(
+            "the curve never flattens: noise and single-PE pulses are not separated at any "
+            "scanned level. That is the evidence for the Stage 2 preamp",
+        )
+    else:
+        # A margin of 0.5 mV, rounded up to the discriminator's 0.2 mV step.
+        result["lower_bound_v"] = _math.ceil((edge + 0.0005) / 0.0002 - 1e-9) * 0.0002
+
+    # Dark counts vanish where every threshold from here up reads zero.
+    for i, row in enumerate(rows):
+        if row["counts"] == 0 and all(r["counts"] == 0 for r in rows[i:]):
+            result["vanish_v"] = row["abs_v"]
+            break
+
+    return result
+
+
+def _least_squares(design: list, y: list):
+    """Ordinary least squares by the normal equations. None if the system is singular.
+
+    Three unknowns at most, so Gaussian elimination by hand rather than a numpy dependency
+    the SweepMe! environment may not have.
+    """
+    n = len(design[0])
+    ata = [[sum(row[i] * row[j] for row in design) for j in range(n)] for i in range(n)]
+    aty = [sum(row[i] * value for row, value in zip(design, y)) for i in range(n)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(ata[r][col]))
+        if abs(ata[pivot][col]) < 1e-12:
+            return None
+        ata[col], ata[pivot] = ata[pivot], ata[col]
+        aty[col], aty[pivot] = aty[pivot], aty[col]
+        for r in range(n):
+            if r != col:
+                k = ata[r][col] / ata[col][col]
+                ata[r] = [x - k * yv for x, yv in zip(ata[r], ata[col])]
+                aty[r] -= k * aty[col]
+    return [aty[i] / ata[i][i] for i in range(n)]
+
+
+def _differential(rows: list) -> list:
+    """-dR/dV in cps/mV by a centred stencil of +-0.5 mV: the pulse-height density."""
+    out = []
+    for row in rows:
+        lo = _value_at(rows, row["abs_v"] - DIFF_WINDOW_V)
+        hi = _value_at(rows, row["abs_v"] + DIFF_WINDOW_V)
+        span_mv = (hi["abs_v"] - lo["abs_v"]) * 1e3
+        out.append((lo["rate"] - hi["rate"]) / span_mv if span_mv > 0 else float("nan"))
+    return out
+
+
+def _crossing(rows: list, values: list, target: float, start_v: float):
+    """First |level| >= start_v where values falls to target, linearly interpolated."""
+    previous = None
+    for row, value in zip(rows, values):
+        if row["abs_v"] < start_v - 1e-12:
+            continue
+        if previous is not None and value <= target < previous[1]:
+            v0, y0 = previous
+            return v0 + (row["abs_v"] - v0) * (y0 - target) / (y0 - value)
+        if value <= target and previous is None:
+            return row["abs_v"]
+        previous = (row["abs_v"], value)
+    return None
+
+
+def analyse_light(passes: list, dark: dict | None = None) -> dict:
+    """Pure analysis of repeated up/down light scans.
+
+    passes: [{"direction": "up"|"down", "repeat": k, "points": [...]}, ...] in time order.
+    """
+    result = {"valid": True, "reasons": [], "rows": [], "valley_v": None, "peak_v": None,
+              "pv_ratio": None, "plateau_rate": None, "reference_v": None, "loss_v": {},
+              "pass_factors": [], "drift": None, "drift_flagged": False,
+              "hysteresis_v": None, "hysteresis_se_v": None, "hysteresis_flagged": False,
+              "recommended_v": None, "recommended_basis": "", "recommended_loss": None,
+              "window_v": None, "window_empty": False, "dark_vanish_loss": None,
+              "noise_edge_v": None, "fom": [], "optimum_v": None, "optimum_band_v": None}
+    if not passes:
+        result["valid"] = False
+        result["reasons"].append("no passes were measured")
+        return result
+
+    by_pass = [{round(p["abs_v"], 5): p for p in ps["points"]} for ps in passes]
+    common = sorted(set.intersection(*(set(d) for d in by_pass)))
+    if len(common) < 5:
+        result["valid"] = False
+        result["reasons"].append("too few thresholds were common to every pass")
+        return result
+
+    rows = []
+    for v in common:
+        counts = sum(d[v]["counts"] for d in by_pass)
+        live = sum(d[v]["live_s"] for d in by_pass)
+        rows.append(_rate_row({"abs_v": v, "level_v": -v, "counts": counts, "live_s": live}))
+    result["rows"] = rows
+
+    edge, _ = _noise_edge(rows)
+    dark_edge = dark.get("noise_edge_v") if dark else None
+    result["noise_edge_v"] = dark_edge if dark_edge is not None else edge
+
+    diff = _differential(rows)
+    for row, d in zip(rows, diff):
+        row["density"] = d
+
+    # Valley. The first local minimum of the density only proves a valley exists: on a flat
+    # bottom, ties and the +-0.5 mV stencil stop it early. The valley itself is the lowest
+    # density between that minimum and the single-PE peak.
+    for i in range(1, len(rows) - 1):
+        if diff[i] <= diff[i - 1] and diff[i] <= diff[i + 1] and diff[i] > 0:
+            later = diff[i + 1:]
+            peak = max(later)
+            peak_index = i + 1 + later.index(peak)
+            j = min(range(i, peak_index), key=lambda k: diff[k])
+            if peak >= VALLEY_PV_RATIO * diff[j]:
+                result["valley_v"] = rows[j]["abs_v"]
+                result["peak_v"] = rows[peak_index]["abs_v"]
+                result["pv_ratio"] = peak / diff[j]
+                break
+
+    reference = result["valley_v"]
+    if reference is None:
+        reference = result["noise_edge_v"]
+        result["reasons"].append(
+            "no resolved valley between the noise and the single-PE peak: the single-PE "
+            "distribution is not separated from noise at this gain. That is the evidence for "
+            "the Stage 2 preamp" if reference is not None else
+            "neither a valley nor a noise edge was found, so there is no reference level",
+        )
+    if reference is None:
+        result["valid"] = False
+        return result
+
+    result["reference_v"] = reference
+    plateau = _value_at(rows, reference)["rate"]
+    result["plateau_rate"] = plateau
+    if plateau < LIGHT_FLOOR_CPS:
+        result["valid"] = False
+        result["reasons"].append(
+            f"{plateau:.4g} cps at the reference level: too little light to locate a knee",
+        )
+
+    fractions = [r["rate"] / plateau for r in rows]
+    for loss in LOSS_LEVELS:
+        result["loss_v"][loss] = _crossing(rows, fractions, 1.0 - loss, reference)
+
+    # --- drift and hysteresis, separated by their signatures ------------------------------
+    # Each pass gets a light-level factor from the near-flat region. That region is not truly
+    # flat, so a hysteresis shift leaks into it as an up/down offset -- and normalising passes
+    # by those raw factors would cancel about half the hysteresis signal, and could pass large
+    # hysteresis off as drift. The two have different signatures: drift follows TIME,
+    # hysteresis follows sweep DIRECTION. So the factors are fitted as
+    #     f = c + a * (t - t_mean) + eta * direction
+    # and only the time term is divided out. Drift is a * (scan span) / c; what is left after
+    # the fit is unsteadiness the linear model cannot explain.
+    flat_hi = result["loss_v"].get(0.02) or (reference + 0.002)
+    flat = [v for v in common if reference - 1e-12 <= v <= flat_hi + 1e-12]
+    merged = {r["abs_v"]: r["rate"] for r in rows}
+    factors = []
+    for ps, d in zip(passes, by_pass):
+        expected = sum(merged[v] * d[v]["live_s"] for v in flat)
+        observed = sum(d[v]["counts"] for v in flat)
+        times = [d[v]["t"] for v in flat if "t" in d[v]]
+        factors.append({
+            "direction": ps["direction"], "repeat": ps["repeat"],
+            "factor": observed / expected if expected > 0 else float("nan"),
+            "sigma": 1.0 / _math.sqrt(observed) if observed > 0 else float("inf"),
+            "t": sum(times) / len(times) if times else float(len(factors)),
+        })
+    result["pass_factors"] = factors
+
+    usable = [f for f in factors if _math.isfinite(f["factor"])]
+    drift_only = [1.0] * len(factors)
+    if len(usable) >= 3:
+        t_mean = sum(f["t"] for f in usable) / len(usable)
+        rows_x = [(1.0, f["t"] - t_mean, 1.0 if f["direction"] == "up" else -1.0) for f in usable]
+        coeffs = _least_squares(rows_x, [f["factor"] for f in usable])
+        if coeffs is not None:
+            c, a, eta = coeffs
+            span = max(f["t"] for f in usable) - min(f["t"] for f in usable)
+            drift = abs(a) * span / c if c > 0 else float("nan")
+            residual = max(abs(f["factor"] - (c + a * (f["t"] - t_mean)
+                                              + eta * (1.0 if f["direction"] == "up" else -1.0))) / c
+                           for f in usable)
+            noise = max(f["sigma"] for f in usable)
+            result["drift"] = drift
+            result["unsteadiness"] = residual
+            result["direction_offset"] = eta / c if c > 0 else None
+            result["drift_flagged"] = (drift > max(DRIFT_TOLERANCE, 3.0 * noise)
+                                       or residual > max(DRIFT_TOLERANCE, 3.0 * noise))
+            drift_only = [(c + a * (f["t"] - t_mean)) / c for f in factors]
+            if result["drift_flagged"]:
+                result["reasons"].append(
+                    f"the light level changed between passes -- {drift:.1%} trend over the scan, "
+                    f"{residual:.1%} unexplained by a linear trend -- against a "
+                    f"{DRIFT_TOLERANCE:.0%} tolerance: the knee position is not trustworthy. "
+                    f"Steady the source and repeat",
+                )
+
+    # --- hysteresis: a SIDEWAYS shift between up and down curves, on the steep shoulder ----
+    lo = result["loss_v"].get(0.05)
+    shoulder = [r for r, f in zip(rows, fractions)
+                if lo is not None and r["abs_v"] >= lo and 0.40 <= f <= 0.95 and r["density"] > 0]
+    shifts = []
+    for k in sorted({ps["repeat"] for ps in passes}):
+        up = next((i for i, ps in enumerate(passes) if ps["repeat"] == k and ps["direction"] == "up"), None)
+        down = next((i for i, ps in enumerate(passes) if ps["repeat"] == k and ps["direction"] == "down"), None)
+        if up is None or down is None:
+            continue
+        for r in shoulder:
+            pu, pd = by_pass[up][r["abs_v"]], by_pass[down][r["abs_v"]]
+            ru = pu["counts"] / pu["live_s"] / drift_only[up]
+            rd = pd["counts"] / pd["live_s"] / drift_only[down]
+            # R_up - R_down ~ density * shift, with density in cps/mV.
+            shifts.append((ru - rd) / r["density"] * 1e-3)
+    if len(shifts) >= 2:
+        mean = sum(shifts) / len(shifts)
+        var = sum((x - mean) ** 2 for x in shifts) / (len(shifts) - 1)
+        se = _math.sqrt(var / len(shifts))
+        result["hysteresis_v"] = mean
+        result["hysteresis_se_v"] = se
+        result["hysteresis_flagged"] = (abs(mean) > 3.0 * se
+                                        and abs(mean) > HYSTERESIS_RESOLUTION_V)
+
+    # --- what the dark-optimised level would cost --------------------------------------
+    if dark and dark.get("vanish_v") is not None:
+        at = _value_at(rows, dark["vanish_v"])
+        if at is not None and abs(at["abs_v"] - dark["vanish_v"]) < 0.0011:
+            result["dark_vanish_loss"] = 1.0 - at["rate"] / plateau
+
+    # --- background-limited optimum, when this session has a dark scan ----------------------
+    # For a weak signal the counting SNR goes as S / sqrt(B). Raising the threshold strips
+    # electronic noise much faster than it removes photons -- until the remaining dark counts
+    # are themselves single-PE pulses. Those share the signal's amplitude distribution, so from
+    # there S and B fall together and S / sqrt(B) only drops. The optimum is therefore just
+    # above the noise edge and NOT where dark counts vanish; this computes it rather than
+    # asserting it. Levels with too few dark counts are not scored: a near-zero background
+    # estimate makes any SNR look enormous, which is exactly the trap being guarded against.
+    if dark:
+        dark_rows = {round(r["abs_v"], 5): r for r in dark["rows"]}
+        for r in rows:
+            d = dark_rows.get(round(r["abs_v"], 5))
+            if d is None or d["counts"] < FOM_MIN_DARK_COUNTS:
+                continue
+            efficiency = max(r["rate"] - d["rate"], 0.0) / plateau
+            result["fom"].append({"abs_v": r["abs_v"], "efficiency": efficiency,
+                                  "dark_rate": d["rate"], "dark_counts": d["counts"],
+                                  "fom": efficiency / _math.sqrt(d["rate"])})
+        if result["fom"]:
+            best = max(result["fom"], key=lambda f: f["fom"])
+            for f in result["fom"]:
+                f["relative"] = f["fom"] / best["fom"]
+            result["optimum_v"] = best["abs_v"]
+            band = [f["abs_v"] for f in result["fom"] if f["relative"] >= FOM_BAND]
+            result["optimum_band_v"] = (min(band), max(band))
+
+    # --- recommendation --------------------------------------------------------------------
+    upper = result["loss_v"].get(0.01)
+    lower = result["noise_edge_v"]
+    if lower is not None and upper is not None:
+        result["window_v"] = (lower, upper)
+        if lower > upper:
+            # Informational, not a refusal: it is the expected state for this tube unamplified.
+            result["window_empty"] = True
+            result["reasons"].append(
+                f"no level is both above the noise edge ({lower * 1e3:.1f} mV) and below 1 % "
+                f"photon loss ({upper * 1e3:.1f} mV): at this gain the SR400 cannot fully "
+                f"separate electronic noise from single-PE pulses. Expected for the R8486 at "
+                f"1000 V without a preamp (bench inventory, Stage 2)",
+            )
+
+    if result["valid"] and not result["drift_flagged"]:
+        if result["optimum_v"] is not None:
+            result["recommended_v"] = result["optimum_v"]
+            result["recommended_basis"] = (
+                "background-limited optimum: the level maximising S/sqrt(B), from this "
+                "session's dark and light scans together"
+            )
+        elif result["valley_v"] is not None:
+            result["recommended_v"] = result["valley_v"]
+            result["recommended_basis"] = (
+                "valley of the pulse-height density. No dark scan this session, so noise was "
+                "judged only against this light level -- run the dark scan for the optimum"
+            )
+        elif lower is not None:
+            result["recommended_v"] = lower + 0.0005
+            result["recommended_basis"] = "noise edge + 0.5 mV (no valley was resolved)"
+        if result["recommended_v"] is not None:
+            at = _value_at(rows, result["recommended_v"])
+            result["recommended_loss"] = 1.0 - at["rate"] / plateau
+    return result
+
+
+# --------------------------------------------------------------------- acquisition
+
+def _ceil_count_time(device, seconds: float) -> float:
+    """Smallest settable count time >= seconds. CP keeps one significant digit (manual p. 39)."""
+    cycles = max(seconds * device.CLOCK_FREQUENCY, 1.0)
+    exponent = _math.floor(_math.log10(cycles))
+    mantissa = _math.ceil(cycles / 10.0**exponent - 1e-9)
+    if mantissa >= 10:
+        mantissa, exponent = 1, exponent + 1
+    return mantissa * 10.0**exponent / device.CLOCK_FREQUENCY
+
+
+def _scan_setup(device) -> None:
+    """Counter A on SIGNAL INPUT 1 through discriminator A, gates open, one period at a time."""
+    _single_period_setup(device, MIN_PERIOD_SECONDS, source=SCAN_INPUT)
+    device.set_discriminator_mode(SCAN_COUNTER, "Fixed")
+    device.set_discriminator_slope(SCAN_COUNTER, SCAN_SLOPE)
+
+
+def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float) -> dict:
+    """Count at one threshold until target_counts or max_seconds, whichever first.
+
+    The next period is sized from the rate measured so far, so a noisy low threshold takes
+    10 ms and a quiet high one takes up to max_seconds. Every period length is first rounded
+    UP to a settable value and then read back, so the live time is what the instrument used.
+    """
+    level = -abs_v if SCAN_SLOPE == "Fall" else abs_v
+    device.set_discriminator_level(SCAN_COUNTER, level)
+
+    counts, live, period = 0, 0.0, MIN_PERIOD_SECONDS
+    while True:
+        period = min(_ceil_count_time(device, period), MAX_PERIOD_SECONDS)
+        device.set_count_time(period)
+        actual = device.get_counter_preset("T") / device.CLOCK_FREQUENCY
+        counts += _count_one_period(device, timeout=actual + 10.0)
+        live += actual
+        if counts >= target_counts or live >= max_seconds - 1e-9:
+            break
+        remaining = max_seconds - live
+        needed = (target_counts - counts) * live / counts if counts > 0 else period * 10.0
+        period = max(MIN_PERIOD_SECONDS, min(needed * 1.1, remaining))
+
+    return {"abs_v": abs_v, "level_v": level, "counts": counts, "live_s": live,
+            "t": time.monotonic()}
+
+
+def _scan_conditions_note(report) -> None:
+    report.note(
+        f"Counter {SCAN_COUNTER} on SIGNAL INPUT {SCAN_INPUT} through discriminator "
+        f"{SCAN_COUNTER}, slope {SCAN_SLOPE.upper()}, gates CW, one count period at a time "
+        f"(NP 1, EXTERNAL dwell). Count time adapts per threshold. Every count time is "
+        f"rounded up to a settable value and read back, so 'live' is what the SR400 counted.",
+    )
+
+
+def _rows_table(report, rows: list, extra=None) -> None:
+    table = []
+    for r in rows:
+        if r["counts"] == 0:
+            rate = f"< {r['upper95']:.3g} cps (95 %)"
+        else:
+            rate = f"{r['rate']:.4g} +- {r['sigma']:.2g} cps"
+        line = f"{r['counts']:>9d} counts in {r['live_s']:>8.3f} s   {rate}"
+        if extra:
+            line += extra(r)
+        table.append((f"{r['abs_v'] * 1e3:6.1f} mV", line))
+    report.table(table, ("|level|", "raw counts, live time, rate"))
+
+
+def _mv(v) -> str:
+    return "none" if v is None else f"{v * 1e3:.1f} mV"
+
+
+# ------------------------------------------------------------------ dark action
+
+def run_threshold_scan_dark(device) -> tuple:
+    report = Report(device, "threshold scan dark")
+    saved = _save_settings(device, SAVED_SETTINGS)
+    points = []
+    try:
+        report.section("conditions -- covered R8486")
+        _scan_conditions_note(report)
+        report.note(
+            f"Target {DARK_TARGET_COUNTS} counts per threshold (~"
+            f"{100 / _math.sqrt(DARK_TARGET_COUNTS):.0f} % Poisson), at most "
+            f"{DARK_MAX_SECONDS:g} s each. Stops after {DARK_STOP_AFTER_ZEROS} thresholds in a "
+            f"row read zero at the maximum time.",
+        )
+        _scan_setup(device)
+
+        report.section("scan, low to high |level|")
+        zeros = 0
+        leak_checked = False
+        grid = threshold_grid()
+        for index, abs_v in enumerate(grid):
+            point = _measure_point(device, abs_v, DARK_TARGET_COUNTS, DARK_MAX_SECONDS)
+            points.append(point)
+
+            if index == 0 and point["counts"] == 0:
+                break  # nothing on the input at all; analyse_dark says so
+
+            if not leak_checked and abs_v >= PICKUP_SAFE_V - 1e-9:
+                leak_checked = True
+                if point["counts"] / point["live_s"] > DARK_RATE_CEILING_CPS:
+                    report.note("STOPPED at 10 mV: far too many counts for a covered tube.")
+                    break
+
+            zero_at_max = point["counts"] == 0 and point["live_s"] >= DARK_MAX_SECONDS * 0.999
+            zeros = zeros + 1 if zero_at_max else 0
+            if zeros >= DARK_STOP_AFTER_ZEROS:
+                report.note(f"stopped at {abs_v * 1e3:.1f} mV: {zeros} zero-count thresholds "
+                            f"in a row, so the scan is past the dark distribution.")
+                break
+            if index % 10 == 9:
+                device.message_info(f"SR400 dark scan: {index + 1}/{len(grid)} thresholds, "
+                                    f"now at {abs_v * 1e3:.1f} mV")
+
+        result = analyse_dark(points)
+        _rows_table(report, result["rows"],
+                    extra=lambda r: (f"   log-slope {r['log_slope_per_mv']:.2f}/mV"
+                                     if r.get("log_slope_per_mv") is not None else ""))
+
+        report.section("findings")
+        report.check(result["valid"], "the scan is a valid covered-PMT measurement"
+                     + ("" if result["valid"] else f": {'; '.join(result['reasons'])}"))
+        if result["oscillating_below_v"] is not None:
+            report.note(
+                f"Above {OSCILLATION_RATE_CPS:.0e} cps up to {_mv(result['oscillating_below_v'])}: "
+                f"that is electronic noise, DISC-output pickup or oscillation, not dark counts. "
+                f"If it persists with the HV off, it is pickup -- rearrange the cables.",
+            )
+        report.note(f"noise edge (heuristic, log-slope < {NOISE_SLOPE_PER_MV}/mV over 1 mV): "
+                    f"{_mv(result['noise_edge_v'])}")
+        report.note(f"dark counts vanish (zero at {DARK_MAX_SECONDS:g} s) from: {_mv(result['vanish_v'])}")
+        if result["lower_bound_v"] is not None:
+            report.note(f"LOWER BOUND for the operating threshold: {_mv(result['lower_bound_v'])} "
+                        f"(noise edge + 0.5 mV).")
+            if result["lower_bound_v"] < PICKUP_SAFE_V:
+                report.note("That is below 10 mV, where the manual warns of DISC pickup. This "
+                            "scan shows whether it happened in THIS cabling; keep the cables "
+                            "where they are.")
+        for reason in result["reasons"]:
+            report.note(reason)
+        report.note(
+            "Do NOT choose the level where dark counts vanish. It is above most single-PE "
+            "pulses too, so it throws signal away. Run run_threshold_scan_light to measure "
+            "how much: its report gives the loss at that level, and the upper bound.",
+        )
+
+        report.headline = (
+            f"lower bound {_mv(result['lower_bound_v'])}, dark counts vanish from "
+            f"{_mv(result['vanish_v'])}" if result["valid"] and result["lower_bound_v"] is not None
+            else "no lower bound: " + ("; ".join(result["reasons"]) or "see the report")
+        )
+        if result["valid"]:
+            device._dark_threshold_scan = result
+    finally:
+        device.reset_counters()
+        failed = _restore_settings(device, SAVED_SETTINGS, saved)
+        report.section("restore")
+        report.check(not failed, f"every changed setting was restored (unrestored: {failed or 'none'})")
+        report.note("No storage slot was used; ST, RC and SE were never sent.")
+
+    return report, report.write(_timestamp())
+
+
+# ----------------------------------------------------------------- light action
+
+def run_threshold_scan_light(device) -> tuple:
+    report = Report(device, "threshold scan light")
+    saved = _save_settings(device, SAVED_SETTINGS)
+    passes = []
+    try:
+        report.section("conditions -- gentle, steady light on the R8486")
+        _scan_conditions_note(report)
+        report.note(
+            f"{LIGHT_REPEATS} repeats of an up pass then a down pass, target "
+            f"{LIGHT_TARGET_COUNTS} counts per threshold per pass (~1 % Poisson). Up versus "
+            f"down measures hysteresis; pass to pass measures drift.",
+        )
+        _scan_setup(device)
+
+        # Probe before committing minutes to a scan the light level cannot support.
+        report.section("probe")
+        probe = _measure_point(device, 0.006, LIGHT_TARGET_COUNTS, LIGHT_MAX_SECONDS)
+        probe_rate = probe["counts"] / probe["live_s"]
+        dark = getattr(device, "_dark_threshold_scan", None)
+        dark_at = _value_at(dark["rows"], 0.006)["rate"] if dark else None
+        report.note(f"{probe['counts']} counts in {probe['live_s']:.3f} s at 6.0 mV = "
+                    f"{probe_rate:.4g} cps" + (f" (dark scan: {dark_at:.4g} cps)" if dark_at else ""))
+        floor = max(LIGHT_FLOOR_CPS, 20.0 * dark_at) if dark_at else LIGHT_FLOOR_CPS
+        if probe_rate < floor:
+            report.check(False, f"there is light on the PMT ({probe_rate:.4g} cps, need >= {floor:.4g})")
+            report.headline = (f"no usable light: {probe_rate:.4g} cps at 6 mV. Ensure gentle "
+                               f"light on the PMT and run it again")
+            return report, report.write(_timestamp())
+        if probe_rate > LIGHT_CEILING_CPS:
+            report.check(False, f"the light is gentle ({probe_rate:.4g} cps, limit {LIGHT_CEILING_CPS:.0e})")
+            report.headline = (f"too bright: {probe_rate:.4g} cps at 6 mV. Dead-time losses "
+                               f"would bend the curve; reduce to 1e4-1e5 cps and run it again")
+            return report, report.write(_timestamp())
+        report.check(True, f"there is light, and it is gentle enough ({probe_rate:.4g} cps)")
+        if probe_rate > LIGHT_WARN_CPS:
+            report.note(f"Above {LIGHT_WARN_CPS:.0e} cps: dead-time loss is no longer negligible "
+                        f"at the 1 % level this scan resolves. Dimmer is better.")
+
+        grid = threshold_grid()
+        for repeat in range(1, LIGHT_REPEATS + 1):
+            for direction in ("up", "down"):
+                report.section(f"repeat {repeat}, {direction}")
+                levels = grid if direction == "up" else list(reversed(grid))
+                points = []
+                for abs_v in levels:
+                    point = _measure_point(device, abs_v, LIGHT_TARGET_COUNTS, LIGHT_MAX_SECONDS)
+                    points.append(point)
+                    # The first pass also sets the grid: past 2 % of the probe there is nothing
+                    # left that bears on the operating point, and every further pass would pay
+                    # the full per-threshold maximum for it.
+                    if repeat == 1 and direction == "up" and \
+                            point["counts"] / point["live_s"] < LIGHT_GRID_CUTOFF * probe_rate:
+                        grid = [v for v in grid if v <= abs_v + 1e-12]
+                        break
+                passes.append({"direction": direction, "repeat": repeat, "points": points})
+                device.message_info(f"SR400 light scan: repeat {repeat} {direction} done "
+                                    f"({len(points)} thresholds)")
+
+        result = analyse_light(passes, dark)
+        _rows_table(report, result["rows"],
+                    extra=lambda r: f"   density {r['density']:.4g} cps/mV")
+
+        report.section("findings")
+        report.check(result["valid"], "the scan is a valid light measurement"
+                     + ("" if result["valid"] else f": {'; '.join(result['reasons'])}"))
+        report.note(f"noise edge: {_mv(result['noise_edge_v'])}"
+                    + (" (from this session's dark scan)" if dark else " (from this scan; run the dark scan for a better one)"))
+        if result["valley_v"] is not None:
+            report.note(f"valley: {_mv(result['valley_v'])}, single-PE peak {_mv(result['peak_v'])}, "
+                        f"peak/valley {result['pv_ratio']:.2f}")
+        report.note(f"plateau rate at the reference level {_mv(result['reference_v'])}: "
+                    f"{result['plateau_rate']:.4g} cps" if result["plateau_rate"] else "no plateau rate")
+        for loss, v in result["loss_v"].items():
+            report.note(f"counts reduced by {loss:.0%} from: {_mv(v)}")
+
+        report.section("drift and hysteresis")
+        report.table([(f"repeat {f['repeat']} {f['direction']}",
+                       f"x{f['factor']:.4f} +- {f['sigma']:.4f}") for f in result["pass_factors"]],
+                     ("pass, in time order", "light level relative to the mean"))
+        if result["drift"] is not None:
+            report.check(
+                not result["drift_flagged"],
+                f"the light stayed steady: {result['drift']:.2%} trend over the scan, "
+                f"{result.get('unsteadiness', 0.0):.2%} left after removing it",
+            )
+            if result.get("direction_offset") is not None:
+                report.note(f"up-versus-down light-level offset on the flat region: "
+                            f"{result['direction_offset']:+.2%} -- hysteresis leaking onto a "
+                            f"region that is not quite flat; it is kept out of the drift figure.")
+        if result["hysteresis_v"] is not None:
+            h, se = result["hysteresis_v"], result["hysteresis_se_v"]
+            report.check(
+                not result["hysteresis_flagged"],
+                f"no discriminator hysteresis: up-minus-down shift {h * 1e3:+.3f} +- "
+                f"{se * 1e3:.3f} mV on the shoulder",
+            )
+            if result["hysteresis_flagged"]:
+                report.note(
+                    "The level the discriminator really applies depends on which way it was "
+                    "approached. Always set the operating level from the same side, or keep "
+                    f"{abs(h) * 1e3:.2f} mV of extra margin.",
+                )
+        else:
+            report.note("hysteresis: not estimable (no usable shoulder in every pass)")
+
+        if result["dark_vanish_loss"] is not None:
+            report.section("what the dark-optimised level costs")
+            report.note(
+                f"Dark counts vanished from {_mv(dark['vanish_v'])}. At that level this scan "
+                f"counts {result['dark_vanish_loss']:.1%} fewer photons than at the reference "
+                f"level -- the proof that a zero-dark-count threshold is not the optimum.",
+            )
+
+        if result["fom"]:
+            report.section("background-limited figure of merit, S/sqrt(B)")
+            report.note(
+                "S = (light rate - dark rate) / rate at the reference level, so it can exceed 1 "
+                "below the reference; "
+                "B = dark rate from this session's dark scan. Only levels with at least "
+                f"{FOM_MIN_DARK_COUNTS} dark counts are scored.",
+            )
+            report.table(
+                [(f"{f['abs_v'] * 1e3:6.1f} mV",
+                  f"photons vs ref {f['efficiency']:.3f}   dark {f['dark_rate']:.3g} cps "
+                  f"({f['dark_counts']} counts)   S/sqrt(B) {f['relative']:.3f} of best")
+                 for f in result["fom"]],
+                ("|level|", "photon fraction, dark rate, figure of merit"),
+            )
+
+        report.section("recommendation")
+        for reason in result["reasons"]:
+            report.note(reason)
+        if result["recommended_v"] is not None:
+            low, high = result["window_v"] or (None, None)
+            report.note(f"RECOMMENDED A DISC LVL: -{result['recommended_v'] * 1e3:.1f} mV, FALL.")
+            report.note(f"Basis: {result['recommended_basis']}.")
+            report.note(f"It counts {1.0 - result['recommended_loss']:.1%} of the photons "
+                        f"counted at the reference level {_mv(result['reference_v'])}.")
+            if result["optimum_band_v"] is not None:
+                lo, hi = result["optimum_band_v"]
+                report.note(f"Anywhere from {_mv(lo)} to {_mv(hi)} is within "
+                            f"{1 - FOM_BAND:.0%} of the best S/sqrt(B).")
+                report.note("This assumes a weak, background-limited signal. For a bright "
+                            "signal (S >> B) the optimum moves down, to the lowest level above "
+                            "the noise edge.")
+            if low is not None and high is not None:
+                report.note(f"Strict window, noise edge to 1 % loss: {_mv(low)} to {_mv(high)}"
+                            + (" -- EMPTY at this gain." if result["window_empty"] else "."))
+            if result["recommended_v"] < PICKUP_SAFE_V:
+                report.note("Below 10 mV: valid only with the cables exactly as they were for "
+                            "this scan (manual p. 22, DISC pickup).")
+            report.headline = (
+                f"recommended A DISC LVL -{result['recommended_v'] * 1e3:.1f} mV, counting "
+                f"{1.0 - result['recommended_loss']:.0%} of photons"
+                + (f"; S/sqrt(B) within 5 % of best from {_mv(result['optimum_band_v'][0])} to "
+                   f"{_mv(result['optimum_band_v'][1])}" if result["optimum_band_v"] else "")
+                + ("; strict window empty -- preamp would help" if result["window_empty"] else "")
+            )
+        else:
+            report.headline = "no recommendation: " + ("; ".join(result["reasons"]) or "see the report")
+    finally:
+        device.reset_counters()
+        failed = _restore_settings(device, SAVED_SETTINGS, saved)
+        report.section("restore")
+        report.check(not failed, f"every changed setting was restored (unrestored: {failed or 'none'})")
+        report.note("No storage slot was used; ST, RC and SE were never sent.")
+
+    return report, report.write(_timestamp())

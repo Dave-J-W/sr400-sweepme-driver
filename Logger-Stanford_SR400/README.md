@@ -701,6 +701,8 @@ middle of a run. Both are also written so they cannot raise; a failure is report
 | `report_com_port_latency` | Reads the selected COM port's USB-serial latency timer and reports it with the estimated per-point cost for the *current* GUI settings. Read-only. Says "select a port first" rather than failing when no port is chosen, and says the setting does not apply on GPIB. |
 | `run_self_test` | Tier 1 of the hardware self-test: everything checkable with no cabling changes. See §9. |
 | `run_self_test_loopback` | Tier 2: needs one BNC cable. See §9. |
+| `run_threshold_scan_dark` | Discriminator threshold scan on a covered R8486: the lowest usable level. See §9.7. |
+| `run_threshold_scan_light` | Threshold scan under gentle, steady light: the upper bound and the optimum. See §9.7. |
 | `reduce_com_port_latency` | Tries to set the timer to 1 ms. On Linux it writes sysfs, which takes effect immediately. On Windows it attempts the registry write and, if that is refused for want of administrator rights, writes a `.reg` file into the SweepMe! TEMP folder and tells you the path — run it as administrator, then replug the adapter. |
 
 Why the `.reg` file instead of just writing the key: the measurement path must never require
@@ -822,6 +824,86 @@ crystal — the closest this instrument can come to putting a scope on itself.
 
 ### 9.6 The report
 
-Written to `get_folder("TEMP")` as `SR400_self_test_tier_<n>_<timestamp>.txt`, with the port string,
-the interface, pass/fail per check, the raw response-format table, and the measured throughput
-numbers. If it cannot be written the message says why rather than just that it failed.
+Every self-test and threshold scan writes a timestamped text file to SweepMe!'s device-data
+folder, in a subfolder named after the driver:
+
+```
+C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
+    SR400_self_test_tier_1_<timestamp>.txt
+    SR400_self_test_tier_2_loopback_<timestamp>.txt
+    SR400_threshold_scan_dark_<timestamp>.txt
+    SR400_threshold_scan_light_<timestamp>.txt
+```
+
+That is `get_folder("DATADEVICES")`: public, persistent, and findable on a remote machine without
+knowing which user ran SweepMe!. It is deliberately not `get_folder("TEMP")`, which SweepMe! uses
+as scratch space for the current measurement (`AppData\Local\SweepMe!\temp`) — hidden, and not
+somewhere a deliverable should live. TEMP is only the fallback if DataDevices cannot be written.
+The closing message box gives the exact path either way, and if neither location works it says
+why for each rather than just that it failed.
+
+Each file carries the port string, the interface, pass/fail per check, and the raw tables: the
+response-format table for tier 1, and the full counts-and-live-time tables for the scans.
+
+### 9.7 Threshold scans — `run_threshold_scan_dark`, `run_threshold_scan_light`
+
+For the **R8486 bare tube on SIGNAL INPUT 1**: counter A, discriminator A, slope FALL, gates CW.
+A threshold scan measures the *integral* pulse-height distribution — the count rate above each
+discriminator level — and the operating threshold belongs between its noise edge and its
+single-photoelectron shoulder. The two halves of that answer need different light, hence two
+actions. Each first shows a **blocking** message stating the condition ("Cover the R8486 and make
+sure NO light can reach it", "Ensure gentle, STEADY light on the R8486"). That is an
+acknowledgement gate, not a question (§9.1 still holds): an OK proves nothing about the bench, so
+each scan also checks its condition in the data and stops if it was not met.
+
+**The grid.** 0.2 mV steps from 0.4 to 6.0 mV, 0.4 mV to 15.2 mV, 2 mV to 40 mV. Every level is a
+multiple of the discriminator's 0.2 mV resolution, so every level in the report is one the SR400
+actually applied.
+
+**Dark (covered tube) — the lower bound.** Sweeps upward with **adaptive count times**: each
+threshold counts until 200 counts (~7 % Poisson) or 30 s, whichever first, the next period sized
+from the rate so far and every period rounded *up* to a settable count time and read back. At the
+measured ~8 cps the plateau thresholds take the full 30 s, so the scan runs about 15–20 minutes. It
+stops after three consecutive zero-count thresholds. It reports:
+
+- the **noise edge** — where the log-slope of the curve drops below 0.5 /mV over a 1 mV baseline
+  (heuristic, and labelled so). The lower bound is the noise edge + 0.5 mV.
+- where **dark counts vanish**. *That is not the operating point*: a level that kills every dark
+  count is above most single-PE pulses too. The light scan measures what it costs.
+- anything above 1 Mcps as electronic noise, DISC pickup or oscillation, not dark counts.
+
+Refuses its own result if 10 mV reads more than 500 cps (~60× the measured dark rate: light is
+reaching the tube) or the lowest threshold reads nothing at all (cable or HV).
+
+**Light (gentle, steady source) — the upper bound, and the optimum.** A probe at 6 mV first:
+below 2000 cps (or 20× the dark rate) there is no usable light; above 1 Mcps dead-time loss would
+bend the curve, and both stop before sweeping. Then **three repeats of an up pass and a down
+pass**, 10 000 counts (~1 %) per threshold per pass. It reports the valley of the pulse-height
+density, the levels where counts fall 1/2/5/10 % below the valley rate, and — with this session's
+dark scan — the photon loss at the level where dark counts vanished.
+
+*Drift and hysteresis are separated by signature, not lumped.* Each pass's light level, measured on
+the near-flat region, is fitted as `c + a·(time) + η·(direction)`. Drift is the time term over the
+scan (flagged above 2 %, and it blocks the recommendation); hysteresis is then the **sideways shift
+in mV** between up and down curves on the steep shoulder, with only the time term divided out.
+Fitting the direction term is what keeps a not-quite-flat region from cancelling half the
+hysteresis, or passing it off as drift.
+
+**The recommendation** is the level maximising **S/√B**, from both scans together, when this
+session has a dark scan: S is the photon fraction from the light scan, B the dark rate. This is the
+background-limited optimum, and it is what proves the zero-dark level is wrong rather than merely
+asserting it. Raising the threshold strips electronic noise faster than it removes photons. That
+lasts until the remaining dark counts are themselves single-PE pulses. From there S and B fall
+together and S/√B only drops. Levels with fewer than 20 dark counts are not scored: a near-zero
+background estimate would make any SNR look enormous. It assumes a weak signal; for S ≫ B the
+optimum moves down. Without a dark scan it falls back to the valley, and says so.
+
+On the simulated tube (noise edge 5.6 mV, valley 4.8 mV) the optimum is **−6.4 mV, counting ~90 %
+of photons**, with S/√B within 5 % of best from about 6.0 to 7.6 mV. At 15.2 mV it has fallen to ~0.34
+of best. The strict window — noise edge to 1 % loss — is *empty* there, which the report states
+rather than treating as a failure. For the R8486 at 1000 V that is expected and is the evidence for
+the Stage 2 preamp. Below 10 mV any recommendation is valid only with the cables exactly as they
+were for the scan (manual p. 22).
+
+Both scans keep the safety invariants of §9.2: refuse while counting (before prompting), restore
+everything without a storage slot, never send `SE`, never raise.

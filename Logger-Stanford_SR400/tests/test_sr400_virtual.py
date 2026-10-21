@@ -51,6 +51,8 @@ class VirtualSR400:
         rate_input2: float = 1.0e3,
         echo: bool = False,
         loopback: bool = False,
+        pmt: dict | None = None,
+        time_scale: float = 1.0,
     ):
         self.rate = {"10 MHz": CLOCK, "INPUT 1": rate_input1, "INPUT 2": rate_input2, "TRIG": 1.0e3}
         self.echo = echo
@@ -60,6 +62,31 @@ class VirtualSR400:
         # INPUT 2. That is what gives counters B and T a known pulse train, and it is the only
         # way the tier-2 pass path is reachable without hardware.
         self.loopback = loopback
+
+        # Models an R8486-like bare tube on SIGNAL INPUT 1 for the threshold scans: what a
+        # counter sees there depends on ITS OWN discriminator (manual: each counter has one),
+        # through an integral pulse-height distribution with a steep noise edge, a valley and a
+        # single-photoelectron shoulder. Keys, all overridable: dark_rate, light_rate (cps of
+        # photoelectrons), spe_mean, spe_sigma, spe_exp_fraction, spe_exp_scale (V),
+        # noise_rate (cps at 0 V), noise_scale (V), drift_per_s (fractional change of the light
+        # per simulated second), hysteresis_v (effective-threshold lag behind the direction of
+        # travel). None leaves INPUT 1 on the plain rate_input1 model, so nothing older changes.
+        self.pmt = None
+        if pmt is not None:
+            self.pmt = {
+                "dark_rate": 8.0, "light_rate": 0.0,
+                "spe_mean": 0.010, "spe_sigma": 0.004,
+                "spe_exp_fraction": 0.15, "spe_exp_scale": 0.0015,
+                "noise_rate": 2.0e7, "noise_scale": 0.00035,
+                "drift_per_s": 0.0, "hysteresis_v": 0.0,
+                **pmt,
+            }
+        self._disc_shift = {0: 0.0, 1: 0.0, 2: 0.0}
+
+        # Simulated seconds per wall-clock second. A real dark scan is 15-20 minutes of
+        # counting; at 1000x the bench runs it in about a second with the real constants.
+        self.time_scale = time_scale
+        self._t0 = time.time()
 
         self.log: list[str] = []
         self.out: list[str] = []
@@ -177,16 +204,47 @@ class VirtualSR400:
             return False
         return self.DISC_PULSE_V < self.disc_level[counter] < 0.0
 
+    def sim_time(self) -> float:
+        """Simulated seconds since construction."""
+        return (time.time() - self._t0) * self.time_scale
+
+    def _spe_survival(self, amplitude: float) -> float:
+        """P(single-PE pulse amplitude > amplitude): Gaussian peak plus a low exponential tail."""
+        p = self.pmt
+        mu, sigma = p["spe_mean"], p["spe_sigma"]
+        norm = 0.5 * math.erfc(-mu / (sigma * math.sqrt(2.0)))
+        gaussian = 0.5 * math.erfc((amplitude - mu) / (sigma * math.sqrt(2.0))) / norm
+        exponential = math.exp(-amplitude / p["spe_exp_scale"])
+        f = p["spe_exp_fraction"]
+        return (1.0 - f) * gaussian + f * exponential
+
+    def _pmt_rate(self, counter: int) -> float:
+        """Count rate counter i sees from the tube, through discriminator i."""
+        p = self.pmt
+        level = self.disc_level[counter]
+        effective = abs(level) + self._disc_shift[counter]
+        noise = p["noise_rate"] * math.exp(-max(effective, 0.0) / p["noise_scale"])
+        # A negative anode pulse only fires a FALL discriminator with a negative threshold.
+        if self.disc_slope[counter] != 1 or level >= 0.0:
+            return noise
+        light = p["light_rate"] * (1.0 + p["drift_per_s"] * self.sim_time())
+        return noise + (p["dark_rate"] + max(light, 0.0)) * self._spe_survival(max(effective, 0.0))
+
     def _rate_for(self, source: str) -> float:
         """Pulse rate at a source, with cable 1 feeding counter A's source into INPUT 2."""
         if self.loopback and source == "INPUT 2":
             return self.rate[self._input_name(0)]
         return self.rate[source]
 
+    def _counter_rate(self, counter: int) -> float:
+        if self.pmt is not None and self._input_name(counter) == "INPUT 1":
+            return self._pmt_rate(counter)
+        return self._rate_for(self._input_name(counter))
+
     def _counts_for_period(self) -> tuple[int, int]:
         duration = self.count_time
-        counts_a = int(round(self._rate_for(self._input_name(0)) * duration))
-        counts_b = int(round(self._rate_for(self._input_name(1)) * duration))
+        counts_a = int(round(self._counter_rate(0) * duration))
+        counts_b = int(round(self._counter_rate(1) * duration))
 
         if not self._discriminator_sees(0):
             counts_a = 0
@@ -220,7 +278,7 @@ class VirtualSR400:
         if not self.running:
             return
 
-        elapsed = time.time() - self.period_start
+        elapsed = (time.time() - self.period_start) * self.time_scale
 
         if self.dwell == 0:
             # EXTERNAL dwell: one START runs exactly one count period, then the instrument
@@ -394,7 +452,14 @@ class VirtualSR400:
         if len(a) == 1:
             self._answer(f"{self.disc_level[i]:+.4f}")
             return
-        self.disc_level[i] = self._limit(float(a[1]), -0.3000, 0.3000)
+        new = self._limit(float(a[1]), -0.3000, 0.3000)
+        if self.pmt is not None and self.pmt["hysteresis_v"]:
+            h = self.pmt["hysteresis_v"]
+            if abs(new) > abs(self.disc_level[i]):
+                self._disc_shift[i] = -h / 2.0
+            elif abs(new) < abs(self.disc_level[i]):
+                self._disc_shift[i] = +h / 2.0
+        self.disc_level[i] = new
 
     def _cmd_DY(self, a):
         i = int(self._limit(int(a[0]), 0, 2))
@@ -2078,6 +2143,12 @@ def test_auto_split_mode(driver):
         check("Whatever" in str(exc), f"an unknown count time mode is refused: {exc}")
 
 
+def _report_dir(tmpdir):
+    """Where the self-test reports land when get_folder() returns tmpdir for every identifier:
+    DATADEVICES first, in a subfolder named after the driver."""
+    return os.path.join(tmpdir, "Logger-Stanford_SR400")
+
+
 def _instrument_snapshot(sr400):
     """Every piece of instrument state a self-test could plausibly disturb.
 
@@ -2182,10 +2253,14 @@ def test_self_test_actions(driver):
         check(not offenders, f"tier 1 never sent {command} (found {offenders[:3]})")
 
     # --- the report file is written and carries the deliverable ---------------
-    reports = [f for f in os.listdir(tmpdir) if f.startswith("SR400_self_test_tier_1")]
+    reports = [f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_self_test_tier_1")]
     check(bool(reports), f"tier 1 wrote a report file (found {reports})")
+    check(
+        os.path.isdir(_report_dir(tmpdir)),
+        "reports go to DATADEVICES/<driver>, not SweepMe!'s per-run TEMP folder",
+    )
     if reports:
-        text = open(os.path.join(tmpdir, reports[0])).read()
+        text = open(os.path.join(_report_dir(tmpdir), reports[0])).read()
         check("response formats" in text, "the report contains the raw response-format table")
         # The value depends on the count time, which the bench shrinks -- so assert the
         # format. Whether CP answers "1E5" or "100000" is exactly what this table exists to
@@ -2324,6 +2399,188 @@ def test_self_test_actions(driver):
     ) = saved_timings
 
 
+def _scan_device(driver, sr400, tmpdir):
+    """A device wired for the threshold scans, with every prompt and message captured."""
+    device = make_device(driver, sr400, **{"Port": "GPIB0::23::INSTR"})
+    device.get_folder = lambda identifier: tmpdir
+    # Windows sleeps in ~15 ms quanta, which would dominate a simulated scan; poll flat out.
+    device.poll_interval = 0.0
+    log = {"boxes": [], "blocking": [], "info": []}
+
+    def box(message, blocking=False):
+        (log["blocking"] if blocking else log["boxes"]).append(message)
+
+    device.message_box = box
+    device.message_info = log["info"].append
+    return device, log
+
+
+def test_threshold_scans(driver):
+    print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")
+
+    import tempfile
+
+    st = driver.selftest
+    tmpdir = tempfile.mkdtemp(prefix="sr400_scan_")
+
+    for name in ("run_threshold_scan_dark", "run_threshold_scan_light"):
+        check(name in driver.Device.actions, f"{name} is declared as an action")
+
+    # --- pure helpers ----------------------------------------------------------
+    grid = st.threshold_grid()
+    check(grid == sorted(grid), "the threshold grid is ascending")
+    check(grid[0] == 0.0004 and grid[-1] == 0.040, f"it spans 0.4 to 40 mV (got {grid[0]}..{grid[-1]})")
+    check(
+        all(abs(v / 0.0002 - round(v / 0.0002)) < 1e-6 for v in grid),
+        "every level is a multiple of the discriminator's 0.2 mV step",
+    )
+    probe = driver.Device()
+    for request in (0.01, 0.013, 0.25, 1.0, 2.5, 7.7):
+        ct = st._ceil_count_time(probe, request)
+        cycles = ct * 1e7
+        exponent = math.floor(math.log10(cycles))
+        mantissa = cycles / 10**exponent
+        check(
+            ct >= request - 1e-12 and abs(mantissa - round(mantissa)) < 1e-6 and round(mantissa) <= 9,
+            f"{request:g} s rounds UP to the settable {ct:g} s",
+        )
+
+    # --- dark, happy path --------------------------------------------------------
+    sr400 = VirtualSR400(pmt={}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    before = _instrument_snapshot(sr400)
+    device.run_threshold_scan_dark()
+    check(len(log["blocking"]) == 1 and "Cover the R8486" in log["blocking"][0],
+          "the dark scan first shows a BLOCKING 'cover the PMT' prompt")
+    check("no light" in log["blocking"][0].lower() if log["blocking"] else False,
+          "and it says to ensure no light")
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("lower bound" in summary, f"the summary carries the lower bound: {summary[:90]}")
+    dark = getattr(device, "_dark_threshold_scan", None)
+    check(dark is not None, "a valid dark scan is kept for the light scan to use")
+    if dark:
+        check(dark["noise_edge_v"] is not None and 0.004 <= dark["noise_edge_v"] <= 0.007,
+              f"the noise edge is found where simulated noise meets 8 cps ({dark['noise_edge_v']})")
+        check(dark["vanish_v"] is not None and dark["vanish_v"] > dark["noise_edge_v"] + 0.005,
+              f"dark counts vanish well above the noise edge ({dark['vanish_v']})")
+        check(dark["oscillating_below_v"] is not None,
+              "the >1 Mcps region near 0 V is labelled noise/pickup, not dark counts")
+        plateau = [r for r in dark["rows"] if r["counts"] >= st.DARK_TARGET_COUNTS * 0.9]
+        check(bool(plateau), "adaptive timing reached the count target where the rate allowed")
+        capped = [r for r in dark["rows"] if r["live_s"] > st.DARK_MAX_SECONDS + 1.0]
+        check(not capped, f"no threshold ran past its time cap (got {[r['abs_v'] for r in capped]})")
+    after = _instrument_snapshot(sr400)
+    differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    check(not differing, f"the dark scan restored every setting (differing: {differing})")
+    for command in ("SE", "ST", "RC"):
+        offenders = [c for c in sr400.log if c.split()[0].upper() == command]
+        check(not offenders, f"the dark scan never sent {command}")
+
+    # --- light, with the dark scan in hand --------------------------------------
+    sr400.pmt["light_rate"] = 5.0e4
+    log["boxes"].clear(); log["blocking"].clear()
+    before = _instrument_snapshot(sr400)
+    device.run_threshold_scan_light()
+    check(len(log["blocking"]) == 1 and "gentle" in log["blocking"][0].lower(),
+          "the light scan first shows a BLOCKING 'gentle light' prompt")
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("recommended A DISC LVL" in summary, f"a level is recommended: {summary[:140]}")
+    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    check("S/sqrt(B)" in text, "with a dark scan, the optimum comes from S/sqrt(B)")
+    m = re.search(r"RECOMMENDED A DISC LVL: -([0-9.]+) mV", text)
+    rec = float(m.group(1)) / 1e3 if m else None
+    if dark and rec is not None:
+        check(dark["noise_edge_v"] <= rec < dark["vanish_v"],
+              f"the optimum ({rec * 1e3:.1f} mV) sits above the noise edge and below where dark "
+              f"counts vanish")
+    check("fewer photons" in text, "the report prices the level where dark counts vanish")
+    m = re.search(r"counts ([0-9.]+)% fewer photons", text)
+    check(m is not None and float(m.group(1)) > 50.0,
+          f"and it is a large loss -- the proof that zero dark counts is not optimal ({m.group(1) if m else '?'} %)")
+    check("valley:" in text, "a valley is resolved in the simulated tube")
+    check("EMPTY at this gain" in text,
+          "the strict noise-edge-to-1 %-loss window is reported empty, as expected unamplified")
+    after = _instrument_snapshot(sr400)
+    differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    check(not differing, f"the light scan restored every setting (differing: {differing})")
+
+    # --- light with no dark scan: still recommends, says why it is weaker --------
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_light()
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("recommended A DISC LVL" in summary, f"without a dark scan it still recommends: {summary[:100]}")
+    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    check("run the dark scan for the optimum" in text, "and says the dark scan would give the optimum")
+
+    # --- light refused at the probe ----------------------------------------------
+    for label, rate, needle in (("no light", 0.0, "no usable light"),
+                                ("too bright", 5.0e6, "too bright")):
+        sr400 = VirtualSR400(pmt={"light_rate": rate}, time_scale=1e5)
+        device, log = _scan_device(driver, sr400, tmpdir)
+        before_traffic = len(sr400.log)
+        device.run_threshold_scan_light()
+        summary = log["boxes"][-1] if log["boxes"] else ""
+        check(needle in summary, f"{label}: the light scan stops at the probe ({summary[:80]})")
+        # Writes only (a query has no comma): the probe level, then the restore. Nothing else.
+        sweeps = sum(1 for c in sr400.log[before_traffic:] if c.startswith("DL 0,"))
+        check(sweeps <= 2, f"{label}: and does not go on to sweep ({sweeps} DL level writes)")
+
+    # --- dark refused: light leak, and nothing connected ---------------------------
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_dark()
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("no lower bound" in summary and "Light is reaching the tube" in summary,
+          f"an uncovered tube is caught by the data, whatever was acknowledged ({summary[:110]})")
+    check(getattr(device, "_dark_threshold_scan", None) is None,
+          "and the invalid dark scan is not kept")
+
+    sr400 = VirtualSR400(pmt={"dark_rate": 0.0, "noise_rate": 0.0}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_dark()
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("nothing is reaching SIGNAL INPUT 1" in summary,
+          f"no signal at all is diagnosed as a cabling/HV problem ({summary[:110]})")
+
+    # --- drift between passes is flagged, and blocks the recommendation ----------
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+
+    def brighten_after_each_pass(message, _log=log["info"], _sr=sr400):
+        _log.append(message)
+        if "done" in message:
+            _sr.pmt["light_rate"] *= 1.05  # 5 % brighter every pass
+
+    device.message_info = brighten_after_each_pass
+    device.run_threshold_scan_light()
+    summary = log["boxes"][-1] if log["boxes"] else ""
+    check("no recommendation" in summary and "light level changed" in summary,
+          f"a source brightening 5 % per pass is flagged as drift ({summary[:120]})")
+
+    # --- hysteresis is measured as a shift, in mV -----------------------------------
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4, "hysteresis_v": 0.0006}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_light()
+    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    m = re.search(r"up-minus-down shift ([+-][0-9.]+) \+- ([0-9.]+) mV", text)
+    shift = float(m.group(1)) if m else None
+    check(shift is not None and 0.4 <= shift <= 0.8,
+          f"0.6 mV of injected hysteresis is measured as {shift} mV")
+    check("FAIL  no discriminator hysteresis" in text, "and flagged as a failed check")
+
+    # --- refuses while counting ----------------------------------------------------
+    sr400 = VirtualSR400(pmt={}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    sr400.secondary |= 1 << 2
+    device.run_threshold_scan_dark()
+    check(not log["blocking"], "while counting, the scan refuses BEFORE prompting")
+    check(any("counting" in str(b) for b in log["boxes"]), "and says the SR400 is counting")
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -2355,6 +2612,7 @@ def main() -> int:
         test_count_time_planner,
         test_auto_split_mode,
         test_self_test_actions,
+        test_threshold_scans,
     ):
         test(driver)
 

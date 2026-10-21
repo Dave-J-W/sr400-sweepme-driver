@@ -289,16 +289,21 @@ class Device(EmptyDevice):
         "reduce_com_port_latency",
         "run_self_test",
         "run_self_test_loopback",
+        "run_threshold_scan_dark",
+        "run_threshold_scan_light",
     ]
     """Buttons SweepMe! renders for this driver.
 
-    The two latency actions are host-side only and send the SR400 nothing at all. The two
-    self-tests do reprogram the instrument, so they refuse to start while it is counting and
-    restore every setting they touch -- see README section 9.
+    The two latency actions are host-side only and send the SR400 nothing at all. The self-tests
+    and threshold scans do reprogram the instrument, so they refuse to start while it is
+    counting and restore every setting they touch -- see README section 9.
 
-    Two self-test actions rather than one with a prompt, because an action takes no arguments
-    and message_box cannot return an answer. Consent to the loopback tier is expressed by
-    clicking it; declining is not clicking it. A prompt-and-branch design cannot work here.
+    An action takes no arguments and message_box cannot return an answer, so nothing here
+    prompts and branches: consent to a tier or a mode is expressed by clicking its button. The
+    threshold scans do show a BLOCKING message first, but as an acknowledgement gate, not a
+    question -- "cover the PMT", OK. Because an OK proves nothing about the bench, each scan
+    also checks its condition in the data (a covered tube cannot give hundreds of cps; a lit one
+    must clear the dark rate by a wide margin) and stops if the condition was not met.
     """
 
     description = """
@@ -1743,8 +1748,8 @@ class Device(EmptyDevice):
 
     # ------------------------------------------------------- self-test actions
 
-    def _run_self_test(self, tier: str, runner_name: str) -> None:
-        """Shared body for both self-test actions: refuse, run, report.
+    def _run_self_test(self, tier: str, runner_name: str, prompt: str = "") -> None:
+        """Shared body for the self-test and threshold-scan actions: refuse, prompt, run, report.
 
         Thin on purpose. Everything substantive lives in selftest.py so that a syntax error or
         a missing file there costs the user two buttons rather than the whole driver.
@@ -1763,9 +1768,16 @@ class Device(EmptyDevice):
                 self.message_box(f"SR400 {tier}: {refusal}.")
                 return
 
+            if prompt:
+                # Blocking: SweepMe! shows a modal box, standalone pysweepme waits for Enter.
+                # An acknowledgement, not an answer -- the scan verifies the condition itself.
+                self.message_box(prompt, blocking=True)
+
             report, path = getattr(selftest, runner_name)(self)
 
             summary = f"SR400 {tier}: {report.passed}/{report.checks} checks passed."
+            if getattr(report, "headline", ""):
+                summary += f"\n\n{report.headline}"
             if report.aborted:
                 summary += " ABORTED early -- the known-answer test failed, so nothing below it"
                 summary += " can be trusted."
@@ -1775,7 +1787,7 @@ class Device(EmptyDevice):
                 if len(report.failures) > len(shown):
                     summary += f"\n  ... and {len(report.failures) - len(shown)} more."
             summary += (
-                f"\n\nFull report, including the raw response-format table:\n  {path}"
+                f"\n\nFull report:\n  {path}"
                 if path
                 else "\n\nThe report file could not be written; the checks above are all there is."
             )
@@ -1790,6 +1802,22 @@ class Device(EmptyDevice):
     def run_self_test(self) -> None:
         """Tier 1: everything checkable with no cabling changes. See README section 9."""
         self._run_self_test("self-test tier 1", "run_tier1")
+
+    def run_threshold_scan_dark(self) -> None:
+        """Discriminator threshold scan on a covered R8486: the lowest usable level. README 9.7."""
+        self._run_self_test(
+            "threshold scan (dark)",
+            "run_threshold_scan_dark",
+            prompt=selftest.PROMPT_DARK if selftest is not None else "",
+        )
+
+    def run_threshold_scan_light(self) -> None:
+        """Threshold scan under gentle steady light: the highest usable level. README 9.7."""
+        self._run_self_test(
+            "threshold scan (light)",
+            "run_threshold_scan_light",
+            prompt=selftest.PROMPT_LIGHT if selftest is not None else "",
+        )
 
     def run_self_test_loopback(self) -> None:
         """Tier 2: needs one BNC from the A DISC output to SIGNAL INPUT 2. README section 9."""

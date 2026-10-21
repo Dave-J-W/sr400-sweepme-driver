@@ -7,6 +7,14 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **Discriminator threshold scans**, `run_threshold_scan_dark` and `run_threshold_scan_light`,
+  for the R8486 on SIGNAL INPUT 1. Each shows a blocking acknowledgement prompt for its condition
+  and then verifies the condition from the data. Dark: adaptive count times (200 counts or 30 s
+  per threshold), noise edge, where dark counts vanish, light-leak and no-signal refusals. Light:
+  probe-gated, three up/down repeats, valley, loss levels, drift and hysteresis separated by a
+  time/direction fit, and — with a dark scan — the S/√B background-limited optimum, which shows
+  quantitatively why a zero-dark-count threshold is not the optimum. Documents **§9.7**.
+
 - **Two-tier hardware self-test, as SweepMe! actions** (`run_self_test`,
   `run_self_test_loopback`), implemented in a new sibling module `selftest.py`. Tier 1 needs no
   cabling change and covers the manual's known-answer test, the raw response format of ~50
@@ -16,8 +24,8 @@ Newest first. Gotcha and section numbers refer to
   an exact known pulse train — the only way to exercise counter B, which cannot see the internal
   timebase — plus two optional cables for the INHIBIT input and a gate-width calibration against
   the crystal. Both refuse while the instrument is counting, restore every setting they touch
-  without using a storage slot, never send `SE`, and write a timestamped report to the TEMP
-  folder. The report's response-format table is what retires **§7.1**. Documents **§9**, and
+  without using a storage slot, never send `SE`, and write a timestamped report to
+  `Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\` (TEMP only as a fallback). The report's response-format table is what retires **§7.1**. Documents **§9**, and
   **§5.2** and **§7.1** now point at it.
 
 - **`Count time mode`**, with `Per period` (default, unchanged behaviour) and
