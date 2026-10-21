@@ -112,7 +112,8 @@ at all, since it cannot see the internal timebase. Both refuse while the instrum
 counting, restore everything they touch without using a storage slot, and write a timestamped
 report. Two **threshold-scan** actions sweep discriminator A for the R8486: a dark scan for the
 lowest usable level and a light scan, up and down three times, for the upper bound —
-and from both together the level maximising S/√B. Each scan writes its raw data as CSV and a
+and from both together the level maximising S/√B — with a step-by-step
+[operator's guide](Logger-Stanford_SR400/THRESHOLD_SCAN_GUIDE.md) for first-time users. Each scan writes its raw data as CSV and a
 plot as SVG beside the report, so the operator can choose the threshold by eye. Driver README §9.
 
 `Fast readout (batch queries)` chains counter queries to cut round trips — about 3.5×

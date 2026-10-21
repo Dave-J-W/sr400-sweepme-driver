@@ -7,6 +7,14 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **[`THRESHOLD_SCAN_GUIDE.md`](Logger-Stanford_SR400/THRESHOLD_SCAN_GUIDE.md)**, a step-by-step
+  operator's guide to the threshold scans, written for someone who has just learned what the
+  discriminator threshold is. It covers what the scans are looking for and why "zero dark counts"
+  is the wrong answer, a setup checklist, each scan in order, how to read every panel of both
+  figures, how to enter the result (in volts: −6.4 mV is `-0.0064`), when to repeat the scans, and
+  what each refusal message means. It lives in the driver folder, so it travels with the driver,
+  and the scan prompts, the SweepMe! description pane and §9.7 all point to it.
+
 - **Recorded data and plots for both threshold scans.** Each writes a raw CSV (counts and live
   time per threshold) and an SVG figure beside its report, under the same stem. The figures are
   drawn as plain SVG, which any browser opens, so they need no plotting library to draw and

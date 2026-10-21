@@ -1189,7 +1189,9 @@ PROMPT_DARK = (
     "p. 22).\n\n"
     "Never expose the PMT to room light with the high voltage on.\n\n"
     "Takes roughly 15-20 minutes: at ~8 dark counts/s each threshold needs up to 30 s for "
-    "adequate statistics. Press OK to start."
+    "adequate statistics.\n\n"
+    "New to this? Step-by-step guide: THRESHOLD_SCAN_GUIDE.md in the driver folder.\n\n"
+    "Press OK to start."
 )
 
 PROMPT_LIGHT = (
@@ -1201,6 +1203,7 @@ PROMPT_LIGHT = (
     "dark-optimised level would cost.\n\n"
     "Never expose the PMT to room light with the high voltage on. Too much light distorts the "
     "result and is refused.\n\n"
+    "New to this? Step-by-step guide: THRESHOLD_SCAN_GUIDE.md in the driver folder.\n\n"
     "Press OK to start."
 )
 

@@ -361,6 +361,14 @@ class Device(EmptyDevice):
         or parameter out of range) and a counter overrun (counter reached 1E9-1 counts, i.e. the
         counts are invalid) raise an exception. A rate error (a missed gate: gate delay or width
         exceeds the trigger period minus 1 us) is reported as a message.</p>
+
+        <h4>Choosing the discriminator threshold</h4>
+        <p>Use the actions <b>run_threshold_scan_dark</b> (PMT covered) and then
+        <b>run_threshold_scan_light</b> (gentle, steady light), one straight after the other. Together
+        they recommend a level and write a report, the raw data and a plot to
+        Public Documents &gt; SweepMe! &gt; DataDevices &gt; Logger-Stanford_SR400. Enter the result in
+        "Discriminator A level in V" in <i>volts</i>: -6.4 mV is -0.0064. Step-by-step guide:
+        THRESHOLD_SCAN_GUIDE.md in this driver's folder.</p>
         """
 
     # ---------------------------------------------------------------- constants

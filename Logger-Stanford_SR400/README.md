@@ -883,6 +883,11 @@ from their content, so a long refusal pushes the panels down instead of overprin
 
 ### 9.7 Threshold scans — `run_threshold_scan_dark`, `run_threshold_scan_light`
 
+> **Operating them for the first time?** Read [`THRESHOLD_SCAN_GUIDE.md`](THRESHOLD_SCAN_GUIDE.md)
+> instead: a step-by-step walkthrough for someone who has just learned what the discriminator
+> threshold is, covering setup, each scan, how to read every panel of the figures, and how to enter
+> the result. This section is the technical reference behind it.
+
 For the **R8486 bare tube on SIGNAL INPUT 1**: counter A, discriminator A, slope FALL, gates CW.
 A threshold scan measures the *integral* pulse-height distribution — the count rate above each
 discriminator level — and the operating threshold belongs between its noise edge and its
