@@ -9,8 +9,9 @@ Newest first. Gotcha and section numbers refer to
 
 - **Recorded data and plots for both threshold scans.** Each writes a raw CSV (counts and live
   time per threshold) and an SVG figure beside its report, under the same stem. The figures are
-  drawn as plain SVG, which any browser opens, because matplotlib cannot be counted on in the
-  SweepMe! environment. They are drawn from the CSV, so `python selftest.py plot <csv>`
+  drawn as plain SVG, which any browser opens, so they need no plotting library to draw and
+  nothing but a browser to view, on any machine the report reaches. They are drawn from the CSV,
+  so `python selftest.py plot <csv>`
   regenerates any of them anywhere. The figures carry the refusals: an invalid dark scan offers
   no lower bound, and a drifting light scan labels its loss levels unreliable. Documents
   **§9.6**, **§9.7**.

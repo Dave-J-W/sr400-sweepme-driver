@@ -47,7 +47,9 @@ from pysweepme.EmptyDeviceClass import EmptyDevice
 # A bare "import selftest" does NOT work: pysweepme loads main.py with
 # imp.load_source(), which never puts the driver folder on sys.path -- verified against
 # pysweepme 1.5.6.17 by loading a folder whose main.py imports a sibling, which raises
-# ImportError. So the sibling is loaded by explicit path, under a driver-name-qualified
+# ImportError, and 1.5.8.4 (the line SweepMe! 1.5.8 ships) loads drivers the same way. 1.5.8.4
+# also has no pysweepme.load_source, so on SweepMe! 1.5.8 the importlib fallback below is the
+# branch that runs. So the sibling is loaded by explicit path, under a driver-name-qualified
 # module name, exactly as the LabJack T-series drivers load their base class: two SR400
 # drivers installed side by side then cannot collide in sys.modules.
 #

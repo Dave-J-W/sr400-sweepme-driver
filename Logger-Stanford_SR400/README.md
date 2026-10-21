@@ -15,7 +15,8 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
    - RS-232: set `BAUD`, `BITS`, `PARITY` to match your port (driver defaults: 9600, 8, none)
      and set **`RS-232 ECHO = OFF`**.
    - GPIB: set `GPIB ADDR` to something in 1…30.
-2. Copy the whole `Logger-Stanford_SR400` folder into your SweepMe! device-class directory.
+2. Copy the whole `Logger-Stanford_SR400` folder into SweepMe!'s custom-driver folder —
+   `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.
 3. Add a **Logger** module, pick the SR400, choose the port.
 4. Minimum sanity configuration: `Counter A input = 10 MHz`, `Count time in s = 1`,
    `Gate A mode = CW`. One measurement point must return
@@ -852,11 +853,11 @@ operator can choose the threshold by eye rather than take the recommendation on 
   direction for the light scan. Rates, edges, the valley and the recommendation are all derived
   on load, so nothing in a figure can disagree with its record. The light CSV names the dark CSV
   it was scored against.
-- **`.svg`** is the figure. It is plain SVG, which any web browser opens, so it exists whatever
-  the SweepMe! environment holds. matplotlib is absent from the bench environment and unverified
-  in SweepMe!'s bundled Python, and a plot needed to choose a threshold cannot depend on an
-  import. A plotting failure never costs the data: the CSV is written first, and the report says
-  why if the plot was not.
+- **`.svg`** is the figure. It is plain SVG, which any web browser opens. SweepMe! 1.5.8 does
+  bundle matplotlib (`libs\matplotlib`), but a plain pysweepme environment does not, and the
+  figure has to open on whatever machine the report is sent to, SweepMe! or not. SVG needs no
+  library to draw and nothing but a browser to view. A plotting failure never costs the data: the
+  CSV is written first, and the report says why if the plot was not.
 
 Any figure can be regenerated from its CSV on any machine with Python and nothing installed.
 Put the dark CSV beside the light one and the S/√B panel comes back too:

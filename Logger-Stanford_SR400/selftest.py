@@ -1680,9 +1680,10 @@ def _mv(v) -> str:
 #  Scan records and plots -- CSV plus dependency-free SVG
 # ==========================================================================
 #
-# The operator chooses the threshold from these, so they must exist on every machine. matplotlib
-# cannot be counted on: it is absent from the bench environment and unverified in SweepMe!'s
-# bundled Python. So each figure is drawn as plain SVG -- a text file any web browser opens --
+# The operator chooses the threshold from these, so they must exist on every machine they reach.
+# SweepMe! 1.5.8 does bundle matplotlib, but a plain pysweepme environment does not, and a report
+# gets sent to machines with neither. So each figure is drawn as plain SVG -- a text file any web
+# browser opens --
 # and it is drawn FROM the CSV record, by the same analysis the report uses. Any figure can be
 # regenerated from its CSV on any machine with a Python interpreter, nothing installed:
 #
