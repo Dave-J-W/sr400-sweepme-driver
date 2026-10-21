@@ -1789,8 +1789,13 @@ class Device(EmptyDevice):
             summary += (
                 f"\n\nFull report:\n  {path}"
                 if path
-                else "\n\nThe report file could not be written; the checks above are all there is."
+                else f"\n\nThe report could not be written ({report.write_error}); the checks "
+                f"above are all there is."
             )
+            for suffix, label in ((".svg", "Plot (opens in any web browser)"),
+                                  (".csv", "Raw data")):
+                if suffix in getattr(report, "extra_paths", {}):
+                    summary += f"\n{label}:\n  {report.extra_paths[suffix]}"
             self.message_box(summary)
         except Exception as exc:  # noqa: BLE001 -- an action must never raise
             self.message_box(

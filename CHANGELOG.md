@@ -7,6 +7,14 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **Recorded data and plots for both threshold scans.** Each writes a raw CSV (counts and live
+  time per threshold) and an SVG figure beside its report, under the same stem. The figures are
+  drawn as plain SVG, which any browser opens, because matplotlib cannot be counted on in the
+  SweepMe! environment. They are drawn from the CSV, so `python selftest.py plot <csv>`
+  regenerates any of them anywhere. The figures carry the refusals: an invalid dark scan offers
+  no lower bound, and a drifting light scan labels its loss levels unreliable. Documents
+  **§9.6**, **§9.7**.
+
 - **Discriminator threshold scans**, `run_threshold_scan_dark` and `run_threshold_scan_light`,
   for the R8486 on SIGNAL INPUT 1. Each shows a blocking acknowledgement prompt for its condition
   and then verifies the condition from the data. Dark: adaptive count times (200 counts or 30 s
@@ -67,6 +75,11 @@ Newest first. Gotcha and section numbers refer to
   `_check_status()`. Documents **gotcha 14**.
 
 ### Fixed
+
+- **Early exits wrote the report before the restore.** Tier 1's known-answer abort, tier 2's
+  missing-cable stop and the light scan's probe refusals returned from inside the `try`, so their
+  reports lacked the "every setting was restored" line, which is exactly when it matters. They now
+  leave through a sentinel exception and write the report after the restore.
 
 - **Audited every command, numeric limit and status bit against the manual** (Revision 2.7). Nothing
   was wrong. `BUFFER_ERROR_CHARS = 240` overclaimed its source and now distinguishes the manual quote

@@ -2581,6 +2581,149 @@ def test_threshold_scans(driver):
     check(any("counting" in str(b) for b in log["boxes"]), "and says the SR400 is counting")
 
 
+def _newest(folder, prefix, suffix):
+    found = sorted(f for f in os.listdir(folder) if f.startswith(prefix) and f.endswith(suffix)) \
+        if os.path.isdir(folder) else []
+    return os.path.join(folder, found[-1]) if found else None
+
+
+def test_scan_records_and_plots(driver):
+    print("\n[25] both scans record raw data and write a plot, regenerable from the data alone")
+
+    import subprocess
+    import tempfile
+    import xml.etree.ElementTree as ET
+
+    st = driver.selftest
+
+    # --- a normal session: dark, then light -----------------------------------------
+    tmpdir = tempfile.mkdtemp(prefix="sr400_plots_")
+    folder = _report_dir(tmpdir)
+    sr400 = VirtualSR400(pmt={}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_dark()
+    dark_summary = log["boxes"][-1] if log["boxes"] else ""
+    sr400.pmt["light_rate"] = 5.0e4
+    device.run_threshold_scan_light()
+    light_summary = log["boxes"][-1] if log["boxes"] else ""
+
+    for kind, summary in (("dark", dark_summary), ("light", light_summary)):
+        stem = f"SR400_threshold_scan_{kind}"
+        txt, csv, svg = (_newest(folder, stem, x) for x in (".txt", ".csv", ".svg"))
+        check(all((txt, csv, svg)), f"the {kind} scan wrote a report, a CSV and an SVG side by side")
+        if not all((txt, csv, svg)):
+            continue
+        check(os.path.splitext(txt)[0] == os.path.splitext(csv)[0] == os.path.splitext(svg)[0],
+              f"the three {kind} files share one stem, so they are always found together")
+        check("Plot (opens in any web browser)" in summary and svg in summary,
+              f"the {kind} closing message gives the plot's path")
+        check("Raw data" in summary and csv in summary, f"and the CSV's path")
+        try:
+            root = ET.parse(svg).getroot()
+            check(root.tag.endswith("svg"), f"the {kind} SVG is well-formed XML with an <svg> root")
+        except ET.ParseError as exc:
+            check(False, f"the {kind} SVG is well-formed XML ({exc})")
+        header = open(csv, encoding="utf-8").read().splitlines()
+        columns = next(line for line in header if not line.startswith("#"))
+        check("counts" in columns and "live_s" in columns and "rate" not in columns,
+              f"the {kind} CSV holds raw counts and live time, not derived rates ({columns})")
+
+    # --- regenerable: the analysis from the CSV alone matches the live one ------------------
+    dark_csv = _newest(folder, "SR400_threshold_scan_dark", ".csv")
+    light_csv = _newest(folder, "SR400_threshold_scan_light", ".csv")
+    if dark_csv and light_csv:
+        live = device._dark_threshold_scan
+        meta, points = st.read_scan_csv(dark_csv)
+        again = st.analyse_dark(points)
+        check(meta.get("kind") == "dark" and len(points) == len(live["rows"]),
+              f"the dark CSV round-trips every threshold ({len(points)} of {len(live['rows'])})")
+        for key in ("noise_edge_v", "vanish_v", "lower_bound_v"):
+            check(again[key] == live[key], f"re-analysis from the CSV gives the same {key}")
+
+        meta, passes = st.read_scan_csv(light_csv)
+        check(meta.get("dark_csv") == os.path.basename(dark_csv),
+              "the light CSV names the dark CSV it was scored against")
+        check(len(passes) == 2 * st.LIGHT_REPEATS, f"it round-trips every pass ({len(passes)})")
+        live_light = st.analyse_light(passes, again)
+        text = open(_newest(folder, "SR400_threshold_scan_light", ".txt")).read()
+        m = re.search(r"RECOMMENDED A DISC LVL: -([0-9.]+) mV", text)
+        check(m is not None and live_light["recommended_v"] is not None
+              and abs(live_light["recommended_v"] * 1e3 - float(m.group(1))) < 1e-9,
+              "re-analysis of the light CSV with the dark CSV gives the same recommendation")
+
+        # The command line regenerates the figure on a machine with nothing but Python.
+        regenerated = os.path.join(tmpdir, "copy.csv")
+        with open(light_csv, encoding="utf-8") as src, open(regenerated, "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        import shutil
+        shutil.copy(dark_csv, os.path.join(tmpdir, os.path.basename(dark_csv)))
+        script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "selftest.py")
+        run = subprocess.run([sys.executable, script, "plot", regenerated], capture_output=True, text=True)
+        out_svg = os.path.splitext(regenerated)[0] + ".svg"
+        check(run.returncode == 0 and os.path.exists(out_svg),
+              f"'python selftest.py plot <csv>' regenerates the figure ({run.returncode}, {run.stderr[-120:]})")
+        if os.path.exists(out_svg):
+            body = open(out_svg, encoding="utf-8").read()
+            check("RECOMMENDED A DISC LVL" in body and "S/sqrt(B), relative" in body,
+                  "and the regenerated light figure found the dark CSV and scored S/sqrt(B)")
+
+    # --- the figures refuse what the data cannot support --------------------------------
+    tmpdir = tempfile.mkdtemp(prefix="sr400_plots_")
+    folder = _report_dir(tmpdir)
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)  # lit: invalid dark scan
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_dark()
+    svg = _newest(folder, "SR400_threshold_scan_dark", ".svg")
+    body = open(svg, encoding="utf-8").read() if svg else ""
+    check("INVALID" in body, "an invalid dark scan is plotted, and says INVALID on the figure")
+    check(re.search(r"lower bound \d", body) is None,
+          "and offers NO lower bound anywhere on it -- not readable off as an operating level")
+    check("diagnostic only" in body, "its noise edge is labelled a diagnostic, not a bound")
+    check(_newest(folder, "SR400_threshold_scan_dark", ".csv") is not None,
+          "the invalid scan's raw data is still recorded")
+
+    tmpdir = tempfile.mkdtemp(prefix="sr400_plots_")
+    folder = _report_dir(tmpdir)
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+
+    def brighten(message, _sr=sr400):
+        if "done" in message:
+            _sr.pmt["light_rate"] *= 1.05
+
+    device.message_info = brighten
+    device.run_threshold_scan_light()
+    svg = _newest(folder, "SR400_threshold_scan_light", ".svg")
+    body = open(svg, encoding="utf-8").read() if svg else ""
+    check("NO RECOMMENDATION" in body, "a drifting light scan is plotted with NO RECOMMENDATION")
+    check("UNRELIABLE under drift" in body, "and its loss levels are labelled unreliable, not stated as fact")
+    check("NOT SHOWN" in body, "and S/sqrt(B) is marked NOT SHOWN, with its reason, without a dark scan")
+
+    # --- early exits still report the restore (the report was once written before it) ----
+    tmpdir = tempfile.mkdtemp(prefix="sr400_plots_")
+    folder = _report_dir(tmpdir)
+    sr400 = VirtualSR400(pmt={"light_rate": 0.0}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_light()
+    txt = _newest(folder, "SR400_threshold_scan_light", ".txt")
+    text = open(txt).read() if txt else ""
+    check("== restore" in text and "every changed setting was restored" in text,
+          "a light scan refused at the probe still reports the restore")
+    check(_newest(folder, "SR400_threshold_scan_light", ".svg") is None,
+          "and writes no plot: there was no sweep to plot")
+
+    sr400 = VirtualSR400()
+    sr400.rate["INPUT 2"] = 0.0
+    device = make_device(driver, sr400, **{"Counter A input": "10 MHz"})
+    device.get_folder = lambda identifier: tmpdir
+    device.message_box = lambda message, blocking=False: None
+    device.message_info = lambda message: None
+    device.run_self_test_loopback()
+    txt = _newest(folder, "SR400_self_test_tier_2", ".txt")
+    text = open(txt).read() if txt else ""
+    check("== restore" in text, "a tier-2 run stopped at the cable probe still reports the restore")
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -2613,6 +2756,7 @@ def main() -> int:
         test_auto_split_mode,
         test_self_test_actions,
         test_threshold_scans,
+        test_scan_records_and_plots,
     ):
         test(driver)
 

@@ -8,7 +8,7 @@ SR400 two-channel gated photon counter, over RS-232 or GPIB.
 | Driver | [`Logger-Stanford_SR400/`](Logger-Stanford_SR400/) — `main.py` (~2400 lines), [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/), `license.txt` |
 | Columns | `Counter A`, `Counter B`, `Rate A`, `Rate B`, `Count time` |
 | Interfaces | RS-232 (COM) and GPIB, via the pysweepme port manager |
-| Tests | 431 checks, no hardware required |
+| Tests | 462 checks, no hardware required |
 | History | [`CHANGELOG.md`](CHANGELOG.md), [`docs/`](docs/) |
 
 Every command the driver sends is documented in the SR400 manual, Revision 2.7,
@@ -99,7 +99,8 @@ at all, since it cannot see the internal timebase. Both refuse while the instrum
 counting, restore everything they touch without using a storage slot, and write a timestamped
 report. Two **threshold-scan** actions sweep discriminator A for the R8486: a dark scan for the
 lowest usable level and a light scan, up and down three times, for the upper bound —
-and from both together the level maximising S/√B. Driver README §9.
+and from both together the level maximising S/√B. Each scan writes its raw data as CSV and a
+plot as SVG beside the report, so the operator can choose the threshold by eye. Driver README §9.
 
 `Fast readout (batch queries)` chains counter queries to cut round trips — about 3.5×
 fewer at 10 periods per point. Off by default, because the manual both documents chained
@@ -117,7 +118,7 @@ instrument's buffer limits — and runs the whole driver lifecycle against it.
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-431 checks, covering:
+462 checks, covering:
 
 - both measurement modes, and both count-time modes
 - the count-time planner as a pure function: every split in the specification, at every
@@ -139,6 +140,9 @@ python Logger-Stanford_SR400/tests/test_sr400_virtual.py
   no-signal refusals, the light probe's refusals, drift flagged, injected hysteresis
   recovered in mV, and the S/√B optimum landing between the noise edge and the level
   where dark counts vanish
+- the scans' records and plots: CSV and SVG written beside each report, the CSV re-analysed to
+  the same result, the plot regenerated from the CSV alone, and the refusals visible on the
+  figure itself
 - a round trip of every wrapped command
 
 It does **not** cover anything about the real instrument: response *formats*,

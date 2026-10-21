@@ -35,6 +35,7 @@ class Report:
         self.aborted = False
         self.write_error = ""
         self.headline = ""  # one-line result for the end-of-run message
+        self.extra_paths: dict = {}  # suffix -> path of each companion file written
 
     # -- accumulating -------------------------------------------------------
     def check(self, condition: bool, description: str) -> bool:
@@ -64,8 +65,13 @@ class Report:
         return self.checks - len(self.failures)
 
     # -- writing out --------------------------------------------------------
-    def write(self, timestamp: str) -> str:
-        """Write the report and return its path, or '' if it could not be written."""
+    def write(self, timestamp: str, extras: dict | None = None) -> str:
+        """Write the report, and any companion files, and return the report's path.
+
+        extras maps a suffix ('.csv', '.svg') to file content. They share the report's stem and
+        folder, so a report, its data and its plot are always found together. '' if nothing
+        could be written; write_error then says why for each location.
+        """
         head = [
             f"SR400 {self.title}",
             "=" * 72,
@@ -97,6 +103,15 @@ class Report:
         # (AppData\Local\SweepMe!\temp) -- hidden, and not somewhere a deliverable should live --
         # so it is only the fallback. Each failure's reason is kept: "could not be written"
         # with no cause wastes an afternoon, and the report is the point of the exercise.
+        stem = os.path.splitext(name)[0]
+        if extras:
+            body.append("")
+            body.append("Companion files, same folder:")
+            for suffix in extras:
+                kind = {".csv": "raw data, one row per measurement",
+                        ".svg": "plot -- opens in any web browser"}.get(suffix, "")
+                body.append(f"  {stem}{suffix}   {kind}")
+
         driver = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
         errors = []
         for identifier in ("DATADEVICES", "TEMP"):
@@ -108,6 +123,12 @@ class Report:
                 path = os.path.join(folder, name)
                 with open(path, "w") as handle:
                     handle.write("\n".join(body) + "\n")
+                self.extra_paths = {}
+                for suffix, content in (extras or {}).items():
+                    extra = os.path.join(folder, stem + suffix)
+                    with open(extra, "w", encoding="utf-8") as handle:
+                        handle.write(content)
+                    self.extra_paths[suffix] = extra
                 return path
             except Exception as exc:  # noqa: BLE001 -- try the next location
                 errors.append(f"{identifier}: {type(exc).__name__}: {exc}")
@@ -284,7 +305,7 @@ def run_tier1(device) -> tuple[Report, str]:
     try:
         _tier1_known_answer(device, report)
         if report.aborted:
-            return report, report.write(_timestamp())
+            raise _StopScan
 
         _tier1_response_formats(device, report)
         _tier1_one_significant_digit(device, report)
@@ -297,6 +318,8 @@ def run_tier1(device) -> tuple[Report, str]:
         _tier1_throughput(device, report)
         _tier1_interface_gating(device, report)
         _tier1_coverage_note(device, report)
+    except _StopScan:
+        pass  # aborted early on purpose; the restore below still runs and is reported
     finally:
         device.reset_counters()
         failed = _restore_settings(device, SAVED_SETTINGS, saved)
@@ -719,7 +742,7 @@ def run_tier2(device) -> tuple[Report, str]:
 
     try:
         if not _tier2_probe_cable1(device, report):
-            return report, report.write(_timestamp())
+            raise _StopScan
 
         _tier2_counter_b(device, report)
         _tier2_discriminators(device, report)
@@ -736,6 +759,8 @@ def run_tier2(device) -> tuple[Report, str]:
             _tier2_gate_width_calibration(device, report)
 
         _tier2_coverage_note(device, report)
+    except _StopScan:
+        pass  # no loopback cable; the restore below still runs and is reported
     finally:
         device.reset_counters()
         failed = _restore_settings(device, SAVED_SETTINGS + PORT_SETTINGS, saved)
@@ -1287,6 +1312,12 @@ def analyse_dark(points: list) -> dict:
         # A margin of 0.5 mV, rounded up to the discriminator's 0.2 mV step.
         result["lower_bound_v"] = _math.ceil((edge + 0.0005) / 0.0002 - 1e-9) * 0.0002
 
+    if not result["valid"]:
+        # The noise edge stays, as a diagnostic of what was seen. The BOUND goes: a level
+        # derived from a lit or disconnected tube must not be readable off the figure as an
+        # operating threshold.
+        result["lower_bound_v"] = None
+
     # Dark counts vanish where every threshold from here up reads zero.
     for i, row in enumerate(rows):
         if row["counts"] == 0 and all(r["counts"] == 0 for r in rows[i:]):
@@ -1645,12 +1676,608 @@ def _mv(v) -> str:
     return "none" if v is None else f"{v * 1e3:.1f} mV"
 
 
+# ==========================================================================
+#  Scan records and plots -- CSV plus dependency-free SVG
+# ==========================================================================
+#
+# The operator chooses the threshold from these, so they must exist on every machine. matplotlib
+# cannot be counted on: it is absent from the bench environment and unverified in SweepMe!'s
+# bundled Python. So each figure is drawn as plain SVG -- a text file any web browser opens --
+# and it is drawn FROM the CSV record, by the same analysis the report uses. Any figure can be
+# regenerated from its CSV on any machine with a Python interpreter, nothing installed:
+#
+#     python selftest.py plot <scan>.csv
+#
+# The CSV holds only raw instrument values per threshold: counts and live time (and, for the
+# light scan, which pass). Rates, edges, valleys and the recommendation are all derived on load,
+# so a figure cannot disagree with its record.
+
+import html as _html
+
+_SCAN_COLUMNS = {
+    "dark": ("abs_v_V", "level_V", "counts", "live_s", "t_s"),
+    "light": ("repeat", "direction", "abs_v_V", "level_V", "counts", "live_s", "t_s"),
+}
+
+
+class _StopScan(Exception):
+    """Leave a run early. Caught before the restore, so the report is still written AFTER it."""
+
+
+def _scan_meta(device, kind: str, stamp: str, **extra) -> dict:
+    meta = {
+        "kind": kind,
+        "when": stamp,
+        "port": device.port_string or "(none)",
+        "interface": "RS-232" if device.is_rs232 else "GPIB",
+        "driver": os.path.basename(os.path.dirname(os.path.abspath(__file__))),
+        "counter": SCAN_COUNTER,
+        "input": f"SIGNAL INPUT {SCAN_INPUT}",
+        "slope": SCAN_SLOPE.upper(),
+    }
+    meta.update({k: str(v) for k, v in extra.items()})
+    return meta
+
+
+def scan_csv(meta: dict, records: list) -> str:
+    """A scan record: '#' metadata lines, a header, then one raw row per measurement."""
+    columns = _SCAN_COLUMNS[meta["kind"]]
+    t0 = min((r["t"] for r in records if "t" in r), default=0.0)
+    lines = [f"# {key}: {value}" for key, value in meta.items()]
+    lines.append(",".join(columns))
+    for r in records:
+        values = {
+            "repeat": r.get("repeat", ""), "direction": r.get("direction", ""),
+            "abs_v_V": f"{r['abs_v']:.5f}", "level_V": f"{r['level_v']:.5f}",
+            "counts": str(int(r["counts"])), "live_s": f"{r['live_s']:.6f}",
+            "t_s": f"{r.get('t', t0) - t0:.3f}",
+        }
+        lines.append(",".join(str(values[c]) for c in columns))
+    return "\n".join(lines) + "\n"
+
+
+def read_scan_csv(path: str):
+    """Inverse of scan_csv. Returns (meta, points) for dark, (meta, passes) for light."""
+    meta, header, rows = {}, None, []
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\r\n")
+            if not line:
+                continue
+            if line.startswith("#"):
+                key, _, value = line[1:].partition(":")
+                meta[key.strip()] = value.strip()
+            elif header is None:
+                header = line.split(",")
+            else:
+                rows.append(dict(zip(header, line.split(","))))
+
+    def point(row):
+        return {"abs_v": float(row["abs_v_V"]), "level_v": float(row["level_V"]),
+                "counts": int(row["counts"]), "live_s": float(row["live_s"]),
+                "t": float(row["t_s"])}
+
+    if meta.get("kind") == "dark":
+        return meta, [point(r) for r in rows]
+
+    passes = []
+    for row in rows:
+        key = (int(row["repeat"]), row["direction"])
+        if not passes or (passes[-1]["repeat"], passes[-1]["direction"]) != key:
+            passes.append({"repeat": key[0], "direction": key[1], "points": []})
+        passes[-1]["points"].append(point(row))
+    return meta, passes
+
+
+# ------------------------------------------------------------------ SVG drawing
+
+_PASS_COLORS = ("#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b")
+_C = {"edge": "#e67e22", "bound": "#1a9850", "vanish": "#c0392b", "valley": "#8e44ad",
+      "rec": "#1a9850", "pickup": "#7f8c8d", "band": "#f39c12", "noise": "#bdc3c7"}
+
+
+class _Svg:
+    def __init__(self, width: int, height: int) -> None:
+        self.width, self.height = width, height
+        self.parts: list = []
+        self._clips = 0
+
+    def text(self, x, y, s, size=12, anchor="start", weight="normal", color="#222",
+             rotate=None, italic=False):
+        transform = f' transform="rotate({rotate} {x:.1f} {y:.1f})"' if rotate else ""
+        style = ' font-style="italic"' if italic else ""
+        self.parts.append(
+            f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" font-family="Arial, sans-serif" '
+            f'text-anchor="{anchor}" font-weight="{weight}" fill="{color}"{style}{transform}>'
+            f"{_html.escape(str(s))}</text>",
+        )
+
+    def line(self, x1, y1, x2, y2, color="#222", width=1.0, dash=None, clip=None):
+        extra = (f' stroke-dasharray="{dash}"' if dash else "") + (f' clip-path="url(#{clip})"' if clip else "")
+        self.parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                          f'stroke="{color}" stroke-width="{width}"{extra}/>')
+
+    def rect(self, x, y, w, h, fill="none", stroke="none", opacity=1.0, clip=None):
+        extra = f' clip-path="url(#{clip})"' if clip else ""
+        self.parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(w, 0):.1f}" height="{max(h, 0):.1f}" '
+                          f'fill="{fill}" stroke="{stroke}" fill-opacity="{opacity}"{extra}/>')
+
+    def polyline(self, points, color, width=1.5, dash=None, clip=None):
+        if len(points) < 2:
+            return
+        extra = (f' stroke-dasharray="{dash}"' if dash else "") + (f' clip-path="url(#{clip})"' if clip else "")
+        coords = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+        self.parts.append(f'<polyline points="{coords}" fill="none" stroke="{color}" '
+                          f'stroke-width="{width}"{extra}/>')
+
+    def marker(self, x, y, shape, color, size=3.5, filled=True, clip=None):
+        fill = color if filled else "white"
+        extra = f' clip-path="url(#{clip})"' if clip else ""
+        if shape == "o":
+            self.parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{size:.1f}" fill="{fill}" '
+                              f'stroke="{color}" stroke-width="1.2"{extra}/>')
+        else:
+            s = size * 1.3
+            pts = ((x, y - s), (x - s, y + s * 0.8), (x + s, y + s * 0.8)) if shape == "^" else \
+                  ((x, y + s), (x - s, y - s * 0.8), (x + s, y - s * 0.8))
+            coords = " ".join(f"{px:.1f},{py:.1f}" for px, py in pts)
+            self.parts.append(f'<polygon points="{coords}" fill="{fill}" stroke="{color}" '
+                              f'stroke-width="1.2"{extra}/>')
+
+    def clip_rect(self, x, y, w, h) -> str:
+        self._clips += 1
+        name = f"clip{self._clips}"
+        self.parts.append(f'<clipPath id="{name}"><rect x="{x:.1f}" y="{y:.1f}" '
+                          f'width="{w:.1f}" height="{h:.1f}"/></clipPath>')
+        return name
+
+    def render(self) -> str:
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" height="{self.height}" '
+                f'viewBox="0 0 {self.width} {self.height}">\n'
+                f'<rect x="0" y="0" width="{self.width}" height="{self.height}" fill="white"/>\n'
+                + "\n".join(self.parts) + "\n</svg>\n")
+
+
+def _nice_ticks(lo: float, hi: float, target: int = 7) -> list:
+    span = hi - lo
+    if span <= 0:
+        return [lo]
+    raw = span / target
+    magnitude = 10.0 ** _math.floor(_math.log10(raw))
+    step = min((m * magnitude for m in (1, 2, 5, 10)), key=lambda s: abs(s - raw))
+    first = _math.ceil(lo / step - 1e-9) * step
+    ticks = []
+    value = first
+    while value <= hi + 1e-9 * step:
+        ticks.append(round(value, 10))
+        value += step
+    return ticks
+
+
+def _fmt(v: float) -> str:
+    return f"{v:g}" if abs(v) < 1e5 else f"{v:.0e}"
+
+
+class _Panel:
+    """One axes box: data-to-pixel mapping, frame, ticks, and the marks drawn into it."""
+
+    def __init__(self, svg, x, y, w, h, xlim, ylim, log_y=False):
+        self.svg, self.x, self.y, self.w, self.h = svg, x, y, w, h
+        self.x0, self.x1 = xlim
+        self.log_y = log_y
+        self.y0, self.y1 = ylim
+        if log_y:
+            self.y0, self.y1 = max(self.y0, 1e-12), max(self.y1, self.y0 * 10)
+        self.clip = svg.clip_rect(x, y, w, h)
+        self.legend_items: list = []
+
+    def px(self, v):
+        return self.x + (v - self.x0) / (self.x1 - self.x0) * self.w
+
+    def py(self, v):
+        if v is None or not _math.isfinite(v):
+            return None
+        if self.log_y:
+            if v <= 0:
+                return None
+            t = (_math.log10(v) - _math.log10(self.y0)) / (_math.log10(self.y1) - _math.log10(self.y0))
+        else:
+            t = (v - self.y0) / (self.y1 - self.y0)
+        return self.y + self.h - t * self.h
+
+    def frame(self, title, xlabel, ylabel):
+        s = self.svg
+        for tick in _nice_ticks(self.x0, self.x1):
+            X = self.px(tick)
+            s.line(X, self.y, X, self.y + self.h, "#eeeeee", 1)
+            s.line(X, self.y + self.h, X, self.y + self.h + 4, "#222", 1)
+            s.text(X, self.y + self.h + 16, _fmt(tick), 10, "middle")
+        if self.log_y:
+            for k in range(_math.ceil(_math.log10(self.y0) - 1e-9), _math.floor(_math.log10(self.y1) + 1e-9) + 1):
+                Y = self.py(10.0 ** k)
+                s.line(self.x, Y, self.x + self.w, Y, "#eeeeee", 1)
+                s.line(self.x - 4, Y, self.x, Y, "#222", 1)
+                s.text(self.x - 6, Y + 4, f"1e{k}" if k not in (0, 1, 2, 3) else _fmt(10 ** k), 10, "end")
+        else:
+            for tick in _nice_ticks(self.y0, self.y1, 6):
+                Y = self.py(tick)
+                s.line(self.x, Y, self.x + self.w, Y, "#eeeeee", 1)
+                s.line(self.x - 4, Y, self.x, Y, "#222", 1)
+                s.text(self.x - 6, Y + 4, _fmt(tick), 10, "end")
+        s.rect(self.x, self.y, self.w, self.h, stroke="#222")
+        s.text(self.x, self.y - 8, title, 13, weight="bold")
+        s.text(self.x + self.w / 2, self.y + self.h + 34, xlabel, 11, "middle")
+        s.text(self.x - 52, self.y + self.h / 2, ylabel, 11, "middle", rotate=-90)
+
+    def series(self, xs, ys, color, marker=None, dash=None, width=1.5, filled=True, label=None, line=True):
+        pts = [(self.px(x), self.py(y)) for x, y in zip(xs, ys) if self.py(y) is not None]
+        if line:
+            self.svg.polyline(pts, color, width, dash, self.clip)
+        if marker:
+            for X, Y in pts:
+                self.svg.marker(X, Y, marker, color, filled=filled, clip=self.clip)
+        if label:
+            self.legend_items.append((label, color, marker, dash, filled, line))
+
+    def errorbars(self, xs, ys, sigmas, color):
+        for x, y, sig in zip(xs, ys, sigmas):
+            top, bottom = self.py(y + sig), self.py(y - sig)
+            if top is None:
+                continue
+            bottom = self.y + self.h if bottom is None else bottom
+            X = self.px(x)
+            self.svg.line(X, top, X, bottom, color, 1, clip=self.clip)
+
+    def vline(self, x, color, label, dash="5,3", slot=0):
+        if x is None or not (self.x0 <= x <= self.x1):
+            return
+        X = self.px(x)
+        self.svg.line(X, self.y, X, self.y + self.h, color, 1.5, dash)
+        right_side = X > self.x + 0.62 * self.w
+        self.svg.text(X - 3 if right_side else X + 3, self.y + 14 + 13 * slot, label, 10,
+                      "end" if right_side else "start", color=color)
+
+    def hline(self, y, color, label, dash="4,3", stagger=0, left=False):
+        Y = self.py(y)
+        if Y is None or not (self.y <= Y <= self.y + self.h):
+            return
+        self.svg.line(self.x, Y, self.x + self.w, Y, color, 1, dash)
+        if left:
+            self.svg.text(self.x + 4, Y - 3, label, 9, "start", color=color)
+        else:
+            self.svg.text(self.x + self.w - 4 - 52 * stagger, Y - 3, label, 9, "end", color=color)
+
+    def band(self, x0, x1, color, label, opacity=0.18):
+        a, b = self.px(max(x0, self.x0)), self.px(min(x1, self.x1))
+        if b <= a:
+            return
+        self.svg.rect(a, self.y, b - a, self.h, fill=color, opacity=opacity)
+        self.svg.text(a + 3, self.y + self.h - 6, label, 10, color="#555", italic=True)
+
+    def note(self, text, color="#555", line=0, corner="tl"):
+        if corner == "br":
+            self.svg.text(self.x + self.w - 8, self.y + self.h - 10 - 14 * line, text, 11, "end",
+                          color=color, italic=True)
+        else:
+            self.svg.text(self.x + 8, self.y + 18 + 14 * line, text, 11, color=color, italic=True)
+
+    def legend(self):
+        if not self.legend_items:
+            return
+        width = 12 + 6.2 * max(len(item[0]) for item in self.legend_items) + 30
+        x, y = self.x + self.w - width - 6, self.y + 6
+        self.svg.rect(x, y, width, 8 + 15 * len(self.legend_items), fill="white", stroke="#cccccc", opacity=0.92)
+        for i, (label, color, marker, dash, filled, line) in enumerate(self.legend_items):
+            Y = y + 14 + 15 * i
+            if line:
+                self.svg.line(x + 6, Y - 4, x + 28, Y - 4, color, 1.5, dash)
+            if marker:
+                self.svg.marker(x + 17, Y - 4, marker, color, filled=filled)
+            self.svg.text(x + 34, Y, label, 10)
+
+
+def _wrapped(text: str, width_chars: int) -> list:
+    import textwrap
+    return textwrap.wrap(text, width_chars) or [""]
+
+
+def _text_block(svg, x, y, width_chars, lines, size=12) -> float:
+    """Wrapped text, height from content so it can never overprint what follows. Returns end y."""
+    import textwrap
+    row = size + 4
+    for raw in lines:
+        color, weight = "#222", "normal"
+        if raw.startswith("!"):
+            raw, color, weight = raw[1:], "#c0392b", "bold"
+        elif raw.startswith("+"):
+            raw, color, weight = raw[1:], "#1a7f37", "bold"
+        for piece in textwrap.wrap(raw, width_chars) or [""]:
+            svg.text(x, y, piece, size, color=color, weight=weight)
+            y += row
+    return y
+
+
+def _mv_axis_max(rows) -> float:
+    return max((r["abs_v"] for r in rows), default=0.04) * 1e3 * 1.03 + 0.2
+
+
+def plot_dark(result: dict, meta: dict) -> str:
+    rows = result["rows"]
+    findings = _dark_findings(result)
+    W = 1100
+    text_height = 22 + 16 * sum(max(1, len(line) // 150 + 1) for line in findings)
+    verdict_lines = 1 if result["valid"] else len(_wrapped("; ".join(result["reasons"]), 150))
+    H = 118 + 17 * (verdict_lines - 1) + 420 + 78 + 180 + 70 + text_height
+    svg = _Svg(W, int(H))
+    svg.text(24, 30, "SR400 threshold scan, DARK -- covered R8486 on SIGNAL INPUT 1, discriminator A, FALL", 17, weight="bold")
+    svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
+                     f"driver {meta.get('driver', '')}   counts and live time are raw; rate = counts / live time", 11, color="#555")
+    verdict = ("+VALID covered-PMT measurement" if result["valid"]
+               else "!INVALID -- " + "; ".join(result["reasons"]))
+    shift = _text_block(svg, 24, 74, 150, [verdict], 13) - 74 - 17
+
+    xmax = _mv_axis_max(rows)
+    positive = [r["rate"] for r in rows if r["counts"] > 0]
+    limits = [r["upper95"] for r in rows if r["upper95"]]
+    ymin = min(positive + limits, default=0.01) / 3.0
+    ymax = max(positive + limits, default=10.0) * 3.0
+    a = _Panel(svg, 90, 118 + shift, 980, 420, (0.0, xmax), (ymin, ymax), log_y=True)
+    a.frame("(a) dark count rate above each threshold", "|discriminator level|, mV",
+            "rate, counts/s (log)")
+    if result["oscillating_below_v"] is not None:
+        a.band(0.0, result["oscillating_below_v"] * 1e3, _C["noise"],
+               f"> {OSCILLATION_RATE_CPS:.0e} counts/s: noise / pickup, not dark counts", 0.35)
+    measured = [r for r in rows if r["counts"] > 0]
+    xs = [r["abs_v"] * 1e3 for r in measured]
+    a.errorbars(xs, [r["rate"] for r in measured], [r["sigma"] for r in measured], "#1f77b4")
+    a.series(xs, [r["rate"] for r in measured], "#1f77b4", "o", label="counts > 0, +-1 sigma Poisson")
+    zeros = [r for r in rows if r["counts"] == 0]
+    a.series([r["abs_v"] * 1e3 for r in zeros], [r["upper95"] for r in zeros], "#c0392b", "v",
+             filled=False, line=False, label="0 counts: 95 % upper limit, 3 / live time")
+    a.vline(PICKUP_SAFE_V * 1e3, _C["pickup"], "10 mV: DISC pickup risk below (manual p. 22)", "2,3", 3)
+    if result["noise_edge_v"] is not None:
+        a.vline(result["noise_edge_v"] * 1e3, _C["edge"],
+                f"noise edge {result['noise_edge_v'] * 1e3:.1f} mV"
+                + ("" if result["valid"] else " -- diagnostic only, scan invalid"), "5,3", 0)
+    if result["lower_bound_v"] is not None:
+        a.vline(result["lower_bound_v"] * 1e3, _C["bound"], f"lower bound {result['lower_bound_v'] * 1e3:.1f} mV", None, 1)
+    if result["vanish_v"] is not None:
+        a.vline(result["vanish_v"] * 1e3, _C["vanish"],
+                f"dark counts vanish {result['vanish_v'] * 1e3:.1f} mV -- NOT the optimum", "5,3", 2)
+    a.legend()
+
+    b = _Panel(svg, 90, 118 + shift + 420 + 78, 980, 180, (0.0, xmax), (0.0, DARK_MAX_SECONDS * 1.15))
+    b.frame("(b) statistics: live time spent per threshold", "|discriminator level|, mV", "live time, s")
+    hit = [r for r in rows if r["counts"] >= DARK_TARGET_COUNTS]
+    capped = [r for r in rows if r["counts"] < DARK_TARGET_COUNTS]
+    b.series([r["abs_v"] * 1e3 for r in hit], [r["live_s"] for r in hit], "#1a7f37", "o", line=False,
+             label=f"reached {DARK_TARGET_COUNTS} counts")
+    b.series([r["abs_v"] * 1e3 for r in capped], [r["live_s"] for r in capped], "#c0392b", "o",
+             filled=False, line=False, label=f"hit the {DARK_MAX_SECONDS:g} s cap: fewer counts, wider error bar")
+    b.hline(DARK_MAX_SECONDS, "#c0392b", f"time cap {DARK_MAX_SECONDS:g} s", left=True)
+    b.legend()
+
+    _text_block(svg, 24, 118 + shift + 420 + 78 + 180 + 62, 150, findings)
+    return svg.render()
+
+
+def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str:
+    rows = result["rows"]
+    findings = _light_findings(result, dark)
+    W = 1200
+    text_height = 22 + 16 * sum(max(1, len(line) // 160 + 1) for line in findings)
+    P = 330
+    if result["recommended_v"] is not None:
+        headline = (f"+RECOMMENDED A DISC LVL -{result['recommended_v'] * 1e3:.1f} mV, FALL -- counts "
+                    f"{1 - result['recommended_loss']:.1%} of photons at the reference level.  Basis: "
+                    f"{result['recommended_basis']}.")
+    else:
+        headline = "!NO RECOMMENDATION -- " + ("; ".join(result["reasons"]) or "see the report")
+    top = 118 + 17 * (len(_wrapped(headline.lstrip("+!"), 165)) - 1)
+    row2 = top + P + 82
+    H = row2 + P + 70 + text_height
+    svg = _Svg(W, int(H))
+    svg.text(24, 30, "SR400 threshold scan, LIGHT -- R8486 on SIGNAL INPUT 1, discriminator A, FALL", 17, weight="bold")
+    svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
+                     f"{len(passes)} passes   dark scan used: {meta.get('dark_csv') or 'none this session'}", 11, color="#555")
+    _text_block(svg, 24, 74, 165, [headline], 13)
+
+    if not rows:
+        svg.text(24, top + 40, "No thresholds common to every pass: nothing to plot.", 14, color="#c0392b")
+        return svg.render()
+
+    xmax = _mv_axis_max(rows)
+    lx, rx, pw = 90, 690, 480
+
+    # (a) every pass, so drift and hysteresis are visible rather than averaged away
+    rates = [p["counts"] / p["live_s"] for ps in passes for p in ps["points"] if p["counts"] > 0]
+    a = _Panel(svg, lx, top, pw, P, (0.0, xmax), (min(rates, default=1) / 3, max(rates, default=10) * 3), log_y=True)
+    a.frame("(a) count rate, every pass", "|discriminator level|, mV", "rate, counts/s (log)")
+    for ps in passes:
+        color = _PASS_COLORS[(ps["repeat"] - 1) % len(_PASS_COLORS)]
+        pts = sorted(ps["points"], key=lambda p: p["abs_v"])
+        a.series([p["abs_v"] * 1e3 for p in pts], [p["counts"] / p["live_s"] for p in pts], color,
+                 "^" if ps["direction"] == "up" else "v", None if ps["direction"] == "up" else "4,3", 1.0,
+                 label=f"repeat {ps['repeat']} {ps['direction']}")
+    a.vline(PICKUP_SAFE_V * 1e3, _C["pickup"], "10 mV pickup risk below", "2,3", 0)
+    a.note("where passes agree they overprint; drift or hysteresis separates them", corner="br")
+    a.legend()
+
+    # (b) the same data, zoomed and normalised: a 1-5 % knee is invisible on a log axis
+    plateau = result["plateau_rate"]
+    if plateau:
+        ref = result["reference_v"] * 1e3
+        tail = next((r["abs_v"] * 1e3 for r in rows if r["abs_v"] * 1e3 > ref and r["rate"] / plateau < 0.4), xmax)
+        b = _Panel(svg, rx, top, pw, P, (max(ref - 1.5, 0.0), tail + 0.5), (0.4, 1.08))
+        b.frame("(b) counts relative to the reference level, zoomed", "|discriminator level|, mV",
+                "rate / rate at reference")
+        for ps in passes:
+            color = _PASS_COLORS[(ps["repeat"] - 1) % len(_PASS_COLORS)]
+            pts = sorted(ps["points"], key=lambda p: p["abs_v"])
+            b.series([p["abs_v"] * 1e3 for p in pts], [p["counts"] / p["live_s"] / plateau for p in pts], color,
+                     "^" if ps["direction"] == "up" else "v", None if ps["direction"] == "up" else "4,3", 0.8)
+        for i, loss in enumerate(LOSS_LEVELS):
+            b.hline(1.0 - loss, "#7f8c8d", f"{loss:.0%} loss", stagger=i % 2)
+        b.vline(ref, _C["valley"], f"reference {ref:.1f} mV", "5,3", 0)
+        if result["noise_edge_v"] is not None:
+            b.vline(result["noise_edge_v"] * 1e3, _C["edge"], f"noise edge {result['noise_edge_v'] * 1e3:.1f}", "5,3", 1)
+        if result["recommended_v"] is not None:
+            b.vline(result["recommended_v"] * 1e3, _C["rec"], f"recommended {result['recommended_v'] * 1e3:.1f}", None, 2)
+    else:
+        svg.text(rx, top + 40, "(b) NOT SHOWN: no reference level, so nothing to normalise to.", 12, color="#c0392b")
+
+    # (c) pulse-height density: where the valley and single-PE peak are
+    dens = [(r["abs_v"] * 1e3, r["density"]) for r in rows if _math.isfinite(r.get("density", float("nan")))]
+    peak = max((d for v, d in dens if result["peak_v"] is not None and v >= result["peak_v"] * 1e3 - 1e-6), default=None)
+    if result["valley_v"] is not None and peak:
+        c = _Panel(svg, lx, row2, pw, P, (0.0, xmax), (0.0, peak * 1.6))
+        c.frame("(c) pulse-height density, -d(rate)/d(level)", "|discriminator level|, mV", "counts/s per mV")
+        c.series([v for v, _ in dens], [d for _, d in dens], "#34495e", "o", width=1.0)
+        off = [(v, d) for v, d in dens if d > peak * 1.6]
+        if off:
+            c.note(f"noise runs off scale below {max(v for v, _ in off):.1f} mV "
+                   f"(up to {max(d for _, d in off):.3g} counts/s per mV)", corner="br")
+        c.vline(result["valley_v"] * 1e3, _C["valley"], f"valley {result['valley_v'] * 1e3:.1f} mV", "5,3", 1)
+        c.vline(result["peak_v"] * 1e3, "#34495e", f"single-PE peak {result['peak_v'] * 1e3:.1f} mV", "5,3", 2)
+    else:
+        positive = [d for _, d in dens if d > 0]
+        c = _Panel(svg, lx, row2, pw, P, (0.0, xmax), (min(positive, default=1) / 3, max(positive, default=10) * 3), log_y=True)
+        c.frame("(c) pulse-height density (log): NO VALLEY RESOLVED", "|discriminator level|, mV", "counts/s per mV (log)")
+        c.series([v for v, d in dens if d > 0], positive, "#34495e", "o", width=1.0)
+        c.note("noise and single-PE pulses are not separated at this gain", "#c0392b")
+
+    # (d) the background-limited figure of merit, which is what picks the level
+    if result["fom"]:
+        d = _Panel(svg, rx, row2, pw, P, (0.0, xmax), (0.0, 1.08))
+        d.frame("(d) S/sqrt(B), relative to its best", "|discriminator level|, mV", "S/sqrt(B) / best")
+        if result["optimum_band_v"]:
+            lo, hi = result["optimum_band_v"]
+            d.band(lo * 1e3, hi * 1e3, _C["band"], f"within {1 - FOM_BAND:.0%} of best")
+        d.series([f["abs_v"] * 1e3 for f in result["fom"]], [f["relative"] for f in result["fom"]], "#1a7f37", "o", width=1.2)
+        if result["recommended_v"] is not None:
+            d.vline(result["recommended_v"] * 1e3, _C["rec"], f"recommended {result['recommended_v'] * 1e3:.1f}", None, 0)
+        if dark and dark.get("vanish_v") is not None:
+            d.vline(dark["vanish_v"] * 1e3, _C["vanish"], f"dark counts vanish {dark['vanish_v'] * 1e3:.1f}", "5,3", 1)
+            d.note(f"levels with < {FOM_MIN_DARK_COUNTS} dark counts are not scored", corner="br", line=1)
+    else:
+        svg.rect(rx, row2, pw, P, stroke="#cccccc")
+        svg.text(rx + 12, row2 + 26, "(d) S/sqrt(B): NOT SHOWN", 13, weight="bold")
+        _text_block(svg, rx + 12, row2 + 50, 70, [
+            "No dark scan from this session, so there is no background curve to divide by.",
+            "Run run_threshold_scan_dark first, then this scan again in the same session, "
+            "or regenerate this plot from both CSVs: the background-limited optimum needs both.",
+        ], 11)
+
+    _text_block(svg, 24, row2 + P + 62, 165, findings)
+    return svg.render()
+
+
+def _seconds(value: float) -> str:
+    """0.39 s, 25.2 s, 1001 s -- never '0 s' for a short run nor '1e+03 s' for a long one."""
+    return f"{value:.0f} s" if value >= 100 else f"{value:.3g} s"
+
+
+def _dark_findings(result: dict) -> list:
+    out = []
+    rows = result["rows"]
+    if rows:
+        out.append(f"Scanned {len(rows)} thresholds, {rows[0]['abs_v'] * 1e3:.1f} to {rows[-1]['abs_v'] * 1e3:.1f} mV; "
+                   f"{sum(r['counts'] for r in rows)} counts in {_seconds(sum(r['live_s'] for r in rows))} of live time.")
+    edge = f"Noise edge (heuristic: log-slope < {NOISE_SLOPE_PER_MV} per mV over 1 mV): {_mv(result['noise_edge_v'])}."
+    if result["lower_bound_v"] is not None:
+        edge += f"  Lower bound for the operating threshold: {_mv(result['lower_bound_v'])} (noise edge + 0.5 mV)."
+    else:
+        edge += "  NO lower bound is given" + (": the scan is invalid." if not result["valid"] else ".")
+    out.append(("" if result["valid"] else "!") + edge)
+    if result["vanish_v"] is not None:
+        out.append(f"Dark counts vanish (zero counts in {DARK_MAX_SECONDS:g} s) from {_mv(result['vanish_v'])}. "
+                   f"Do NOT operate there: it is above most single-PE pulses, so it throws signal away. "
+                   f"run_threshold_scan_light measures how much.")
+    elif rows:
+        out.append(f"Dark counts never reached zero in the scanned range (to {rows[-1]['abs_v'] * 1e3:.1f} mV).")
+    for reason in result["reasons"]:
+        out.append("!" + reason)
+    return out
+
+
+def _light_findings(result: dict, dark: dict | None) -> list:
+    out = []
+    if result["valley_v"] is not None:
+        out.append(f"Valley {_mv(result['valley_v'])}, single-PE peak {_mv(result['peak_v'])}, peak/valley {result['pv_ratio']:.2f}.  "
+                   f"Rate at the reference level {_mv(result['reference_v'])}: {result['plateau_rate']:.4g} counts/s.")
+    if result["loss_v"]:
+        line = "Counts fall below the reference by " + ", ".join(
+            f"{loss:.0%} at {_mv(v)}" for loss, v in result["loss_v"].items()) + "."
+        out.append("!UNRELIABLE under drift -- " + line if result["drift_flagged"] else line)
+    out.append(f"Noise edge {_mv(result['noise_edge_v'])}" + (" (from this session's dark scan)." if dark else
+               " (from this scan alone -- judged only against this light level)."))
+    if result["drift"] is not None:
+        line = (f"Drift: {result['drift']:.2%} trend over the scan, {result.get('unsteadiness', 0.0):.2%} left after removing it "
+                f"(tolerance {DRIFT_TOLERANCE:.0%}).")
+        out.append(("!" if result["drift_flagged"] else "") + line)
+    if result["hysteresis_v"] is not None:
+        line = (f"Hysteresis: up-minus-down shift {result['hysteresis_v'] * 1e3:+.3f} +- "
+                f"{result['hysteresis_se_v'] * 1e3:.3f} mV on the shoulder.")
+        if result["hysteresis_flagged"]:
+            line += " Set the operating level from the same direction every time."
+        out.append(("!" if result["hysteresis_flagged"] else "") + line)
+    if result["dark_vanish_loss"] is not None and dark:
+        out.append(f"Where dark counts vanished ({_mv(dark['vanish_v'])}) this scan counts "
+                   f"{result['dark_vanish_loss']:.1%} fewer photons than at the reference level.")
+    if result["optimum_band_v"]:
+        lo, hi = result["optimum_band_v"]
+        out.append(f"S/sqrt(B) is within {1 - FOM_BAND:.0%} of its best from {_mv(lo)} to {_mv(hi)}. "
+                   f"Assumes a weak, background-limited signal; for a bright one the optimum moves down.")
+    for reason in result["reasons"]:
+        out.append("!" + reason)
+    if result["recommended_v"] is not None and result["recommended_v"] < PICKUP_SAFE_V:
+        out.append("Below 10 mV: valid only with the cables exactly as they were for this scan (manual p. 22).")
+    return out
+
+
+def _scan_files(report, meta: dict, records: list, draw) -> dict:
+    """The CSV always; the SVG unless drawing fails, in which case the report says why.
+
+    The CSV is the record and is written first and unconditionally. A plotting bug must never
+    cost the data, and if it happens the plot can be regenerated from the CSV once fixed.
+    """
+    files = {".csv": scan_csv(meta, records)}
+    try:
+        files[".svg"] = draw(meta)
+    except Exception as exc:  # noqa: BLE001 -- the data matters more than the picture
+        report.note(f"PLOT NOT WRITTEN ({type(exc).__name__}: {exc}). The data is in the CSV; "
+                    f"regenerate with: python selftest.py plot <that .csv>")
+    return files
+
+
+def plot_csv(path: str) -> str:
+    """Regenerate a scan's SVG from its CSV alone. Returns the path written."""
+    meta, data = read_scan_csv(path)
+    if meta.get("kind") == "dark":
+        svg = plot_dark(analyse_dark(data), meta)
+    else:
+        dark = None
+        if meta.get("dark_csv"):
+            dark_path = os.path.join(os.path.dirname(os.path.abspath(path)), meta["dark_csv"])
+            if os.path.exists(dark_path):
+                _, dark_points = read_scan_csv(dark_path)
+                dark = analyse_dark(dark_points)
+        svg = plot_light(analyse_light(data, dark), data, dark, meta)
+    out = os.path.splitext(path)[0] + ".svg"
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(svg)
+    return out
+
+
 # ------------------------------------------------------------------ dark action
 
 def run_threshold_scan_dark(device) -> tuple:
     report = Report(device, "threshold scan dark")
     saved = _save_settings(device, SAVED_SETTINGS)
+    stamp = _timestamp()
     points = []
+    extras = {}
+    result = None
     try:
         report.section("conditions -- covered R8486")
         _scan_conditions_note(report)
@@ -1726,8 +2353,8 @@ def run_threshold_scan_dark(device) -> tuple:
             f"{_mv(result['vanish_v'])}" if result["valid"] and result["lower_bound_v"] is not None
             else "no lower bound: " + ("; ".join(result["reasons"]) or "see the report")
         )
-        if result["valid"]:
-            device._dark_threshold_scan = result
+        extras = _scan_files(report, _scan_meta(device, "dark", stamp), points,
+                             lambda meta: plot_dark(result, meta))
     finally:
         device.reset_counters()
         failed = _restore_settings(device, SAVED_SETTINGS, saved)
@@ -1735,7 +2362,13 @@ def run_threshold_scan_dark(device) -> tuple:
         report.check(not failed, f"every changed setting was restored (unrestored: {failed or 'none'})")
         report.note("No storage slot was used; ST, RC and SE were never sent.")
 
-    return report, report.write(_timestamp())
+    path = report.write(stamp, extras)
+    if result is not None and result["valid"]:
+        # Kept for the light scan in this session, with its CSV so the light scan's own CSV can
+        # name it, and a regenerated light plot can find the background curve again.
+        result["csv"] = report.extra_paths.get(".csv")
+        device._dark_threshold_scan = result
+    return report, path
 
 
 # ----------------------------------------------------------------- light action
@@ -1743,7 +2376,9 @@ def run_threshold_scan_dark(device) -> tuple:
 def run_threshold_scan_light(device) -> tuple:
     report = Report(device, "threshold scan light")
     saved = _save_settings(device, SAVED_SETTINGS)
+    stamp = _timestamp()
     passes = []
+    extras = {}
     try:
         report.section("conditions -- gentle, steady light on the R8486")
         _scan_conditions_note(report)
@@ -1767,12 +2402,12 @@ def run_threshold_scan_light(device) -> tuple:
             report.check(False, f"there is light on the PMT ({probe_rate:.4g} cps, need >= {floor:.4g})")
             report.headline = (f"no usable light: {probe_rate:.4g} cps at 6 mV. Ensure gentle "
                                f"light on the PMT and run it again")
-            return report, report.write(_timestamp())
+            raise _StopScan
         if probe_rate > LIGHT_CEILING_CPS:
             report.check(False, f"the light is gentle ({probe_rate:.4g} cps, limit {LIGHT_CEILING_CPS:.0e})")
             report.headline = (f"too bright: {probe_rate:.4g} cps at 6 mV. Dead-time losses "
                                f"would bend the curve; reduce to 1e4-1e5 cps and run it again")
-            return report, report.write(_timestamp())
+            raise _StopScan
         report.check(True, f"there is light, and it is gentle enough ({probe_rate:.4g} cps)")
         if probe_rate > LIGHT_WARN_CPS:
             report.note(f"Above {LIGHT_WARN_CPS:.0e} cps: dead-time loss is no longer negligible "
@@ -1900,6 +2535,14 @@ def run_threshold_scan_light(device) -> tuple:
             )
         else:
             report.headline = "no recommendation: " + ("; ".join(result["reasons"]) or "see the report")
+
+        records = [dict(p, repeat=ps["repeat"], direction=ps["direction"])
+                   for ps in passes for p in ps["points"]]
+        dark_csv = os.path.basename(dark["csv"]) if dark and dark.get("csv") else ""
+        extras = _scan_files(report, _scan_meta(device, "light", stamp, dark_csv=dark_csv), records,
+                             lambda meta: plot_light(result, passes, dark, meta))
+    except _StopScan:
+        pass  # refused at the probe: no sweep, so nothing to record or plot
     finally:
         device.reset_counters()
         failed = _restore_settings(device, SAVED_SETTINGS, saved)
@@ -1907,4 +2550,15 @@ def run_threshold_scan_light(device) -> tuple:
         report.check(not failed, f"every changed setting was restored (unrestored: {failed or 'none'})")
         report.note("No storage slot was used; ST, RC and SE were never sent.")
 
-    return report, report.write(_timestamp())
+    return report, report.write(stamp, extras)
+
+
+if __name__ == "__main__":
+    import sys as _sys
+
+    if len(_sys.argv) >= 3 and _sys.argv[1] == "plot":
+        for csv_path in _sys.argv[2:]:
+            print(plot_csv(csv_path))
+    else:
+        print("usage: python selftest.py plot <scan.csv> [<scan.csv> ...]")
+        print("Regenerates each scan's SVG from its CSV. Needs nothing beyond Python itself.")

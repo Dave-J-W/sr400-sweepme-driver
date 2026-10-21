@@ -831,8 +831,8 @@ folder, in a subfolder named after the driver:
 C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
     SR400_self_test_tier_1_<timestamp>.txt
     SR400_self_test_tier_2_loopback_<timestamp>.txt
-    SR400_threshold_scan_dark_<timestamp>.txt
-    SR400_threshold_scan_light_<timestamp>.txt
+    SR400_threshold_scan_dark_<timestamp>.txt    .csv    .svg
+    SR400_threshold_scan_light_<timestamp>.txt   .csv    .svg
 ```
 
 That is `get_folder("DATADEVICES")`: public, persistent, and findable on a remote machine without
@@ -842,8 +842,43 @@ somewhere a deliverable should live. TEMP is only the fallback if DataDevices ca
 The closing message box gives the exact path either way, and if neither location works it says
 why for each rather than just that it failed.
 
-Each file carries the port string, the interface, pass/fail per check, and the raw tables: the
+Each report carries the port string, the interface, pass/fail per check, and the raw tables: the
 response-format table for tier 1, and the full counts-and-live-time tables for the scans.
+
+**The threshold scans also write a CSV and a plot**, with the same stem in the same folder, so an
+operator can choose the threshold by eye rather than take the recommendation on trust:
+
+- **`.csv`** holds the raw record only: counts and live time per threshold, plus repeat and
+  direction for the light scan. Rates, edges, the valley and the recommendation are all derived
+  on load, so nothing in a figure can disagree with its record. The light CSV names the dark CSV
+  it was scored against.
+- **`.svg`** is the figure. It is plain SVG, which any web browser opens, so it exists whatever
+  the SweepMe! environment holds. matplotlib is absent from the bench environment and unverified
+  in SweepMe!'s bundled Python, and a plot needed to choose a threshold cannot depend on an
+  import. A plotting failure never costs the data: the CSV is written first, and the report says
+  why if the plot was not.
+
+Any figure can be regenerated from its CSV on any machine with Python and nothing installed.
+Put the dark CSV beside the light one and the S/√B panel comes back too:
+
+```bash
+python selftest.py plot SR400_threshold_scan_light_<timestamp>.csv
+```
+
+What the figures show. **Dark:** (a) rate above each threshold on a log axis with Poisson error
+bars. Zero-count thresholds are drawn as 95 % upper limits, not as zeros. The noise edge, the
+lower bound, and where dark counts vanish are marked, and so is the >1 Mcps region, which is
+labelled noise or pickup. (b) Live time per threshold, showing which points reached the count
+target and which hit the time cap. **Light:** (a) every pass, so drift and hysteresis are visible
+rather than averaged away. (b) The same data normalised and zoomed, because a 1–5 % knee is
+invisible on a log axis, with the loss levels and the recommended level. (c) The pulse-height
+density with the valley and single-PE peak. (d) S/√B relative to its best, with the
+within-5 % band, or **NOT SHOWN** with the reason when there is no dark scan.
+
+The figures refuse what the data cannot support. An invalid dark scan is plotted, labelled
+INVALID, and offers **no lower bound**; its noise edge is marked as a diagnostic only. Under drift
+the light figure says NO RECOMMENDATION and labels its loss levels unreliable. Headlines are sized
+from their content, so a long refusal pushes the panels down instead of overprinting them.
 
 ### 9.7 Threshold scans — `run_threshold_scan_dark`, `run_threshold_scan_light`
 
@@ -906,4 +941,6 @@ the Stage 2 preamp. Below 10 mV any recommendation is valid only with the cables
 were for the scan (manual p. 22).
 
 Both scans keep the safety invariants of §9.2: refuse while counting (before prompting), restore
-everything without a storage slot, never send `SE`, never raise.
+everything without a storage slot, never send `SE`, never raise. Each writes its report, CSV and
+SVG plot together (§9.6); a scan refused at the light probe writes the report only, because there
+was no sweep to plot.
