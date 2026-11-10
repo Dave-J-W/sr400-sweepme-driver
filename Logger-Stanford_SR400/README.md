@@ -19,11 +19,12 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
    `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.x (tested on
    1.5.8.9).
 3. Add a **Logger** module, pick the SR400, choose the port.
-4. Minimum sanity configuration: `Counter A input = 10 MHz`, `Count time in s = 1`,
-   `Gate A mode = CW`. One measurement point must return
-   **Counter A = 10 000 000** and **Rate A = 1.0e7**. If that number is exact, the preset
+4. Minimum sanity configuration: switch `Counter A input` from its default `INPUT 1` to
+   `10 MHz`, and set `Count time in s = 1` and `Gate A mode = CW`. One measurement point must
+   return **Counter A = 10 000 000** and **Rate A = 1.0e7**. If that number is exact, the preset
    arithmetic, the status polling and the buffer read are all working.
-5. Then switch `Counter A input` to `INPUT 1`, connect your PMT, and set the discriminator level.
+5. Then switch `Counter A input` back to `INPUT 1`, connect your PMT, and set the discriminator
+   level.
 
 ### Why the *Logger* module
 
@@ -301,10 +302,13 @@ section decide whether GPIB works at all:
   `control_ren(VI_GPIB_REN_ASSERT_ADDRESS)`, before its first command. The REM LED lights once the
   SR400 is in remote.
 - DCL and SDC are both answered *"Same as CL command"*, which resets the whole setup. pysweepme clears
-  every port right after opening it, and on GPIB that clear is an SDC. The driver sets
-  `port_properties["clear"]` to off for GPIB ports, so a connect no longer resets the instrument.
-  For COM ports it stays on, because there it only flushes the serial buffers. The deliberate reset
-  is still available as *Reset instrument at start*.
+  every port right after opening it, and on GPIB that clear is an SDC. Nothing restores the setup
+  afterwards. So the driver sets `port_properties["clear"]` off for **every** port type, from
+  `__init__` onwards, which also covers a port opened for an action before the GUI parameters
+  arrive. On COM, where the clear would only have flushed the serial buffers, `connect()` discards
+  stale input itself: it reads only the bytes already waiting and changes no setting. The
+  deliberate reset is still available as *Reset instrument at start*, after which `configure()`
+  applies the GUI settings again.
 
 If GPIB still fails, NI's **GPIB Interactive Control** (ibic) will test the bus without
 SweepMe!: `ibsic`, `ibsre 1`, `ibdev 0 23 0 13 1 0`, `ibwrt "CM\r"`, `ibrd 100`. Use your own
@@ -409,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "470/470 checks passed"
+python tests/test_sr400_virtual.py   # expect "480/480 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`

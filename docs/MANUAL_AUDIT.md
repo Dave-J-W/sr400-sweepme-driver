@@ -101,7 +101,7 @@ GPIB queries timed out:
 | Manual ("SR400 with the GPIB Interface", GPIB Capabilities) | Consequence for the driver |
 |---|---|
 | *"The SR400 will respond to commands only if it is addressed to listen and the Remote Enable line (REN) is asserted."* | `connect()` asserts REN itself. Measured: with REN off, `CM` timed out with 0 bytes; with REN on it answered `3<cr><lf>`. |
-| DCL and SDC: *"Same as CL command"* | pysweepme's automatic port clear (an SDC on GPIB) is turned off for GPIB ports, or every connect would reset the setup. |
+| DCL and SDC: *"Same as CL command"* | pysweepme's automatic port clear (an SDC on GPIB) is turned off for every port type, or every GPIB connect would reset the setup. |
 
 Both are gotcha 12 in the driver README.
 

@@ -391,7 +391,7 @@ class Device(EmptyDevice):
     }
     COUNTER_INPUTS = {"10 MHz": 0, "INPUT 1": 1, "INPUT 2": 2, "TRIG": 3}
     ALLOWED_COUNTER_INPUTS = {
-        "A": ("10 MHz", "INPUT 1"),
+        "A": ("INPUT 1", "10 MHz"),  # first entry is the GUI default
         "B": ("INPUT 1", "INPUT 2"),
         "T": ("10 MHz", "INPUT 2", "TRIG"),
     }
@@ -518,6 +518,11 @@ class Device(EmptyDevice):
             # Long count periods are handled by polling the status byte, so a single
             # read never has to wait for the measurement to finish.
             "timeout": 5,
+            # Never let pysweepme clear the port. On GPIB its clear is a Selected Device Clear,
+            # which the SR400 answers "Same as CL command" (manual, GPIB Capabilities): the whole
+            # setup reverts to defaults and nothing puts it back. On COM it would only flush the
+            # serial buffers, which connect() does itself without touching any setting.
+            "clear": False,
         }
 
         self.port_string: str = ""
@@ -687,12 +692,6 @@ class Device(EmptyDevice):
         # Ignored by the port manager for GPIB ports; only the COM branch reads it.
         self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
 
-        # pysweepme clears every port right after opening it ("clear" defaults to True). On a
-        # COM port that only flushes the serial buffers, which is wanted. On a GPIB port it is
-        # a VISA clear, i.e. a Selected Device Clear, and the manual's GPIB command table says
-        # the SR400 answers SDC "Same as CL command": the whole setup reverts to defaults on
-        # every connect, silently overriding 'Reset instrument at start' = False.
-        self.port_properties["clear"] = self.is_rs232
 
         # Captured before either mode function can override them, so the messages can name
         # what the user actually typed rather than what was derived from it.
@@ -827,7 +826,9 @@ class Device(EmptyDevice):
         """
         self._phase("connect")
 
-        if not self.is_rs232:
+        if self.is_rs232:
+            self._discard_pending_input()
+        else:
             self._assert_remote_enable()
 
         try:
@@ -1511,6 +1512,23 @@ class Device(EmptyDevice):
 
         return answers
 
+    def _discard_pending_input(self) -> None:
+        """Throw away bytes already waiting on a COM port, without sending anything.
+
+        This replaces pysweepme's automatic port clear, which is switched off (see
+        port_properties). Only what has already arrived is read, so an empty port costs no
+        read timeout, and no instrument setting is touched.
+        """
+        if not hasattr(self.port, "in_waiting"):
+            return
+        for _ in range(20):
+            try:
+                if int(self.port.in_waiting()) <= 0:
+                    return
+            except Exception:  # noqa: BLE001 -- not every port object implements it usefully
+                return
+            self.port.read()
+
     def _drain_port(self) -> None:
         """Read until the port is empty, bounded so a chatty port cannot hang the run."""
         for _ in range(20):
@@ -1723,9 +1741,29 @@ class Device(EmptyDevice):
 
     # ------------------------------------------------------------------ actions
 
+    def _adopt_port_from_port_object(self) -> None:
+        """Take the port name from the open port when the GUI parameters never arrived.
+
+        Measured on SweepMe! 1.5.8.9, 2026-11-10: an action started from a control widget
+        with asynchronous execution refused with "select a port first", although the port was
+        selected in the Logger module and Retrieve data on the same port had worked. The
+        inference, not verified inside SweepMe!, is that this instance never received
+        get_GUIparameter(). A pysweepme Port records its resource name in
+        port_properties["ID"], so if SweepMe! handed over an open port, its name can be
+        recovered from there. If it handed over no port at all, the refusal says so.
+        """
+        if self.port_string:
+            return
+        properties = getattr(getattr(self, "port", None), "port_properties", None)
+        port_id = properties.get("ID") if isinstance(properties, dict) else None
+        if port_id:
+            self.port_string = str(port_id)
+            self.is_rs232 = self.port_string.upper().startswith(("COM", "ASRL"))
+
     def report_com_port_latency(self) -> None:
         """Report the COM port's latency timer. Reads only; sends the SR400 nothing."""
         try:
+            self._adopt_port_from_port_object()
             if not self.port_string:
                 self.message_box(
                     "SR400: select a port first -- the latency timer belongs to the port, so "
@@ -1753,6 +1791,7 @@ class Device(EmptyDevice):
         measurement path never needs administrator rights.
         """
         try:
+            self._adopt_port_from_port_object()
             if not self.port_string:
                 self.message_box("SR400: select a port first.")
                 return
@@ -1827,6 +1866,16 @@ class Device(EmptyDevice):
                     f"that selftest.py is present next to main.py in the driver folder.",
                 )
                 return
+
+            self._adopt_port_from_port_object()
+            if self.port_string and not self.is_rs232:
+                # The action may run on an instance that never went through connect(), and
+                # the SR400 ignores GPIB commands unless REN is asserted.
+                try:
+                    self._assert_remote_enable()
+                except Exception as exc:  # noqa: BLE001
+                    self.message_box(f"SR400 {tier}: {exc}")
+                    return
 
             refusal = selftest._refuse_if_busy(self)
             if refusal:

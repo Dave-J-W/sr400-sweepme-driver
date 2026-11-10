@@ -16,11 +16,28 @@ Newest first. Gotcha and section numbers refer to
   fix, *Retrieve data* in SweepMe! 1.5.8.9 connected over GPIB and returned counts.
 - **A GPIB connect no longer resets the SR400.** pysweepme clears every port after opening it.
   On GPIB that clear is a Selected Device Clear, which the SR400 treats as `CL`, so the setup
-  reverted to defaults on every connect even with *Reset instrument at start* off. The port clear
-  is now off for GPIB and still on for COM, where it only flushes the serial buffers.
+  reverted to defaults on every connect even with *Reset instrument at start* off, and nothing put
+  it back. The driver now never lets pysweepme clear a port, on any port type and at any point,
+  including ports opened for an action before the GUI parameters arrive. On COM, where the clear
+  only flushed the serial buffers, `connect()` now discards stale input itself, reading only the
+  bytes already waiting and changing no setting.
 - **The no-answer error names the right interface.** On GPIB it now asks about power, the cable
   and `GPIB ADDR`, and quotes the bus error. The RS-232 baud, parity and echo advice it used to
   give is now shown only for COM ports.
+- **Actions started without the GUI parameters now find their port.** On SweepMe! 1.5.8.9, the
+  self-test and the dark threshold scan, started from a control widget with asynchronous
+  execution, refused with "select a port first" although a port was selected. The driver instance
+  they ran on had apparently never received `get_GUIparameter()`. Every action now takes the port
+  name from the open port object (`port_properties["ID"]`) when it has none. The self-test and the
+  scans also assert REN themselves on GPIB, since they may run without `connect()`. If there is no
+  port object either, the refusal now says so, as a diagnostic.
+- **Tier 1 no longer fails on GPIB.** Its RS-232-only check treated the driver's own refusal of
+  `SW` and `MI` as a failure. A GPIB run reported 20/22; it now reports 22/22.
+
+### Changed
+
+- **`Counter A input` defaults to `INPUT 1`** rather than `10 MHz`, since counting the PMT is the
+  normal use. The 10 MHz known-answer check in the quick start now asks for `10 MHz` explicitly.
 
 ### Added
 

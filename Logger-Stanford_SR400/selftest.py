@@ -190,7 +190,17 @@ def _refuse_if_busy(device) -> str:
     instrument rather than against driver state.
     """
     if not device.port_string:
-        return "select a port first -- there is nothing to test yet"
+        if getattr(device, "port", None) is None:
+            return (
+                "select a port first -- there is nothing to test yet. (Diagnostic: SweepMe! "
+                "started this action with no port name and no open port. If a port is already "
+                "selected in the Logger module, the action is running on a driver instance "
+                "that SweepMe! has not set up, so report how it was started.)"
+            )
+        return (
+            "select a port first -- there is nothing to test yet. (Diagnostic: an open port "
+            f"was handed over, but its name could not be read from it: {type(device.port).__name__}.)"
+        )
 
     # is_run_stopped() returns pysweepme's _is_run_stopped flag, which means "the user asked
     # for the current run to stop" -- it does NOT mean "a run is active". Outside a run it is
@@ -695,13 +705,21 @@ def _tier1_interface_gating(device, report) -> None:
                     pass
 
         # The driver's own gating: these must not be sent, and it must be the driver refusing.
+        # The wrapped commands refuse by raising from _require_rs232() before anything is
+        # written, while the semantic functions skip them, so here a raise of that refusal is
+        # the pass and a silent return means the command went out.
         for name, call in (("SW", lambda: device.set_rs232_wait(0)),
                            ("MI", lambda: device.set_front_panel_mode("Remote"))):
             try:
                 call()
-                report.check(True, f"{name} was skipped on GPIB rather than sent")
+                report.check(False, f"{name} was sent on GPIB; the driver should have refused it")
             except Exception as exc:  # noqa: BLE001
-                report.check(False, f"{name} handling on GPIB raised ({exc})")
+                refused = "may only be sent via the RS-232" in str(exc)
+                report.check(
+                    refused,
+                    f"{name} is refused by the driver on GPIB rather than sent"
+                    + ("" if refused else f" (unexpected error: {exc})"),
+                )
 
         report.note(
             "OPTIONAL and not attempted here: SV 4, run a scan, then read the status byte with "

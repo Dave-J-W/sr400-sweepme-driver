@@ -1276,8 +1276,26 @@ def test_gpib_specifics(driver):
     )
     device = make_device(driver, VirtualSR400(), Port="COM3")
     check(
-        device.port_properties.get("clear") is True,
-        "pysweepme's port clear stays on for COM (it only flushes the serial buffers)",
+        device.port_properties.get("clear") is False,
+        "pysweepme's port clear is off for COM too: the driver never lets it clear a port",
+    )
+
+    # COM: connect() discards stale input itself, so the CM check still sees a clean answer.
+    sr400 = VirtualSR400()
+    sr400.inject_stale_response("garbage")
+    device = make_device(driver, sr400, Port="COM3", **{"Counter A input": "INPUT 1"})
+    try:
+        device.connect()
+        check(True, "a COM connect discards stale input before the CM check")
+    except Exception as exc:
+        check(False, f"a COM connect discards stale input before the CM check (raised {exc})")
+    check(sr400.log[:1] == ["CM"], f"and sends nothing before CM (sent {sr400.log[:3]})")
+
+    # --- Counter A defaults to INPUT 1 -------------------------------------------------
+    parameters = driver.Device().set_GUIparameter()
+    check(
+        parameters["Counter A input"][0] == "INPUT 1",
+        f"Counter A input defaults to INPUT 1 (got {parameters['Counter A input']})",
     )
 
     # --- the GPIB no-answer message is about GPIB, not RS-232 ---------------------------
@@ -2466,6 +2484,61 @@ def test_self_test_actions(driver):
     check(
         any("select a port" in str(t) for t in boxes),
         f"with no port selected it says so rather than failing (got {boxes})",
+    )
+
+    device.port = None
+    boxes.clear()
+    device.run_self_test()
+    check(
+        any("no open port" in str(t) for t in boxes),
+        f"with no port object at all the refusal says so, for diagnosis (got {boxes})",
+    )
+
+    # --- an action on an instance that never received the GUI parameters -------
+    # Measured on SweepMe! 1.5.8.9, 2026-11-10: an action started from a control widget with
+    # asynchronous execution refused with "select a port first" although a port was selected.
+    # A pysweepme Port still carries its resource name in port_properties["ID"].
+    class FakeVisaResource:
+        def __init__(self):
+            self.ren_calls = []
+
+        def control_ren(self, mode):
+            self.ren_calls.append(mode)
+
+    sr400 = VirtualSR400()
+    sr400.port_properties = {"ID": "GPIB0::23::INSTR"}
+    sr400.port = FakeVisaResource()
+    device = _selftest_device(driver, sr400, tmpdir, **{"Port": "", "Counter A input": "10 MHz"})
+    boxes = []
+    device.message_box = boxes.append
+    device.message_info = lambda message: None
+    device.run_self_test()
+    check(
+        device.port_string == "GPIB0::23::INSTR" and not device.is_rs232,
+        f"the action adopts the port name from the open port (got {device.port_string!r})",
+    )
+    check(
+        sr400.port.ren_calls == [3],
+        f"the action asserts REN itself on GPIB (got {sr400.port.ren_calls})",
+    )
+    check(
+        any("checks passed" in str(t) for t in boxes)
+        and not any("select a port" in str(t) for t in boxes),
+        f"and tier 1 then runs instead of refusing (got {boxes})",
+    )
+    check(
+        not any("Failed:" in str(t) for t in boxes),
+        f"and every tier-1 check passes on GPIB, including the RS-232-only refusals (got {boxes})",
+    )
+    check(
+        not any(command.split()[0] in ("SW", "MI") for command in sr400.log if command.split()),
+        "tier 1 on GPIB never sends SW or MI",
+    )
+
+    check(
+        driver.Device().port_properties.get("clear") is False,
+        "before any GUI parameters arrive the port clear is off, so an early-opened GPIB port "
+        "is never device-cleared (the SR400 treats SDC as CL)",
     )
 
     (
