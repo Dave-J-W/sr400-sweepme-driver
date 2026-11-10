@@ -3205,6 +3205,98 @@ def test_settling_and_hv(driver):
           "the figure shows every replicate and the light level over time")
 
 
+# The lab PC's test log as it was on 2026-11-10 17:24: a 15-column header from the driver that
+# started it, and two 18-column rows appended by a later driver, so their values sat under the
+# wrong headings. Report paths shortened.
+MISALIGNED_LOG_2026_11_10 = """when,test,result,recommended_disc_A_level_V,photons_counted_at_recommended,lower_bound_V,upper_bound_1pct_loss_V,dark_counts_vanish_V,headline,passed,checks,port,interface,first_failure,report
+2026-11-10 13:20:08,threshold scan dark,PASS,,,-0.001,,-0.032,"lower bound 1.0 mV, dark counts vanish from 32.0 mV",2,2,GPIB0::23::INSTR,GPIB,,dark_132008.txt
+2026-11-10 13:59:35,threshold scan light,PASS,-0.004,1.0,,-0.0042,,"recommended A DISC LVL -4.0 mV, counting 100% of photons",5,5,GPIB0::23::INSTR,GPIB,,light_135935.txt
+2026-11-10 16:36:08,threshold scan dark,PASS,,,,-0.0066,,,,,"lower bound 6.6 mV (GUI -0.0066), dark counts vanish from none",2,2,GPIB0::23::INSTR,GPIB,,dark_163608.txt
+2026-11-10 17:24:44,threshold scan light,PASS,,-0.0068,0.7418,,-0.004,,,,"recommended A DISC LVL -6.8 mV (type -0.0068 in the GUI), counting 74% of photons",5,5,GPIB0::23::INSTR,GPIB,,light_172444.txt
+"""
+
+
+def test_log_migration_and_smooth_background(driver):
+    print("\n[23g] the test log migrates to the current columns; S/sqrt(B) uses a fitted background")
+
+    import csv
+    import random
+    import tempfile
+
+    st = driver.selftest
+    tmp = tempfile.mkdtemp(prefix="sr400_logmig_")
+    dev, _ = _scan_device(driver, VirtualSR400(), tmp)
+    folder = _report_dir(tmp)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, st.Report.LOG_NAME), "w", newline="", encoding="utf-8") as handle:
+        handle.write(MISALIGNED_LOG_2026_11_10)
+    report = st.Report(dev, "migration test")
+    report.write("2026-11-10 18:00:00")
+    rows = list(csv.DictReader(open(os.path.join(folder, st.Report.LOG_NAME), encoding="utf-8")))
+    by_when = {r["when"]: r for r in rows}
+    check(tuple(rows[0].keys()) == st.Report.LOG_COLUMNS, "the log is rewritten under the current header")
+    check(by_when["2026-11-10 16:36:08"]["lower_bound_V"] == "-0.0066"
+          and by_when["2026-11-10 16:36:08"]["upper_bound_1pct_loss_V"] == "",
+          f"the 16:36 dark row's lower bound is back under lower_bound_V ({by_when['2026-11-10 16:36:08']})")
+    light = by_when["2026-11-10 17:24:44"]
+    check(light["recommended_disc_A_level_V"] == "-0.0068" and light["photons_counted_at_recommended"] == "0.7418"
+          and light["upper_bound_1pct_loss_V"] == "-0.004",
+          f"the 17:24 light row's values are under their own headings ({light})")
+    check(by_when["2026-11-10 13:20:08"]["lower_bound_V"] == "-0.001"
+          and by_when["2026-11-10 13:59:35"]["upper_bound_1pct_loss_V"] == "-0.0042",
+          "and the old-layout rows keep their values")
+    check("2026-11-10 18:00:00" in by_when, "the new row is appended after the migration")
+    backups = [f for f in os.listdir(folder) if f.startswith("SR400_test_log_before_column_migration_")]
+    check(len(backups) == 1 and open(os.path.join(folder, backups[0]), encoding="utf-8").read()
+          == MISALIGNED_LOG_2026_11_10, "the original log is kept beside it, byte for byte")
+    st.Report(dev, "migration test").write("2026-11-10 18:00:01")
+    check(len([f for f in os.listdir(folder) if f.startswith("SR400_test_log_before_column_migration_")]) == 1,
+          "a log already on the current header is not migrated again")
+
+    # --- the fitted background: an exponential dark tail sampled with Poisson noise --------------
+    random.seed(7)
+
+    def poisson(lam):
+        import math as m
+        L, k, p = m.exp(-lam), 0, 1.0
+        while True:
+            p *= random.random()
+            if p <= L:
+                return k
+            k += 1
+
+    true = lambda v: 6.0 * math.exp(-(v - 0.005) / 0.0025)  # 6 cps at 5 mV, e-fold per 2.5 mV
+    levels = [round(0.005 + 0.0002 * i, 4) for i in range(26)] + [0.012, 0.014]
+    points = [{"abs_v": v, "level_v": -v, "counts": poisson(true(v) * 30.0), "live_s": 30.0, "t": 0.0}
+              for v in levels]
+    rows = st.analyse_dark(points)["rows"]
+    errors, pulls = [], []
+    for v in (0.0056, 0.0064, 0.0072, 0.0080, 0.0090):
+        rate, sigma, counts = st._smooth_dark_rate(rows, v)
+        errors.append(abs(rate / true(v) - 1))
+        pulls.append(abs(rate / true(v) - 1) / sigma)
+    single = [abs(r["rate"] / true(r["abs_v"]) - 1) for r in rows if 0.0056 <= r["abs_v"] <= 0.0090 and r["counts"]]
+    check(max(errors) < 0.15 and max(pulls) < 3.0,
+          f"the fit recovers a known dark tail within its own uncertainty (errors "
+          f"{[f'{e:.1%}' for e in errors]}, pulls {[f'{p:.1f}' for p in pulls]})")
+    check(sum(errors) / len(errors) < sum(single) / len(single),
+          f"and more closely than single thresholds do ({sum(errors) / len(errors):.1%} against "
+          f"{sum(single) / len(single):.1%} mean error)")
+    check(st._smooth_dark_rate(rows, 0.0130) is not None,
+          "it still gives a background on the coarse 2 mV tail, by widening its window")
+
+    # --- on the real scans: the band is no longer one level wide -------------------------------
+    real = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "docs", "real_data", "2026-11-10")
+    _, dp = st.read_scan_csv(os.path.join(real, "SR400_threshold_scan_dark_2026-11-10_132008.csv"))
+    _, lp = st.read_scan_csv(os.path.join(real, "SR400_threshold_scan_light_2026-11-10_135935.csv"))
+    result = st.analyse_light(lp, st.analyse_dark(dp))
+    lo, hi = result["optimum_band_v"]
+    check(abs(result["optimum_v"] - 0.0068) < 1e-9 and hi - lo >= 0.0008 - 1e-9,
+          f"on the real 2026-11-10 scans the optimum stays at 6.8 mV and the 5 % band now spans "
+          f"{lo * 1e3:.1f}-{hi * 1e3:.1f} mV (it was 6.8-6.8)")
+
+
 def test_threshold_scans(driver):
     print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")
 
@@ -3708,6 +3800,7 @@ def main() -> int:
         test_real_dark_scan,
         test_real_scans_in_repo,
         test_settling_and_hv,
+        test_log_migration_and_smooth_background,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,

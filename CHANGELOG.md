@@ -7,6 +7,16 @@ Newest first. Gotcha and section numbers refer to
 
 ### Fixed
 
+- **The test log no longer files values under the wrong headings.** A log started by an older
+  driver kept its old header while newer, longer rows were appended under it. On the lab PC a dark
+  scan's lower bound sat under the 1 %-loss column. A log whose header differs from the current
+  layout is now rewritten under it, each row placed by its own field count, with the original
+  kept beside it as `SR400_test_log_before_column_migration_<stamp>.csv`.
+- **S/√B uses a fitted dark background, so its 5 % band means something.** Above 6 mV a dark
+  threshold holds 16–60 counts, so B was ±13–25 % per level and the band collapsed to one level in
+  both real light scans. B is now a local Poisson fit, rate = exp(a + b·Δlevel), over ±1 mV,
+  widening on the coarse tail. On the first real pair the optimum stays 6.8 mV and the band is
+  now 6.4–7.6 mV. The window width is provisional.
 - **The dark figure's legend hid "NOT the optimum".** The legend box was drawn over the second half
   of the dark-counts-vanish label, the one warning that figure exists to give. The label now sits
   below the legend. Found by looking at the rendered example figure, not by any test.

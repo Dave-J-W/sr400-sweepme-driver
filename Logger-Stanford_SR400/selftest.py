@@ -189,6 +189,48 @@ class Report:
                    "settle_minutes", "settled_rate_cps",
                    "headline", "passed", "checks", "port", "interface", "first_failure", "report")
 
+    # Every column layout the log has had, so a row can be placed by its field count. The first
+    # is the layout of ffd18ed, when the log was introduced.
+    LOG_LAYOUTS = (
+        ("when", "test", "result", "recommended_disc_A_level_V", "photons_counted_at_recommended",
+         "lower_bound_V", "upper_bound_1pct_loss_V", "dark_counts_vanish_V", "headline", "passed",
+         "checks", "port", "interface", "first_failure", "report"),
+    )
+
+    def _migrate_log(self) -> None:
+        """Rewrite a log whose header is an older layout under the current one, keeping a backup.
+
+        Found 2026-11-10 on the lab PC: a log started by an older driver kept its 15-column header,
+        and newer 18-column rows were appended beneath it, so values sat under the wrong headings
+        (a lower bound under the 1 %-loss column). Each row is placed by its own field count -- a
+        row as long as the current layout is read as the current layout, whatever the header says.
+        The original file is kept beside it, renamed, so nothing is lost if this goes wrong.
+        """
+        import csv  # noqa: PLC0415
+
+        with open(self.log_path, newline="", encoding="utf-8") as handle:
+            raw = list(csv.reader(handle))
+        if not raw or tuple(raw[0]) == self.LOG_COLUMNS:
+            return
+        header = tuple(raw[0])
+        layouts = {len(layout): layout for layout in (*self.LOG_LAYOUTS, header, self.LOG_COLUMNS)}
+        migrated = []
+        for fields in raw[1:]:
+            if not fields:
+                continue
+            layout = layouts.get(len(fields), header)
+            migrated.append({k: v for k, v in zip(layout, fields) if k in self.LOG_COLUMNS})
+        stamp = time.strftime("%Y-%m-%d_%H%M%S")
+        backup = os.path.join(os.path.dirname(self.log_path),
+                              f"SR400_test_log_before_column_migration_{stamp}.csv")
+        os.replace(self.log_path, backup)
+        with open(self.log_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=self.LOG_COLUMNS)
+            writer.writeheader()
+            for row in migrated:
+                writer.writerow(row)
+        self.log_migrated_from = backup
+
     def _append_to_log(self, folder: str, timestamp: str, report_path: str) -> None:
         """Append one row for this test to the running test log beside the reports.
 
@@ -221,6 +263,8 @@ class Report:
         }
         row.update({key: value for key, value in self.values.items() if key in self.LOG_COLUMNS})
         try:
+            if os.path.exists(self.log_path):
+                self._migrate_log()
             new = not os.path.exists(self.log_path)
             with open(self.log_path, "a", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(handle, fieldnames=self.LOG_COLUMNS)
@@ -1310,6 +1354,13 @@ HYSTERESIS_RESOLUTION_V = 0.0002  # the discriminator's own 0.2 mV step
 PICKUP_SAFE_V = 0.010           # manual p. 22
 LOSS_LEVELS = (0.001, 0.01, 0.02, 0.05, 0.10)
 FOM_MIN_DARK_COUNTS = 20        # below this sqrt(B) is too uncertain to divide by (> 11 %)
+# The background B in S/sqrt(B) is a local fit to the dark scan, not the single threshold's rate.
+# Measured 2026-11-10: above 6 mV each dark threshold held 16-60 counts, so B was +-13-25 % per
+# level, five times the 5 % band, and the "within 5 % of the best" band shrank to one level in
+# both light scans. The fit pools the thresholds within +-1 mV (wider where the grid is coarse,
+# until it has 3 thresholds) as rate = exp(a + b * (level - here)), by Poisson maximum likelihood
+# so that zero-count thresholds count correctly. PROVISIONAL: the window width is a judgement.
+DARK_SMOOTH_HALF_WIDTH_V = 0.001
 FOM_BAND = 0.95                 # levels within 5 % of the best S/sqrt(B) are reported as a band
 
 PROMPT_DARK = (
@@ -1736,15 +1787,18 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
     # asserting it. Levels with too few dark counts are not scored: a near-zero background
     # estimate makes any SNR look enormous, which is exactly the trap being guarded against.
     if dark:
-        dark_rows = {round(r["abs_v"], 5): r for r in dark["rows"]}
+        top = max((d["abs_v"] for d in dark["rows"]), default=0.0)
         for r in rows:
-            d = dark_rows.get(round(r["abs_v"], 5))
-            if d is None or d["counts"] < FOM_MIN_DARK_COUNTS:
+            if r["abs_v"] > top + 1e-9:
+                continue  # beyond the dark scan: the fit would be an extrapolation
+            fit = _smooth_dark_rate(dark["rows"], r["abs_v"])
+            if fit is None:
                 continue
-            efficiency = max(r["rate"] - d["rate"], 0.0) / plateau
+            b_rate, b_sigma, b_counts = fit
+            efficiency = max(r["rate"] - b_rate, 0.0) / plateau
             result["fom"].append({"abs_v": r["abs_v"], "efficiency": efficiency,
-                                  "dark_rate": d["rate"], "dark_counts": d["counts"],
-                                  "fom": efficiency / _math.sqrt(d["rate"])})
+                                  "dark_rate": b_rate, "dark_counts": b_counts, "dark_sigma": b_sigma,
+                                  "fom": efficiency / _math.sqrt(b_rate)})
         if result["fom"]:
             best = max(result["fom"], key=lambda f: f["fom"])
             for f in result["fom"]:
@@ -3157,13 +3211,16 @@ def run_threshold_scan_light(device) -> tuple:
             report.note(
                 "S = (light rate - dark rate) / rate at the reference level, so it can exceed 1 "
                 "below the reference; "
-                "B = dark rate from this session's dark scan. Only levels with at least "
-                f"{FOM_MIN_DARK_COUNTS} dark counts are scored.",
+                f"B = the dark rate at that level from a local Poisson fit to the dark scan over "
+                f"+-{DARK_SMOOTH_HALF_WIDTH_V * 1e3:g} mV (wider where the grid is coarse), so one "
+                f"threshold's counting noise does not set the score. Levels whose window holds fewer "
+                f"than {FOM_MIN_DARK_COUNTS} dark counts are not scored.",
             )
             report.table(
                 [(f"{f['abs_v'] * 1e3:6.1f} mV",
-                  f"photons vs ref {f['efficiency']:.3f}   dark {f['dark_rate']:.3g} cps "
-                  f"({f['dark_counts']} counts)   S/sqrt(B) {f['relative']:.3f} of best")
+                  f"photons vs ref {f['efficiency']:.3f}   dark {f['dark_rate']:.3g} +- "
+                  f"{f.get('dark_sigma', 0):.0%} cps (fit to {f['dark_counts']} counts)   "
+                  f"S/sqrt(B) {f['relative']:.3f} of best")
                  for f in result["fom"]],
                 ("|level|", "photon fraction, dark rate, figure of merit"),
             )
@@ -3236,14 +3293,55 @@ HV_LIGHT_CONSISTENCY = 0.5
 HV_MIN_FOR_OPTIMUM = 3
 
 
+def _smooth_dark_rate(dark_rows: list, abs_v: float):
+    """(rate, relative sigma, counts in the window) of the dark rate at abs_v from a local fit, or None.
+
+    rate(x) = exp(a + b x), x = level - abs_v, fitted to the thresholds within the window by Poisson
+    maximum likelihood (Newton). The window starts at +-DARK_SMOOTH_HALF_WIDTH_V and widens until
+    it holds 3 thresholds and FOM_MIN_DARK_COUNTS counts, up to +-4 mV.
+    """
+    half = DARK_SMOOTH_HALF_WIDTH_V
+    while True:
+        window = [r for r in dark_rows if abs(r["abs_v"] - abs_v) <= half + 1e-9 and r["live_s"] > 0]
+        counts = sum(r["counts"] for r in window)
+        if (len(window) >= 3 and counts >= FOM_MIN_DARK_COUNTS) or half >= 0.004 - 1e-9:
+            break
+        half += 0.001
+    if len(window) < 2 or counts < FOM_MIN_DARK_COUNTS:
+        return None
+    xs = [(r["abs_v"] - abs_v) * 1e3 for r in window]  # mV
+    a = _math.log(counts / sum(r["live_s"] for r in window))
+    b = 0.0
+    for _ in range(50):
+        lam = [r["live_s"] * _math.exp(a + b * x) for r, x in zip(window, xs)]
+        g0 = sum(r["counts"] - l for r, l in zip(window, lam))
+        g1 = sum(x * (r["counts"] - l) for r, l, x in zip(window, lam, xs))
+        h00 = sum(lam)
+        h01 = sum(x * l for x, l in zip(xs, lam))
+        h11 = sum(x * x * l for x, l in zip(xs, lam))
+        det = h00 * h11 - h01 * h01
+        if det <= 0:
+            break
+        da = (h11 * g0 - h01 * g1) / det
+        db = (h00 * g1 - h01 * g0) / det
+        a, b = a + da, max(min(b + db, 20.0), -20.0)
+        if abs(da) < 1e-9 and abs(db) < 1e-9:
+            break
+    lam = [r["live_s"] * _math.exp(a + b * x) for r, x in zip(window, xs)]
+    h00, h01, h11 = sum(lam), sum(x * l for x, l in zip(xs, lam)), sum(x * x * l for x, l in zip(xs, lam))
+    det = h00 * h11 - h01 * h01
+    sigma = _math.sqrt(h11 / det) if det > 0 else 1.0 / _math.sqrt(max(counts, 1))
+    return _math.exp(a), sigma, counts
+
+
 def _absolute_snr(light: dict, dark: dict):
     """Best (S - B)/sqrt(B) in sqrt(counts/s), and its level: comparable across HV for the same light."""
     best = None
     for row in light["rows"]:
-        d = _value_at(dark["rows"], row["abs_v"])
-        if d is None or abs(d["abs_v"] - row["abs_v"]) > 1e-6 or d["counts"] < FOM_MIN_DARK_COUNTS:
+        fit = _smooth_dark_rate(dark["rows"], row["abs_v"])
+        if fit is None:
             continue
-        snr = (row["rate"] - d["rate"]) / _math.sqrt(d["rate"])
+        snr = (row["rate"] - fit[0]) / _math.sqrt(fit[0])
         if best is None or snr > best[0]:
             best = (snr, row["abs_v"])
     return best
