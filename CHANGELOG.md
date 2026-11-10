@@ -12,7 +12,8 @@ Newest first. Gotcha and section numbers refer to
   with *Assert REN when SC* ticked in NI MAX, and every query timed out with nothing received. The
   driver now calls VISA's `control_ren(VI_GPIB_REN_ASSERT_ADDRESS)` before its first command, so
   it no longer depends on that board setting. A Prologix controller, which has no `control_ren()`,
-  is left to handle REN itself. Gotcha **12**.
+  is left to handle REN itself. Gotcha **12**. **Confirmed on hardware** the same day: with the
+  fix, *Retrieve data* in SweepMe! 1.5.8.9 connected over GPIB and returned counts.
 - **A GPIB connect no longer resets the SR400.** pysweepme clears every port after opening it.
   On GPIB that clear is a Selected Device Clear, which the SR400 treats as `CL`, so the setup
   reverted to defaults on every connect even with *Reset instrument at start* off. The port clear

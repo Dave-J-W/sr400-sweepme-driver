@@ -47,7 +47,7 @@ the other would have given. It refuses where a preset is not a time (counter T o
 ## Installing
 
 A SweepMe! driver is a folder. Copy the driver directory — not this repository root — into
-SweepMe!'s custom-driver folder, which for SweepMe! 1.5.8 is
+SweepMe!'s custom-driver folder, which for SweepMe! 1.5.8.x is
 
 ```
 C:\Users\Public\Documents\SweepMe!\CustomDevices\Logger-Stanford_SR400\
@@ -56,12 +56,19 @@ C:\Users\Public\Documents\SweepMe!\CustomDevices\Logger-Stanford_SR400\
 (`get_folder("CUSTOMDEVICES")`; SweepMe! creates it on first start). Pure Python over the
 pysweepme port manager: no vendor library, nothing to compile.
 
-**Verified against SweepMe! 1.5.8**, by loading the driver through pysweepme 1.5.8.4's own
-`DeviceManager` — the release line 1.5.8 ships — as well as 1.5.6.17: the bench passes on both,
-the sibling `selftest.py` loads, and all six actions resolve. pysweepme 1.5.8.4 has no
-`pysweepme.load_source`, so the driver's importlib fallback is the path that actually runs there.
-SweepMe! 1.5.8 compiles pysweepme into its executable, so the bundled copy itself cannot be
-inspected; 1.5.8.4 from PyPI is the closest testable stand-in.
+**What has been tested, and on what.** No minimum SweepMe! version has been established. The
+evidence is:
+
+- **On hardware: SweepMe! 1.5.8.9**, on the lab PC, with the SR400 on GPIB through an NI
+  GPIB-USB-HS. On 2026-11-10, connect and *Retrieve data* worked and counts were returned. The
+  actions have not yet been run on hardware.
+- **On the virtual bench**, through standalone pysweepme from PyPI: 1.5.8.4 (the 1.5.8 line),
+  1.5.6.17 and 1.6.1.5. The bench passes, the sibling `selftest.py` loads, and all six actions
+  resolve. pysweepme 1.5.8.4 has no `pysweepme.load_source`, so the driver's importlib fallback is
+  the path that runs there.
+
+SweepMe! compiles pysweepme into its executable, so the copy it bundles cannot be inspected. The
+PyPI releases are stand-ins for it, not the same code.
 
 `main.py` is the only entry point SweepMe! will load. `pysweepme`'s
 `get_main_py_path()` tries `main_<pyver>_<bitness>.py` for an architecture-specific

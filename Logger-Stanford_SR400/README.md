@@ -16,7 +16,8 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
      and set **`RS-232 ECHO = OFF`**.
    - GPIB: set `GPIB ADDR` to something in 1…30. The driver asserts REN itself (gotcha 12).
 2. Copy the whole `Logger-Stanford_SR400` folder into SweepMe!'s custom-driver folder —
-   `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.
+   `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.x (tested on
+   1.5.8.9).
 3. Add a **Logger** module, pick the SR400, choose the port.
 4. Minimum sanity configuration: `Counter A input = 10 MHz`, `Count time in s = 1`,
    `Gate A mode = CW`. One measurement point must return
@@ -308,6 +309,13 @@ section decide whether GPIB works at all:
 If GPIB still fails, NI's **GPIB Interactive Control** (ibic) will test the bus without
 SweepMe!: `ibsic`, `ibsre 1`, `ibdev 0 23 0 13 1 0`, `ibwrt "CM\r"`, `ibrd 100`. Use your own
 address in place of 23. **Never use `ibclr`**, because it is a device clear and resets the SR400.
+Close ibic before you start SweepMe!.
+
+If `iblines` shows **NRFD** asserted after `ibsic` (`ATN REN NRFD NDAC` rather than
+`ATN REN NDAC`), the SR400's GPIB input has stopped accepting data, and every write times out
+with 0 bytes sent. **Measured** on 2026-11-10, after a series of ibic sessions: REM was lit, ERR
+was off, the display and knob still responded, the port had vanished from SweepMe!'s port list,
+and only a power cycle cleared it. The cause was not identified.
 
 ### 13. Cabling: the SR400 is a DCE
 

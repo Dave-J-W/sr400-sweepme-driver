@@ -45,7 +45,7 @@ The recommended level is **advice for you to enter**, not something the scan app
 
 ## 3. Before you start
 
-- [ ] **SweepMe! 1.5.8** with the driver installed: the `Logger-Stanford_SR400` folder is in
+- [ ] **SweepMe!** (tested on 1.5.8.9) with the driver installed: the `Logger-Stanford_SR400` folder is in
       `C:\Users\Public\Documents\SweepMe!\CustomDevices\`.
 - [ ] A **Logger** module with the SR400 selected, and the port chosen (GPIB address or COM port).
 - [ ] The PMT **anode cable on SIGNAL INPUT 1**, with no attenuator.
