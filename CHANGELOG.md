@@ -7,6 +7,18 @@ Newest first. Gotcha and section numbers refer to
 
 ### Fixed
 
+- **Tier 1 no longer dies on GPIB at its buffer-threshold check.** Run as an end-of-run test
+  over GPIB (2026-11-10), it waited out the port read timeout in `_drain_port()` and then raised
+  `VisaIOError VI_ERROR_TMO`. `_drain_port()` took `""` to mean empty, which is what a COM read
+  returns. On GPIB, pyvisa raises a timeout instead. A read timeout now counts as empty, any
+  other read error still raises, and on a VISA resource the drain runs on a 500 ms timeout
+  (`DRAIN_TIMEOUT_MS`, provisional) that is then restored. The virtual bench's simulator now
+  raises `VI_ERROR_TMO` on an empty read for a GPIB port name, as pyvisa does. That is what
+  let the bench pass tier 1 "over GPIB" before; against the old code it now reproduces the
+  bench traceback.
+- **An end-of-run test that raises is reported, not raised.** The same failure reached
+  SweepMe! as a Python error with no summary. It is now a message naming the error, and the
+  ticked tests after it are skipped and named, since they rest on it.
 - **GPIB now works: `connect()` asserts REN.** The SR400 answers GPIB commands only while the
   Remote Enable line is asserted. On the bench (NI GPIB-USB-HS, 2026-11-10), REN stayed off even
   with *Assert REN when SC* ticked in NI MAX, and every query timed out with nothing received. The

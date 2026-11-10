@@ -42,6 +42,15 @@ def load_driver(path: Path):
 CLOCK = 1e7
 
 
+class FakeVisaTimeout(Exception):
+    """What pyvisa raises when a GPIB read finds nothing to read: VisaIOError, VI_ERROR_TMO."""
+
+    error_code = -1073807339
+
+    def __init__(self):
+        super().__init__("VI_ERROR_TMO (-1073807339): Timeout expired before operation completed.")
+
+
 class VirtualSR400:
     """A minimal but faithful SR400 that speaks the documented ASCII protocol."""
 
@@ -161,8 +170,18 @@ class VirtualSR400:
         for single in command.split(";"):
             self._execute(single.strip())
 
+    # Set by make_device() for a GPIB port name. An empty read then raises as pyvisa does
+    # (measured 2026-11-10: a GPIB drain died with VI_ERROR_TMO). Returning "" on GPIB is
+    # what let tier 1 pass here "over GPIB" while failing on the bench.
+    gpib = False
+
     def read(self) -> str:
-        return self.out.pop(0) if self.out else ""
+        if self.out:
+            return self.out.pop(0)
+        if self.gpib:
+            self.empty_gpib_reads = getattr(self, "empty_gpib_reads", 0) + 1
+            raise FakeVisaTimeout
+        return ""
 
     def in_waiting(self) -> int:
         """Pending response characters, as a COM port would report them."""
@@ -691,6 +710,8 @@ def make_device(driver, instrument, **overrides):
     parameters.update(overrides)
     device.get_GUIparameter(parameters)
     device.port = instrument
+    if isinstance(instrument, VirtualSR400):
+        instrument.gpib = str(parameters["Port"]).upper().startswith("GPIB")
 
     # The latency lookup reads the host's registry or sysfs, so leaving it live would make this
     # bench depend on whether the machine running it happens to have an FTDI adapter on the same
@@ -2713,6 +2734,31 @@ def test_end_of_run_tests(driver):
               f"and its failure is shown in the summary (got {boxes})")
         st.run_tier1 = saved["run_tier1"]
 
+        # --- a test that raises is reported, and the ones after it are skipped -----------
+        # Measured 2026-11-10: a GPIB VI_ERROR_TMO in tier 1 reached SweepMe! as a Python
+        # error with no summary.
+        ran = []
+
+        def raising_tier1(device):
+            raise FakeVisaTimeout
+
+        st.run_tier1 = raising_tier1
+        saved_dark = st.run_threshold_scan_dark
+        st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
+        sr400, device, boxes = run_device(**{labels[0]: True, labels[2]: True})
+        try:
+            device.deinitialize()
+            raised = ""
+        except Exception as exc:  # noqa: BLE001
+            raised = str(exc)
+        check(raised == "", f"an end-of-run test that raises does not raise (raised {raised!r})")
+        check(any("VI_ERROR_TMO" in m and "stopped with an error" in m for m, _ in boxes),
+              f"and the error is shown in a message (got {boxes})")
+        check(ran == [] and any("Not run: threshold scan (dark)" in m for m, _ in boxes),
+              f"and the tests after it are skipped and named (got {ran}, {boxes})")
+        st.run_tier1 = saved["run_tier1"]
+        st.run_threshold_scan_dark = saved_dark
+
         # --- a scan: blocking prompt first, summary after --------------------------------
         order = []
 
@@ -2796,6 +2842,64 @@ def test_end_of_run_tests(driver):
     finally:
         for name, value in saved.items():
             setattr(st, name, value)
+
+
+def test_gpib_drain(driver):
+    print("\n[23c] draining a GPIB port: a read timeout is the empty answer")
+
+    class TimedResource:
+        """A pyvisa resource: only its timeout (ms) matters here."""
+
+        def __init__(self):
+            self.timeout = 20000
+            self.seen = []
+
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, Port="GPIB0::23::INSTR")
+    resource = TimedResource()
+    sr400.port = resource
+    original_read = sr400.read
+
+    def read_noting_timeout():
+        resource.seen.append(resource.timeout)
+        return original_read()
+
+    sr400.read = read_noting_timeout
+    sr400.out = ["3", "3"]
+    try:
+        device._drain_port()
+        raised = ""
+    except Exception as exc:  # noqa: BLE001
+        raised = str(exc)
+    check(raised == "", f"a GPIB drain ends quietly on VI_ERROR_TMO (raised {raised!r})")
+    check(sr400.out == [] and getattr(sr400, "empty_gpib_reads", 0) == 1,
+          f"after reading what was waiting, and one timed-out read (left {sr400.out})")
+    check(resource.seen and all(t == driver.Device.DRAIN_TIMEOUT_MS for t in resource.seen),
+          f"the reads ran on the short drain timeout (saw {resource.seen} ms)")
+    check(resource.timeout == 20000, f"and the run's timeout is restored (got {resource.timeout})")
+
+    class BrokenRead(VirtualSR400):
+        def read(self):
+            raise OSError("GPIB bus error")
+
+    broken = BrokenRead()
+    device = make_device(driver, broken, Port="GPIB0::23::INSTR")
+    broken.port = TimedResource()
+    try:
+        device._drain_port()
+        raised = ""
+    except OSError as exc:
+        raised = str(exc)
+    check(raised == "GPIB bus error", f"any other read error still raises (got {raised!r})")
+    check(broken.port.timeout == 20000, "and the timeout is restored on that path too")
+
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400)  # COM3
+    sr400.port = TimedResource()
+    sr400.out = ["3"]
+    device._drain_port()
+    check(sr400.out == [] and sr400.port.timeout == 20000,
+          "a COM drain still stops on '' and never touches a VISA timeout")
 
 
 def test_threshold_scans(driver):
@@ -3166,6 +3270,7 @@ def main() -> int:
         test_auto_split_mode,
         test_self_test_actions,
         test_end_of_run_tests,
+        test_gpib_drain,
         test_threshold_scans,
         test_scan_records_and_plots,
     ):

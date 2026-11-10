@@ -476,6 +476,16 @@ class Device(EmptyDevice):
     BATCH_MAX_COMMANDS = 10
     """At most 10 queued count values, so about 100 characters of response."""
 
+    # --- draining the port ---
+    VI_ERROR_TMO = -1073807339
+    """pyvisa's read-timeout status. On GPIB this, not an empty string, is what "empty" looks like."""
+
+    DRAIN_TIMEOUT_MS = 500
+    """VISA timeout while draining. PROVISIONAL: a waiting SR400 answer arrives in milliseconds,
+    so 500 ms is ample, but it has not been measured. Without it each drain on GPIB costs the
+    full port read timeout (port_properties["timeout"], 5 s), not 'Timeout in s', which bounds
+    the count wait."""
+
     # --- USB-serial latency timer (host side, nothing to do with the SR400) ---
     LATENCY_TIMER_WARN_MS = 4
     """Warn above this. FTDI ships 16 ms; 1-2 ms is what a query-per-point driver wants."""
@@ -1561,10 +1571,41 @@ class Device(EmptyDevice):
             self.port.read()
 
     def _drain_port(self) -> None:
-        """Read until the port is empty, bounded so a chatty port cannot hang the run."""
-        for _ in range(20):
-            if str(self.port.read()).strip() == "":
-                return
+        """Read until the port is empty, bounded so a chatty port cannot hang the run.
+
+        "Empty" looks different on the two buses. On COM, pysweepme's read() returns "" once
+        its timeout passes. On GPIB, pyvisa raises VI_ERROR_TMO instead. Measured 2026-11-10:
+        tier 1, run as an end-of-run test over GPIB, waited out the port read timeout here and
+        then died with VisaIOError VI_ERROR_TMO. So a read timeout counts as the empty answer.
+        Any other read error still raises. On a VISA resource, the timeout is cut to
+        DRAIN_TIMEOUT_MS for the drain and then restored.
+        """
+        resource = getattr(self.port, "port", None)
+        saved_timeout = None
+        if not getattr(self, "is_rs232", True) and hasattr(resource, "timeout"):
+            try:
+                saved_timeout = resource.timeout
+                resource.timeout = self.DRAIN_TIMEOUT_MS
+            except Exception:  # noqa: BLE001 -- a slow drain is better than no drain
+                saved_timeout = None
+
+        try:
+            for _ in range(20):
+                try:
+                    text = self.port.read()
+                except Exception as exc:
+                    if self._is_read_timeout(exc):
+                        return
+                    raise
+                if str(text).strip() == "":
+                    return
+        finally:
+            if saved_timeout is not None:
+                resource.timeout = saved_timeout
+
+    def _is_read_timeout(self, exc: Exception) -> bool:
+        """True for a VISA read timeout, recognised without importing pyvisa."""
+        return getattr(exc, "error_code", None) == self.VI_ERROR_TMO or "VI_ERROR_TMO" in str(exc)
 
     def _resync_after_batch_failure(self) -> None:
         """Get back in step after a batched read went wrong, without losing the setup.
@@ -1923,7 +1964,7 @@ class Device(EmptyDevice):
             )
             return
 
-        for _label, tier, runner_name, prompt_name in selected:
+        for position, (_label, tier, runner_name, prompt_name) in enumerate(selected):
             if self.is_run_stopped():
                 return
 
@@ -1944,6 +1985,19 @@ class Device(EmptyDevice):
             try:
                 report, path = getattr(selftest, runner_name)(self)
             except RunStopped:
+                return
+            except Exception as exc:  # noqa: BLE001 -- a failing test is reported, not raised
+                # Measured 2026-11-10: a GPIB read timeout in tier 1 escaped from here and
+                # SweepMe! showed it as a Python error, with no summary. The tests after it
+                # rest on it -- tier 1 first because nothing below a failure can be
+                # trusted -- so the rest are skipped.
+                skipped = [entry[1] for entry in selected[position + 1:]]
+                self.message_box(
+                    f"SR400 {tier}: the end-of-run test stopped with an error ({exc}). The "
+                    f"instrument may be left mid-configuration -- enable 'Reset instrument at "
+                    f"start', or press the front-panel RESET, before relying on it."
+                    + (f"\n\nNot run: {', '.join(skipped)}." if skipped else ""),
+                )
                 return
 
             if runner_name == "run_threshold_scan_dark":
