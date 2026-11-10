@@ -1069,7 +1069,7 @@ def test_timeout(driver):
         check(False, "a timeout is raised")
 
     # --- a user stop is not a fault --------------------------------------------------
-    # Measured on SweepMe! 1.5.8.9: every stop showed "Exception: The measurement was stopped
+    # Measured on SweepMe! 1.5.7.9: every stop showed "Exception: The measurement was stopped
     # while waiting for the SR400 count data", although nothing had gone wrong.
     sr400 = VirtualSR400()
     device = make_device(
@@ -2537,7 +2537,7 @@ def test_self_test_actions(driver):
     )
 
     # --- an action on an instance that never received the GUI parameters -------
-    # Measured on SweepMe! 1.5.8.9, 2026-11-10: an action started from a control widget with
+    # Measured on SweepMe! 1.5.7.9, 2026-11-10: an action started from a control widget with
     # asynchronous execution refused with "select a port first" although a port was selected.
     # A pysweepme Port still carries its resource name in port_properties["ID"].
     class FakeVisaResource:
@@ -2607,6 +2607,173 @@ def _scan_device(driver, sr400, tmpdir):
     device.message_box = box
     device.message_info = log["info"].append
     return device, log
+
+
+def test_end_of_run_tests(driver):
+    print("\n[23b] end-of-run tests: ticked in the GUI, run in deinitialize() on the run's port")
+
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp(prefix="sr400_endrun_")
+    st = driver.selftest
+    labels = [entry[0] for entry in driver.Device.END_OF_RUN_TESTS]
+
+    gui = driver.Device().set_GUIparameter()
+    check(
+        all(gui.get(label) is False for label in labels),
+        f"all four end-of-run tests are GUI checkboxes, unticked by default ({labels})",
+    )
+
+    class FakeReport:
+        def __init__(self, failures=()):
+            self.failures = list(failures)
+            self.aborted = False
+            self.checks = 3
+            self.passed = 3 - len(self.failures)
+            self.headline = ""
+            self.write_error = ""
+            self.extra_paths = {}
+
+    def run_device(**ticked):
+        """A device that has completed a normal run up to and including unconfigure()."""
+        sr400 = VirtualSR400()
+        device = _selftest_device(
+            driver, sr400, tmpdir, Port="GPIB0::23::INSTR",
+            **{"Counter A input": "INPUT 1", "Count time in s": 0.002}, **ticked,
+        )
+        boxes = []
+        device.message_box = lambda message, blocking=False: boxes.append((str(message), blocking))
+        device.message_info = lambda message: None
+        device.connect()
+        device.initialize()
+        device.configure()
+        run_point(device)
+        device.unconfigure()
+        return sr400, device, boxes
+
+    saved = {name: getattr(st, name) for name in
+             ("KNOWN_ANSWER_SECONDS", "TIMEBASE_REPEATS", "SCAN_COUNT_TIME",
+              "EXTERNAL_COUNT_TIME", "THROUGHPUT_QUERIES", "run_tier1",
+              "run_threshold_scan_dark")}
+    try:
+        st.KNOWN_ANSWER_SECONDS = 0.01
+        st.TIMEBASE_REPEATS = 2
+        st.SCAN_COUNT_TIME = 0.002
+        st.EXTERNAL_COUNT_TIME = 0.002
+        st.THROUGHPUT_QUERIES = 10
+
+        # --- nothing ticked: deinitialize() does nothing -------------------------------
+        sr400, device, boxes = run_device()
+        sent_before = len(sr400.log)
+        device.deinitialize()
+        check(boxes == [] and len(sr400.log) == sent_before,
+              f"with nothing ticked deinitialize() sends and shows nothing (got {boxes})")
+
+        # --- tier 1 ticked: nothing before measuring, the test after ---------------------
+        sr400, device, boxes = run_device(**{labels[0]: True})
+        check(boxes == [], f"a ticked test does not run before or during the measurement (got {boxes})")
+        device.deinitialize()
+        check(
+            any("tier 1: 22/22 checks passed" in m for m, _ in boxes),
+            f"tier 1 runs in deinitialize() over GPIB and passes 22/22 (got {boxes})",
+        )
+
+        # --- a failing test is reported, not raised -----------------------------------
+        st.run_tier1 = lambda device: (FakeReport(failures=["known-answer count wrong"]), None)
+        sr400, device, boxes = run_device(**{labels[0]: True})
+        try:
+            device.deinitialize()
+            raised = ""
+        except Exception as exc:  # noqa: BLE001
+            raised = str(exc)
+        check(raised == "", f"a failing end-of-run test does not raise (raised {raised!r})")
+        check(any("known-answer count wrong" in m for m, _ in boxes),
+              f"and its failure is shown in the summary (got {boxes})")
+        st.run_tier1 = saved["run_tier1"]
+
+        # --- a scan: blocking prompt first, summary after --------------------------------
+        order = []
+
+        def fake_dark(device):
+            order.append("scan")
+            return FakeReport(), None
+
+        st.run_threshold_scan_dark = fake_dark
+        sr400, device, boxes = run_device(**{labels[2]: True})
+        device.message_box = lambda message, blocking=False: (
+            order.append("prompt" if blocking else "summary"), boxes.append((str(message), blocking)),
+        )
+        device.deinitialize()
+        check(order == ["prompt", "scan", "summary"],
+              f"the dark scan's blocking prompt comes before the scan, the summary after (got {order})")
+        check(boxes and boxes[0][0] == st.PROMPT_DARK, "and the prompt is the scan's own text")
+
+        # --- a stopped run skips them; a stop during one ends it quietly ------------------
+        ran = []
+        st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
+        sr400, device, boxes = run_device(**{labels[2]: True})
+        device.is_run_stopped = lambda: True
+        device.deinitialize()
+        check(ran == [] and boxes == [], f"a stopped run skips the end-of-run tests (got {ran}, {boxes})")
+
+        def stopped(device):
+            raise driver.RunStopped("stopped")
+
+        st.run_threshold_scan_dark = stopped
+        sr400, device, boxes = run_device(**{labels[2]: True})
+        try:
+            device.deinitialize()
+            raised = ""
+        except Exception as exc:  # noqa: BLE001
+            raised = str(exc)
+        check(raised == "", f"a stop during an end-of-run test raises nothing (raised {raised!r})")
+
+        # --- they run in the declared order -----------------------------------------
+        ran = []
+        st.run_tier1 = lambda device: (ran.append("tier 1"), (FakeReport(), None))[1]
+        st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
+        sr400, device, boxes = run_device(**{labels[2]: True, labels[0]: True})
+        device.deinitialize()
+        check(ran == ["tier 1", "dark"], f"tier 1 runs before the dark scan (got {ran})")
+
+        # --- the dark result reaches a light scan run on a fresh instance -------------
+        saved_light = st.run_threshold_scan_light
+        seen = {}
+
+        def fake_dark_valid(device):
+            device._dark_threshold_scan = {"valid": True, "marker": "dark run"}
+            return FakeReport(), None
+
+        def fake_light(device):
+            seen["dark"] = getattr(device, "_dark_threshold_scan", None)
+            return FakeReport(), None
+
+        try:
+            driver.Device._session_dark_scans.clear()
+            st.run_threshold_scan_dark = fake_dark_valid
+            st.run_threshold_scan_light = fake_light
+            sr400, device, boxes = run_device(**{labels[2]: True})
+            device.deinitialize()
+            sr400, device, boxes = run_device(**{labels[3]: True})  # a new instance
+            device.deinitialize()
+            check(
+                (seen.get("dark") or {}).get("marker") == "dark run",
+                f"a light scan in a later run, on a new instance, sees the dark result (got {seen})",
+            )
+            seen.clear()
+            sr400 = VirtualSR400()
+            device = _selftest_device(driver, sr400, tmpdir, Port="COM3", **{labels[3]: True})
+            device.message_box = lambda message, blocking=False: None
+            device.message_info = lambda message: None
+            device.deinitialize()
+            check(seen.get("dark") is None,
+                  f"but not a light scan on a different port (got {seen})")
+        finally:
+            st.run_threshold_scan_light = saved_light
+            driver.Device._session_dark_scans.clear()
+    finally:
+        for name, value in saved.items():
+            setattr(st, name, value)
 
 
 def test_threshold_scans(driver):
@@ -2949,6 +3116,7 @@ def main() -> int:
         test_count_time_planner,
         test_auto_split_mode,
         test_self_test_actions,
+        test_end_of_run_tests,
         test_threshold_scans,
         test_scan_records_and_plots,
     ):

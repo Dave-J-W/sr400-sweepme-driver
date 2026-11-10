@@ -39,7 +39,7 @@ import math
 import os
 import sys
 import time
-from typing import NamedTuple
+from typing import ClassVar, NamedTuple
 
 from pysweepme.EmptyDeviceClass import EmptyDevice
 
@@ -375,8 +375,10 @@ class Device(EmptyDevice):
         exceeds the trigger period minus 1 us) is reported as a message.</p>
 
         <h4>Choosing the discriminator threshold</h4>
-        <p>Use the actions <b>run_threshold_scan_dark</b> (PMT covered) and then
-        <b>run_threshold_scan_light</b> (gentle, steady light), one straight after the other. Together
+        <p>Tick <b>Dark threshold scan</b> (PMT covered) under <i>End-of-run tests</i> and start a
+        short run, then do the same with <b>Light threshold scan</b> (gentle, steady light), one
+        straight after the other. Each scan runs after its run's last point. Untick it when done.
+        Together
         they recommend a level and write a report, the raw data and a plot to
         Public Documents &gt; SweepMe! &gt; DataDevices &gt; Logger-Stanford_SR400. Enter the result in
         "Discriminator A level in V" in <i>volts</i>: -6.4 mV is -0.0064. Step-by-step guide:
@@ -638,6 +640,9 @@ class Device(EmptyDevice):
             "PORT1 level in V": 0.0,
             "PORT2 level in V": 0.0,
             "      ": None,
+            "End-of-run tests -- run once after the last point, before disconnect": None,
+            **{label: False for label, _, _, _ in self.END_OF_RUN_TESTS},
+            "       ": None,
             "Interface and diagnostics": None,
             "Baudrate": ["9600", "19200", "4800", "2400", "1200", "600", "300"],
             "Timeout in s": 20.0,
@@ -697,6 +702,9 @@ class Device(EmptyDevice):
         self.reset_at_start = bool(parameter.get("Reset instrument at start", False))
         self.lock_front_panel = bool(parameter.get("Lock front panel", False))
         self.print_phase = bool(parameter.get("Print SweepMe! phase", False))
+        self.end_of_run_tests = [
+            entry for entry in self.END_OF_RUN_TESTS if bool(parameter.get(entry[0], False))
+        ]
 
         # Ignored by the port manager for GPIB ports; only the COM branch reads it.
         self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
@@ -895,6 +903,11 @@ class Device(EmptyDevice):
         # Read the status byte once to clear all conditions that occurred before the run.
         self.get_status_byte()
 
+    def deinitialize(self) -> None:
+        """Run the end-of-run tests ticked in the GUI, on the run's still-open port."""
+        self._phase("deinitialize")
+        self._run_end_of_run_tests()
+
     def configure(self) -> None:
         """Apply all one-time settings taken from the GUI."""
         self._phase("configure")
@@ -993,7 +1006,7 @@ class Device(EmptyDevice):
                     wait_mask |= self.STATUS_DATA_READY
                 status |= self._wait_for_status(wait_mask, self.acquisition_timeout)
         except RunStopped:
-            # A stop is the user's command, not a fault. Measured on SweepMe! 1.5.8.9: raising
+            # A stop is the user's command, not a fault. Measured on SweepMe! 1.5.7.9: raising
             # here made every stop show "Exception: the measurement was stopped while waiting".
             # The interrupted point has no valid counts, so it is NaN, never a partial number.
             self.measured_counts = {"A": float("nan"), "B": float("nan")}
@@ -1762,7 +1775,7 @@ class Device(EmptyDevice):
     def _adopt_port_from_port_object(self) -> None:
         """Take the port name from the open port when the GUI parameters never arrived.
 
-        Measured on SweepMe! 1.5.8.9, 2026-11-10: an action started from a control widget
+        Measured on SweepMe! 1.5.7.9, 2026-11-10: an action started from a control widget
         with asynchronous execution refused with "select a port first", although the port was
         selected in the Logger module and Retrieve data on the same port had worked. The
         inference, not verified inside SweepMe!, is that this instance never received
@@ -1870,6 +1883,100 @@ class Device(EmptyDevice):
 
     # ------------------------------------------------------- self-test actions
 
+    # The end-of-run tests, in the order they run: (GUI label, report name, selftest runner,
+    # selftest prompt attribute). Tier 1 first, because if the known-answer test fails nothing
+    # after it can be trusted. The prompt attribute names a blocking acknowledgement.
+    END_OF_RUN_TESTS = (
+        ("Self-test tier 1 (no cabling)", "self-test tier 1", "run_tier1", ""),
+        ("Self-test tier 2 (A DISC to INPUT 2 cable)", "self-test tier 2", "run_tier2", ""),
+        ("Dark threshold scan (PMT covered)", "threshold scan (dark)",
+         "run_threshold_scan_dark", "PROMPT_DARK"),
+        ("Light threshold scan (steady light)", "threshold scan (light)",
+         "run_threshold_scan_light", "PROMPT_LIGHT"),
+    )
+
+    # Valid dark-scan results by port, for the rest of this SweepMe! session. Class-level on
+    # purpose: it must outlive the driver instance of the run that produced it.
+    _session_dark_scans: ClassVar[dict] = {}
+
+    def _run_end_of_run_tests(self) -> None:
+        """Run the tests ticked in the GUI, after the run's measurements, on the run's own port.
+
+        This is the durable route to the self-tests. Measured on SweepMe! 1.5.7.9, 2026-11-10:
+        the same tests started as actions from a control widget ran on a driver instance with
+        neither a port name nor an open port, so they could not reach the instrument. At the
+        end of a run, connect() has opened the port and asserted REN, and unconfigure() has
+        left the SR400 idle. A stopped run skips them: stop means stop.
+
+        Each test needs its own physical setup, so a run that uses one is in practice a short
+        sequence set up for that test, not a data run with a test attached.
+        """
+        selected = getattr(self, "end_of_run_tests", [])
+        if not selected or self.is_run_stopped():
+            return
+
+        if selftest is None:
+            self.message_box(
+                f"SR400: end-of-run tests are ticked, but the self-test module could not be "
+                f"loaded ({_selftest_error}). Check that selftest.py is next to main.py in the "
+                f"driver folder.",
+            )
+            return
+
+        for _label, tier, runner_name, prompt_name in selected:
+            if self.is_run_stopped():
+                return
+
+            if prompt_name:
+                # An acknowledgement, not an answer: the scan verifies the condition itself.
+                self.message_box(getattr(selftest, prompt_name), blocking=True)
+
+            # The light scan reads the dark scan's result from the driver instance. With
+            # end-of-run tests the two scans are two runs, and SweepMe! may build a fresh
+            # instance for each, so the result is also kept for the SweepMe! session, per port.
+            if runner_name == "run_threshold_scan_light" and getattr(
+                self, "_dark_threshold_scan", None,
+            ) is None:
+                carried = type(self)._session_dark_scans.get(self.port_string)
+                if carried is not None:
+                    self._dark_threshold_scan = carried
+
+            try:
+                report, path = getattr(selftest, runner_name)(self)
+            except RunStopped:
+                return
+
+            if runner_name == "run_threshold_scan_dark":
+                result = getattr(self, "_dark_threshold_scan", None)
+                if result is not None:
+                    type(self)._session_dark_scans[self.port_string] = result
+
+            self.message_box(self._self_test_summary(tier, report, path))
+
+    def _self_test_summary(self, tier: str, report, path) -> str:
+        """The one-message summary of a self-test report, shared by actions and end-of-run tests."""
+        summary = f"SR400 {tier}: {report.passed}/{report.checks} checks passed."
+        if getattr(report, "headline", ""):
+            summary += f"\n\n{report.headline}"
+        if report.aborted:
+            summary += " ABORTED early -- the known-answer test failed, so nothing below it"
+            summary += " can be trusted."
+        if report.failures:
+            shown = report.failures[:5]
+            summary += "\n\nFailed:\n" + "\n".join(f"  - {f}" for f in shown)
+            if len(report.failures) > len(shown):
+                summary += f"\n  ... and {len(report.failures) - len(shown)} more."
+        summary += (
+            f"\n\nFull report:\n  {path}"
+            if path
+            else f"\n\nThe report could not be written ({report.write_error}); the checks "
+            f"above are all there is."
+        )
+        for suffix, label in ((".svg", "Plot (opens in any web browser)"), (".csv", "Raw data")):
+            if suffix in getattr(report, "extra_paths", {}):
+                summary += f"\n{label}:\n  {report.extra_paths[suffix]}"
+        return summary
+
     def _run_self_test(self, tier: str, runner_name: str, prompt: str = "") -> None:
         """Shared body for the self-test and threshold-scan actions: refuse, prompt, run, report.
 
@@ -1906,29 +2013,7 @@ class Device(EmptyDevice):
                 self.message_box(prompt, blocking=True)
 
             report, path = getattr(selftest, runner_name)(self)
-
-            summary = f"SR400 {tier}: {report.passed}/{report.checks} checks passed."
-            if getattr(report, "headline", ""):
-                summary += f"\n\n{report.headline}"
-            if report.aborted:
-                summary += " ABORTED early -- the known-answer test failed, so nothing below it"
-                summary += " can be trusted."
-            if report.failures:
-                shown = report.failures[:5]
-                summary += "\n\nFailed:\n" + "\n".join(f"  - {f}" for f in shown)
-                if len(report.failures) > len(shown):
-                    summary += f"\n  ... and {len(report.failures) - len(shown)} more."
-            summary += (
-                f"\n\nFull report:\n  {path}"
-                if path
-                else f"\n\nThe report could not be written ({report.write_error}); the checks "
-                f"above are all there is."
-            )
-            for suffix, label in ((".svg", "Plot (opens in any web browser)"),
-                                  (".csv", "Raw data")):
-                if suffix in getattr(report, "extra_paths", {}):
-                    summary += f"\n{label}:\n  {report.extra_paths[suffix]}"
-            self.message_box(summary)
+            self.message_box(self._self_test_summary(tier, report, path))
         except Exception as exc:  # noqa: BLE001 -- an action must never raise
             self.message_box(
                 f"SR400 {tier}: the self-test stopped with an error ({exc}). The instrument may "

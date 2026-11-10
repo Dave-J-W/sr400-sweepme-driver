@@ -13,7 +13,7 @@ Newest first. Gotcha and section numbers refer to
   driver now calls VISA's `control_ren(VI_GPIB_REN_ASSERT_ADDRESS)` before its first command, so
   it no longer depends on that board setting. A Prologix controller, which has no `control_ren()`,
   is left to handle REN itself. Gotcha **12**. **Confirmed on hardware** the same day: with the
-  fix, *Retrieve data* in SweepMe! 1.5.8.9 connected over GPIB and returned counts.
+  fix, *Retrieve data* in SweepMe! 1.5.7.9 connected over GPIB and returned counts.
 - **A GPIB connect no longer resets the SR400.** pysweepme clears every port after opening it.
   On GPIB that clear is a Selected Device Clear, which the SR400 treats as `CL`, so the setup
   reverted to defaults on every connect even with *Reset instrument at start* off, and nothing put
@@ -24,22 +24,31 @@ Newest first. Gotcha and section numbers refer to
 - **The no-answer error names the right interface.** On GPIB it now asks about power, the cable
   and `GPIB ADDR`, and quotes the bus error. The RS-232 baud, parity and echo advice it used to
   give is now shown only for COM ports.
-- **Actions started without the GUI parameters now find their port.** On SweepMe! 1.5.8.9, the
+- **Actions started without the GUI parameters now find their port.** On SweepMe! 1.5.7.9, the
   self-test and the dark threshold scan, started from a control widget with asynchronous
   execution, refused with "select a port first" although a port was selected. The driver instance
   they ran on had apparently never received `get_GUIparameter()`. Every action now takes the port
   name from the open port object (`port_properties["ID"]`) when it has none. The self-test and the
   scans also assert REN themselves on GPIB, since they may run without `connect()`. If there is no
-  port object either, the refusal now says so, as a diagnostic.
+  port object either, the refusal now says so, as a diagnostic. **On 1.5.7.9 that is what
+  happened:** the action had neither a port name nor a port. The working route there is the new
+  end-of-run tests (below).
 - **Tier 1 no longer fails on GPIB.** Its RS-232-only check treated the driver's own refusal of
   `SW` and `MI` as a failure. A GPIB run reported 20/22; it now reports 22/22.
-- **Stopping a run no longer shows an exception.** On SweepMe! 1.5.8.9 every stop raised
+- **Stopping a run no longer shows an exception.** On SweepMe! 1.5.7.9 every stop raised
   *"The measurement was stopped while waiting for the SR400 count data"*, although nothing had
   failed. A stop during counting now leaves the SR400 idle and ends the point quietly, with every
   value NaN rather than a partial count. Timeouts and instrument errors still raise.
 
 ### Changed
 
+- **The self-tests and threshold scans can be ticked as end-of-run tests.** Four new GUI
+  checkboxes, all unticked by default. Each ticked test runs once in `deinitialize()`, after the
+  run's last point, on the run's own open port, so it works on any SweepMe! version. A stop skips
+  them. The dark scan's result is kept for the SweepMe! session, per port, so a light scan in a
+  later run still finds it. Driver README **§9.0**; the threshold-scan guide now uses them.
+- **The docs name the SweepMe! version actually used on hardware: 1.5.7.9**, not 1.5.8.9 as
+  previously written.
 - **`Counter A input` defaults to `INPUT 1`** rather than `10 MHz`, since counting the PMT is the
   normal use. The 10 MHz known-answer check in the quick start now asks for `10 MHz` explicitly.
 

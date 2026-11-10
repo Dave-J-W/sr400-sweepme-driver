@@ -16,8 +16,8 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
      and set **`RS-232 ECHO = OFF`**.
    - GPIB: set `GPIB ADDR` to something in 1…30. The driver asserts REN itself (gotcha 12).
 2. Copy the whole `Logger-Stanford_SR400` folder into SweepMe!'s custom-driver folder —
-   `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.x (tested on
-   1.5.8.9).
+   `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.7 and 1.5.8 (seen on
+   1.5.7.9).
 3. Add a **Logger** module, pick the SR400, choose the port.
 4. Minimum sanity configuration: switch `Counter A input` from its default `INPUT 1` to
    `10 MHz`, and set `Count time in s = 1` and `Gate A mode = CW`. One measurement point must
@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "484/484 checks passed"
+python tests/test_sr400_virtual.py   # expect "497/497 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -726,9 +726,15 @@ worked example. That belongs in §7.1 as an assumption until confirmed.
 
 ## 8. Actions
 
-SweepMe! renders `Device.actions` as buttons. Both of this driver's actions are **host-side only
-and send the SR400 nothing at all**, so either is safe to click at any time, including in the
-middle of a run. Both are also written so they cannot raise; a failure is reported as text.
+SweepMe! renders `Device.actions` as buttons. The two latency actions are **host-side only and
+send the SR400 nothing at all**, so either is safe to click at any time, including in the middle
+of a run. The self-test actions reprogram the instrument and refuse while it is counting. No
+action can raise; a failure is reported as text.
+
+**On SweepMe! 1.5.7.9 the self-test actions cannot reach the instrument.** Started from a control
+widget outside a run, they ran on a driver instance with neither a port name nor an open port, and
+refused (measured 2026-11-10). Use the end-of-run tests in §9.0 instead. The action buttons are
+kept for SweepMe! versions that hand an action the run's port.
 
 | Action | Does |
 |---|---|
@@ -746,12 +752,43 @@ succeeds silently. See gotcha 15 for the platform, privilege, replug and persist
 four matter, and omitting any one of them generates a bug report.
 
 The driver never touches the latency timer on its own, and never enables `Fast readout` on its
-own. Both are absent behaviours on purpose. Nor does it ever run a self-test on its own: §9's
-actions reprogram the instrument, so they only ever happen on a click.
+own. Both are absent behaviours on purpose. Nor does it ever run a self-test on its own: the
+self-tests reprogram the instrument, so they only ever run when an end-of-run test is ticked or
+an action is clicked.
 
 ---
 
-## 9. Self-test actions
+## 9. Self-tests
+
+### 9.0 Running them: the end-of-run tests
+
+Under **End-of-run tests** in the Logger module there are four checkboxes, all unticked by default:
+
+| Checkbox | Runs | Physical setup it needs |
+|---|---|---|
+| `Self-test tier 1 (no cabling)` | §9.3 | none |
+| `Self-test tier 2 (A DISC to INPUT 2 cable)` | §9.4 | the loopback cable |
+| `Dark threshold scan (PMT covered)` | §9.7 | PMT covered |
+| `Light threshold scan (steady light)` | §9.7 | gentle, steady light |
+
+Each test needs its own physical setup, so in practice you make the setup, tick that one test,
+and start a short sequence (one point is enough). The run measures as usual. Then the ticked
+tests run once, in the order of the table, in `deinitialize()`. By then `connect()` has opened
+the port and asserted REN, and `unconfigure()` has left the SR400 idle. The scans first show
+their blocking prompt, and each test ends with its summary message and report path. A failing
+test is reported in that message and does not raise.
+
+- **Stop** skips the tests, and a stop during a test ends it quietly.
+- The dark scan's result is kept for the rest of the SweepMe! session, for the same port, so the
+  light scan finds it even though it runs in a separate run.
+- **Untick the test afterwards.** The checkboxes are saved with the sequence, so a test left
+  ticked runs again at the end of the next run. A scan takes 15–20 minutes.
+
+This is the route that works on every SweepMe! version, because the test runs on the run's own
+port. On SweepMe! 1.5.7.9 it is the only route: see §8 for why the action buttons fail there.
+The same tests are also exposed as actions, described in the rest of this section.
+
+### Self-test actions
 
 The virtual bench proves the driver's *logic* against a simulator built from the same manual the
 driver was written from. It cannot prove anything about a real instrument: response formats, real

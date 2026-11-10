@@ -2,7 +2,7 @@
 
 For the **R8486 photomultiplier on SIGNAL INPUT 1** of the SR400. You need to know what the
 discriminator threshold *is*: the smallest pulse the SR400 will count. This guide covers how to
-choose it, using the driver's two threshold-scan actions.
+choose it, using the driver's two threshold scans.
 
 The technical reference is §9.7 of [README.md](README.md). You don't need it to follow this.
 
@@ -45,9 +45,14 @@ The recommended level is **advice for you to enter**, not something the scan app
 
 ## 3. Before you start
 
-- [ ] **SweepMe!** (tested on 1.5.8.9) with the driver installed: the `Logger-Stanford_SR400` folder is in
+- [ ] **SweepMe!** (tested on 1.5.7.9) with the driver installed: the `Logger-Stanford_SR400` folder is in
       `C:\Users\Public\Documents\SweepMe!\CustomDevices\`.
 - [ ] A **Logger** module with the SR400 selected, and the port chosen (GPIB address or COM port).
+- [ ] You know where the **End-of-run tests** checkboxes are in that module. Each scan below is
+      run by ticking its checkbox and starting a short run (one point is enough). The scan runs
+      when the run's measurement is done. This is because on SweepMe! 1.5.7.9 the action buttons
+      cannot reach the instrument. **Untick the scan when it is done**, or it runs again at the
+      end of the next run.
 - [ ] The PMT **anode cable on SIGNAL INPUT 1**, with no attenuator.
 - [ ] **No other cable** on the SR400's DISC outputs or SIGNAL INPUT 2 (remove any self-test
       loopback cable).
@@ -67,7 +72,8 @@ The recommended level is **advice for you to enter**, not something the scan app
 ## 4. Step 1 — the dark scan
 
 1. **Cover the PMT** completely. No light at all.
-2. In SweepMe!, click the **`run_threshold_scan_dark`** action button.
+2. In the Logger module, tick **`Dark threshold scan (PMT covered)`** (and nothing else under
+   End-of-run tests), then start a short run. The scan starts after the run's last point.
 3. A message appears: *"Cover the R8486 and make sure NO light can reach it…"*. Check, then
    press **OK**.
 4. Wait. This takes **about 15–20 minutes**. A covered R8486 gives only ~8 counts per second, so
@@ -117,7 +123,8 @@ instrument, so the light scan can find the dark result.
 1. **Set up a gentle, steady light** on the PMT. A dim, stable source, well attenuated. Aim for
    roughly **10,000 to 100,000 counts per second**. If you don't know what your source gives,
    just try it. The scan measures the light level first and tells you if it's wrong (step 3).
-2. Click **`run_threshold_scan_light`**. A message appears: *"Ensure gentle, STEADY light on the
+2. Untick the dark scan, tick **`Light threshold scan (steady light)`**, and start a short run.
+   After the run's last point a message appears: *"Ensure gentle, STEADY light on the
    R8486…"*. Press **OK**.
 3. The scan first **checks the light level**. It stops immediately, with nothing else changed,
    if the light is:

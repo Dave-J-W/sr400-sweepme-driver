@@ -47,7 +47,7 @@ the other would have given. It refuses where a preset is not a time (counter T o
 ## Installing
 
 A SweepMe! driver is a folder. Copy the driver directory — not this repository root — into
-SweepMe!'s custom-driver folder, which for SweepMe! 1.5.8.x is
+SweepMe!'s custom-driver folder, which for SweepMe! 1.5.7 and 1.5.8 is
 
 ```
 C:\Users\Public\Documents\SweepMe!\CustomDevices\Logger-Stanford_SR400\
@@ -59,12 +59,16 @@ pysweepme port manager: no vendor library, nothing to compile.
 **What has been tested, and on what.** No minimum SweepMe! version has been established. The
 evidence is:
 
-- **On hardware: SweepMe! 1.5.8.9**, on the lab PC, with the SR400 on GPIB through an NI
-  GPIB-USB-HS. On 2026-11-10, connect and *Retrieve data* worked and counts were returned. The
-  actions have not yet been run on hardware.
+- **On hardware: SweepMe! 1.5.7.9**, on the lab PC, with the SR400 on GPIB through an NI
+  GPIB-USB-HS. On 2026-11-10, connect and *Retrieve data* worked and counts were returned.
+  On this version the self-tests could not reach the instrument when run as actions, because
+  SweepMe! gave the action neither a port name nor an open port. So they are also offered as
+  end-of-run tests, ticked in the GUI (driver README §9.0). Those have not yet been run on
+  hardware.
 - **On the virtual bench**, through standalone pysweepme from PyPI: 1.5.8.4 (the 1.5.8 line),
   1.5.6.17 and 1.6.1.5. The bench passes, the sibling `selftest.py` loads, and all six actions
-  resolve. pysweepme 1.5.8.4 has no `pysweepme.load_source`, so the driver's importlib fallback is
+  resolve. The 1.5.7 line has not been run on the bench, though its last PyPI release, 1.5.7.5,
+  has the `message_box(msg, blocking=...)` that the threshold scans' prompts rely on. pysweepme 1.5.8.4 has no `pysweepme.load_source`, so the driver's importlib fallback is
   the path that runs there.
 
 SweepMe! compiles pysweepme into its executable, so the copy it bundles cannot be inspected. The
