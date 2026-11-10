@@ -167,10 +167,10 @@
 <polygon points="1033.8,519.7 1029.3,511.5 1038.4,511.5" fill="white" stroke="#c0392b" stroke-width="1.2" clip-path="url(#clip1)"/>
 <line x1="483.3" y1="118.0" x2="483.3" y2="538.0" stroke="#7f8c8d" stroke-width="1.5" stroke-dasharray="2,3"/>
 <text x="486.3" y="171.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#7f8c8d">10 mV: DISC pickup risk below (manual p. 22)</text>
-<line x1="310.2" y1="118.0" x2="310.2" y2="538.0" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="5,3"/>
-<text x="313.2" y="132.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#e67e22">noise edge 5.6 mV</text>
-<line x1="333.8" y1="118.0" x2="333.8" y2="538.0" stroke="#1a9850" stroke-width="1.5"/>
-<text x="336.8" y="145.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">lower bound 6.2 mV</text>
+<line x1="294.5" y1="118.0" x2="294.5" y2="538.0" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="297.5" y="132.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#e67e22">noise edge 5.2 mV</text>
+<line x1="318.1" y1="118.0" x2="318.1" y2="538.0" stroke="#1a9850" stroke-width="1.5"/>
+<text x="321.1" y="145.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">lower bound 5.8 mV</text>
 <line x1="876.5" y1="118.0" x2="876.5" y2="538.0" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5,3"/>
 <text x="873.5" y="184.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#c0392b">dark counts vanish 20.0 mV -- NOT the optimum</text>
 <rect x="767.8" y="124.0" width="296.2" height="38.0" fill="white" stroke="#cccccc" fill-opacity="0.92"/>
@@ -285,7 +285,7 @@
 <circle cx="747.6" cy="647.0" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2"/>
 <text x="764.6" y="651.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">hit the 30 s cap: fewer counts, wider error bar</text>
 <text x="24.0" y="858.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Scanned 57 thresholds, 0.4 to 24.0 mV; 152867 counts in 1001 s of live time.</text>
-<text x="24.0" y="874.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Noise edge (heuristic: log-slope &lt; 0.5 per mV over 1 mV): 5.6 mV.  Lower bound for the operating threshold: 6.2 mV (noise edge + 0.5 mV).</text>
+<text x="24.0" y="874.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Noise edge (heuristic: log-slope &lt; 1.0 per mV over 1 mV): 5.2 mV.  Lower bound for the operating threshold: 5.8 mV (noise edge + 0.5 mV).</text>
 <text x="24.0" y="890.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Dark counts vanish (zero counts in 30 s) from 20.0 mV. Do NOT operate there: it is above most single-PE pulses, so it throws signal away. The light</text>
 <text x="24.0" y="906.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">threshold scan measures how much.</text>
 </svg>

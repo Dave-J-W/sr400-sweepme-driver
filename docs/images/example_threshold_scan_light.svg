@@ -818,8 +818,8 @@
 <text x="1114.0" y="219.4" font-size="9" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#7f8c8d">10% loss</text>
 <line x1="771.8" y1="135.0" x2="771.8" y2="465.0" stroke="#8e44ad" stroke-width="1.5" stroke-dasharray="5,3"/>
 <text x="774.8" y="149.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#8e44ad">reference 4.8 mV</text>
-<line x1="815.5" y1="135.0" x2="815.5" y2="465.0" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="5,3"/>
-<text x="818.5" y="162.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#e67e22">noise edge 5.6</text>
+<line x1="793.6" y1="135.0" x2="793.6" y2="465.0" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="796.6" y="162.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#e67e22">noise edge 5.2</text>
 <line x1="859.1" y1="135.0" x2="859.1" y2="465.0" stroke="#1a9850" stroke-width="1.5"/>
 <text x="862.1" y="175.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">recommended 6.4</text>
 <clipPath id="clip3"><rect x="90.0" y="547.0" width="480.0" height="330.0"/></clipPath>
@@ -1058,12 +1058,12 @@
 <text x="1162.0" y="853.0" font-size="11" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#555" font-style="italic">levels with &lt; 20 dark counts are not scored</text>
 <text x="24.0" y="939.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Valley 4.8 mV, single-PE peak 10.0 mV, peak/valley 2.02.  Rate at the reference level 4.8 mV: 3.896e+04 counts/s.</text>
 <text x="24.0" y="955.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Counts fall below the reference by 1% at 5.0 mV, 2% at 5.2 mV, 5% at 5.7 mV, 10% at 6.4 mV.</text>
-<text x="24.0" y="971.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Noise edge 5.6 mV (from this session&#x27;s dark scan).</text>
+<text x="24.0" y="971.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Noise edge 5.2 mV (from this session&#x27;s dark scan).</text>
 <text x="24.0" y="987.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Drift: 0.00% trend over the scan, 0.00% left after removing it (tolerance 2%).</text>
 <text x="24.0" y="1003.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Hysteresis: up-minus-down shift +0.000 +- 0.000 mV on the shoulder.</text>
 <text x="24.0" y="1019.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Where dark counts vanished (20.0 mV) this scan counts 99.3% fewer photons than at the reference level.</text>
 <text x="24.0" y="1035.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">S/sqrt(B) is within 5% of its best from 6.0 mV to 7.6 mV. Assumes a weak, background-limited signal; for a bright one the optimum moves down.</text>
-<text x="24.0" y="1051.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">no level is both above the noise edge (5.6 mV) and below 1 % photon loss (5.0 mV): at this gain the SR400 cannot fully separate electronic noise from single-PE</text>
+<text x="24.0" y="1051.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">no level is both above the noise edge (5.2 mV) and below 1 % photon loss (5.0 mV): at this gain the SR400 cannot fully separate electronic noise from single-PE</text>
 <text x="24.0" y="1067.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">pulses. Expected for the R8486 at 1000 V without a preamp (bench inventory, Stage 2)</text>
 <text x="24.0" y="1083.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Below 10 mV: valid only with the cables exactly as they were for this scan (manual p. 22).</text>
 </svg>

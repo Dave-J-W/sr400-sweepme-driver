@@ -88,6 +88,10 @@ class VirtualSR400:
                 "spe_exp_fraction": 0.15, "spe_exp_scale": 0.0015,
                 "noise_rate": 2.0e7, "noise_scale": 0.00035,
                 "drift_per_s": 0.0, "hysteresis_v": 0.0,
+                # 0 keeps the old monotonic noise. Measured 2026-11-10 on the real tube: the
+                # rate PEAKS (~2.3e5 cps at 1.2 mV) and falls again below that, by about e per
+                # 0.45 mV. noise_peak_v > 0 models that hump.
+                "noise_peak_v": 0.0, "noise_rise_v": 0.00045,
                 **pmt,
             }
         self._disc_shift = {0: 0.0, 1: 0.0, 2: 0.0}
@@ -243,6 +247,10 @@ class VirtualSR400:
         level = self.disc_level[counter]
         effective = abs(level) + self._disc_shift[counter]
         noise = p["noise_rate"] * math.exp(-max(effective, 0.0) / p["noise_scale"])
+        peak = p["noise_peak_v"]
+        if peak > 0.0 and effective < peak:
+            at_peak = p["noise_rate"] * math.exp(-peak / p["noise_scale"])
+            noise = at_peak * math.exp(-(peak - effective) / p["noise_rise_v"])
         # A negative anode pulse only fires a FALL discriminator with a negative threshold.
         if self.disc_slope[counter] != 1 or level >= 0.0:
             return noise
@@ -2902,6 +2910,49 @@ def test_gpib_drain(driver):
           "a COM drain still stops on '' and never touches a VISA timeout")
 
 
+# The first real dark scan: R8486 covered, SR400 over GPIB, SweepMe! 1.5.7.9, 2026-11-10.
+# (|level| in V, counts, live s), as written to its CSV. It is the regression fixture for the
+# noise-edge bug it exposed: the rate rises below 1.2 mV, and the old search reported 0.4 mV.
+REAL_DARK_SCAN_2026_11_10 = (
+    (0.00040, 389, 0.010000), (0.00060, 623, 0.010000), (0.00080, 1204, 0.010000), (0.00100, 2129, 0.010000),
+    (0.00120, 2322, 0.010000), (0.00140, 1873, 0.010000), (0.00160, 1297, 0.010000), (0.00180, 744, 0.010000),
+    (0.00200, 430, 0.010000), (0.00220, 295, 0.010000), (0.00240, 203, 0.010000), (0.00260, 247, 0.020000),
+    (0.00280, 227, 0.060000), (0.00300, 200, 0.270000), (0.00320, 242, 0.810000), (0.00340, 402, 2.210000),
+    (0.00360, 235, 2.210000), (0.00380, 223, 2.810000), (0.00400, 237, 4.210000), (0.00420, 265, 8.010000),
+    (0.00440, 221, 10.210000), (0.00460, 212, 14.210000), (0.00480, 204, 19.210000), (0.00500, 200, 25.210000),
+    (0.00520, 180, 30.210000), (0.00540, 127, 30.210000), (0.00560, 109, 30.210000), (0.00580, 81, 30.210000),
+    (0.00600, 71, 30.210000), (0.00640, 77, 30.210000), (0.00680, 29, 30.210000), (0.00720, 49, 30.210000),
+    (0.00760, 33, 30.210000), (0.00800, 49, 30.210000), (0.00840, 35, 30.210000), (0.00880, 31, 30.210000),
+    (0.00920, 38, 30.210000), (0.00960, 26, 30.210000), (0.01000, 11, 30.210000), (0.01040, 16, 30.210000),
+    (0.01080, 13, 30.210000), (0.01120, 22, 30.210000), (0.01160, 16, 30.210000), (0.01200, 8, 30.210000),
+    (0.01240, 7, 30.210000), (0.01280, 2, 30.210000), (0.01320, 17, 30.210000), (0.01360, 10, 30.210000),
+    (0.01400, 3, 30.210000), (0.01440, 2, 30.210000), (0.01480, 5, 30.210000), (0.01520, 6, 30.210000),
+    (0.01600, 3, 30.210000), (0.01800, 1, 30.210000), (0.02000, 2, 30.210000), (0.02200, 1, 30.210000),
+    (0.02400, 1, 30.210000), (0.02600, 0, 30.210000), (0.02800, 3, 30.210000), (0.03000, 1, 30.210000),
+    (0.03200, 0, 30.210000), (0.03400, 0, 30.210000), (0.03600, 0, 30.210000),
+)
+
+
+def test_real_dark_scan(driver):
+    print("\n[23d] the first real dark scan (2026-11-10), re-analysed")
+    st = driver.selftest
+    points = [{"abs_v": v, "level_v": -v, "counts": n, "live_s": t, "t": 0.0}
+              for v, n, t in REAL_DARK_SCAN_2026_11_10]
+    result = st.analyse_dark(points)
+    check(result["valid"], f"the real covered-tube scan is valid ({result['reasons']})")
+    peak = max(result["rows"], key=lambda r: r["rate"])
+    check(abs(peak["abs_v"] - 0.0012) < 1e-9,
+          f"its rate peaks at 1.2 mV, inside the noise hump (got {peak['abs_v'] * 1e3:.1f} mV)")
+    edge = result["noise_edge_v"]
+    check(edge is not None and abs(edge - 0.0052) < 1e-9,
+          f"the noise edge is found above the hump, at 5.2 mV, not at the lowest level "
+          f"(got {edge * 1e3 if edge else None} mV; the old search said 0.4)")
+    bound = result["lower_bound_v"]
+    check(bound is not None and abs(bound - 0.0058) < 1e-9,
+          f"so the lower bound is 5.8 mV (got {bound * 1e3 if bound else None} mV; was 1.0)")
+    check(st._gui_volts(bound) == -0.0058, "and its GUI value is -0.0058 V")
+
+
 def test_threshold_scans(driver):
     print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")
 
@@ -2984,6 +3035,32 @@ def test_threshold_scans(driver):
           f"each with elapsed and remaining time (last: {measured[-1] if measured else None})")
     check(any("threshold scan dark: findings" in line for line in buffer.getvalue().splitlines()),
           "and every report section is echoed to the debug log too")
+
+    # --- the real tube's noise hump, simulated: the scan's new rules end to end ----------
+    sr400_h = VirtualSR400(pmt={"noise_peak_v": 0.0012}, time_scale=1e5)
+    device_h, log_h = _scan_device(driver, sr400_h, tmpdir)
+    device_h.run_threshold_scan_dark()
+    dark_h = getattr(device_h, "_dark_threshold_scan", None)
+    check(dark_h is not None and dark_h["noise_edge_v"] is not None
+          and dark_h["noise_edge_v"] > 0.0012 + 0.001,
+          f"with a noise hump the edge is found above it, not at 0.4 mV "
+          f"(got {dark_h and dark_h['noise_edge_v']})")
+    if dark_h:
+        rows_h = dark_h["rows"]
+        fast = [r for r in rows_h if r["rate"] * st.DARK_FAST_SECONDS > st.DARK_FAST_TARGET_COUNTS * 1.2]
+        check(fast and all(r["counts"] >= st.DARK_FAST_TARGET_COUNTS for r in fast),
+              f"where 500 counts take under 10 s, a threshold counts to 500 "
+              f"(short: {[(r['abs_v'], r['counts']) for r in fast if r['counts'] < 500]})")
+        slow = [r for r in rows_h if 0 < r["rate"] * st.DARK_FAST_SECONDS < st.DARK_FAST_TARGET_COUNTS * 0.8
+                and r["live_s"] < st.DARK_MAX_SECONDS * 0.999]
+        check(all(r["counts"] < st.DARK_FAST_TARGET_COUNTS for r in slow),
+              "and a slow one still stops at 200, not 500")
+        steps = [b["abs_v"] - a["abs_v"] for a, b in zip(rows_h, rows_h[1:])]
+        slow_from = next((i for i in range(1, len(rows_h))
+                          if rows_h[i]["rate"] < 1.0 and rows_h[i - 1]["rate"] < 1.0), None)
+        check(slow_from is not None and all(step >= 0.002 - 1e-9 for step in steps[slow_from:]),
+              f"after two thresholds below 1 cps, the scan steps 2 mV at a time "
+              f"(steps from there: {[round(x * 1e3, 1) for x in steps[slow_from or 0:]]})")
 
     # --- light, with the dark scan in hand --------------------------------------
     sr400.pmt["light_rate"] = 5.0e4
@@ -3335,6 +3412,7 @@ def main() -> int:
         test_self_test_actions,
         test_end_of_run_tests,
         test_gpib_drain,
+        test_real_dark_scan,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,

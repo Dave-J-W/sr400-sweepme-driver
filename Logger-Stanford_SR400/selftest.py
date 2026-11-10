@@ -1244,8 +1244,19 @@ SCAN_COUNTER = "A"   # counter A, so discriminator A (manual: each counter has i
 SCAN_INPUT = "1"     # CI 0,1 -- SIGNAL INPUT 1
 SCAN_SLOPE = "Fall"  # a bare PMT anode pulse is negative
 
-DARK_TARGET_COUNTS = 200      # ~7 % Poisson per threshold
+DARK_TARGET_COUNTS = 200      # ~7 % Poisson per threshold, where the rate is slow
 DARK_MAX_SECONDS = 30.0       # per threshold: 200 counts at the measured ~8 cps is 25 s
+# Where 500 counts take under 10 s, a threshold counts to 500 (~4.5 % Poisson) instead. On the
+# first real scan (2026-11-10) that costs about 15 s in all, and firms up the fast rates that
+# set the noise roll-off. PROVISIONAL: the operator's rule, not yet measured as a whole scan.
+DARK_FAST_TARGET_COUNTS = 500
+DARK_FAST_SECONDS = 10.0
+# Once the dark rate is below 1 cps at two thresholds in a row, the scan steps 2 mV at a time.
+# On the first real scan the fine grid spent most of its 21 minutes at 30 s per threshold on a
+# 0-3 count tail that sets no bound. Two in a row, because one 30 s point at 1 cps is +-20 %.
+# PROVISIONAL, from that one scan of one tube setup.
+DARK_COARSE_BELOW_CPS = 1.0
+DARK_COARSE_STEP_V = 0.002
 DARK_STOP_AFTER_ZEROS = 3     # consecutive zero-count thresholds: past the distribution, stop
 LIGHT_TARGET_COUNTS = 10_000  # 1 % Poisson per threshold per pass
 LIGHT_MAX_SECONDS = 5.0
@@ -1260,7 +1271,11 @@ LIGHT_FLOOR_CPS = 2000.0        # below this there is no usable light on the tub
 LIGHT_WARN_CPS = 2e5            # 0.1 % loss at the SR400's 5 ns pulse-pair resolution
 LIGHT_CEILING_CPS = 1e6         # 0.5 % loss, and threshold-dependent: would bend the curve
 
-NOISE_SLOPE_PER_MV = 0.5        # log-slope below which the curve has stopped being noise
+# Log-slope below which the curve has stopped being noise. PROVISIONAL, from the first real
+# scan (2026-11-10, R8486 covered, GPIB): the noise roll-off fell at 1.2-4.7 /mV and the dark
+# tail at 0.3-0.7 /mV, so 1.0 separates them. 0.5, the simulator-era value, put the edge in the
+# middle of the dark tail (6.8 mV) once the search started in the right place.
+NOISE_SLOPE_PER_MV = 1.0
 SLOPE_WINDOW_V = 0.001          # slope over 1 mV, not one 0.2 mV step: Poisson noise
 DIFF_WINDOW_V = 0.0005          # half-width of the differential stencil
 VALLEY_PV_RATIO = 1.2           # single-PE peak must stand this far above the valley
@@ -1357,7 +1372,12 @@ def _noise_edge(rows: list):
         span_mv = (far["abs_v"] - row["abs_v"]) * 1e3
         slopes.append(_math.log(row["rate"] / far["rate"]) / span_mv)
 
-    for i in range(len(slopes) - 1):
+    # Start at the rate maximum. Measured 2026-11-10: below ~1.2 mV the real rate RISES with
+    # the threshold (3.9e4 cps at 0.4 mV, 2.3e5 at 1.2 mV). A rising rate has a negative
+    # log-slope, which passed "below the limit", so the first level scanned was reported as the
+    # noise edge and the lower bound came out at 1.0 mV, deep in the noise.
+    peak = max(range(len(rows)), key=lambda i: rows[i]["rate"]) if rows else 0
+    for i in range(peak, len(slopes) - 1):
         a, b = slopes[i], slopes[i + 1]
         if a is not None and b is not None and a < NOISE_SLOPE_PER_MV and b < NOISE_SLOPE_PER_MV:
             return rows[i]["abs_v"], slopes
@@ -1719,12 +1739,15 @@ def _scan_setup(device) -> None:
     device.set_discriminator_slope(SCAN_COUNTER, SCAN_SLOPE)
 
 
-def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float) -> dict:
-    """Count at one threshold until target_counts or max_seconds, whichever first.
+def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float,
+                   fast_target: int = 0, fast_seconds: float = 0.0) -> dict:
+    """Count at one threshold until the target or max_seconds, whichever first.
 
-    The next period is sized from the rate measured so far, so a noisy low threshold takes
-    10 ms and a quiet high one takes up to max_seconds. Every period length is first rounded
-    UP to a settable value and then read back, so the live time is what the instrument used.
+    The target is target_counts, or fast_target where the rate measured so far says fast_target
+    counts take under fast_seconds. The next period is sized from that rate, so a noisy low
+    threshold takes 10 ms and a quiet high one takes up to max_seconds. Every period length is
+    first rounded UP to a settable value and then read back, so the live time is what the
+    instrument used.
     """
     level = -abs_v if SCAN_SLOPE == "Fall" else abs_v
     device.set_discriminator_level(SCAN_COUNTER, level)
@@ -1736,10 +1759,13 @@ def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float)
         actual = device.get_counter_preset("T") / device.CLOCK_FREQUENCY
         counts += _count_one_period(device, timeout=actual + 10.0)
         live += actual
-        if counts >= target_counts or live >= max_seconds - 1e-9:
+        target = target_counts
+        if fast_target > target_counts and counts > 0 and fast_target * live / counts < fast_seconds:
+            target = fast_target
+        if counts >= target or live >= max_seconds - 1e-9:
             break
         remaining = max_seconds - live
-        needed = (target_counts - counts) * live / counts if counts > 0 else period * 10.0
+        needed = (target - counts) * live / counts if counts > 0 else period * 10.0
         period = max(MIN_PERIOD_SECONDS, min(needed * 1.1, remaining))
 
     return {"abs_v": abs_v, "level_v": level, "counts": counts, "live_s": live,
@@ -2407,11 +2433,29 @@ def run_threshold_scan_dark(device) -> tuple:
         )
         leak_checked = False
         grid = threshold_grid()
+        coarse = False
+        slow_in_a_row = 0
         for index, abs_v in enumerate(grid):
-            point = _measure_point(device, abs_v, DARK_TARGET_COUNTS, DARK_MAX_SECONDS)
+            if coarse and abs_v < points[-1]["abs_v"] + DARK_COARSE_STEP_V - 1e-9:
+                continue  # in the tail: 2 mV steps, not the fine grid
+            point = _measure_point(device, abs_v, DARK_TARGET_COUNTS, DARK_MAX_SECONDS,
+                                   DARK_FAST_TARGET_COUNTS, DARK_FAST_SECONDS)
             points.append(point)
+            rate = point["counts"] / point["live_s"]
+            peak_rate = max(p["counts"] / p["live_s"] for p in points)
+            slow_in_a_row = slow_in_a_row + 1 if rate < DARK_COARSE_BELOW_CPS < peak_rate else 0
+            if not coarse and slow_in_a_row >= 2:
+                coarse = True
+                report.note(f"from {abs_v * 1e3:.1f} mV: below {DARK_COARSE_BELOW_CPS:g} cps at two "
+                            f"thresholds in a row, so {DARK_COARSE_STEP_V * 1e3:g} mV steps from here.")
+                _progress(f"dark scan: below {DARK_COARSE_BELOW_CPS:g} cps twice in a row at "
+                          f"-{abs_v * 1e3:.1f} mV; {DARK_COARSE_STEP_V * 1e3:g} mV steps from here.")
             elapsed = time.monotonic() - started
-            left = (len(grid) - index - 1) * DARK_MAX_SECONDS
+            if coarse:
+                steps_left = int((grid[-1] - abs_v) / DARK_COARSE_STEP_V + 1e-9)
+            else:
+                steps_left = len(grid) - index - 1
+            left = steps_left * DARK_MAX_SECONDS
             _progress(
                 f"dark scan: {index + 1}/{len(grid)} at -{abs_v * 1e3:.1f} mV: "
                 f"{point['counts']} counts in {point['live_s']:.1f} s "
@@ -2457,7 +2501,8 @@ def run_threshold_scan_dark(device) -> tuple:
         report.note(f"dark counts vanish (zero at {DARK_MAX_SECONDS:g} s) from: {_mv(result['vanish_v'])}")
         if result["lower_bound_v"] is not None:
             report.note(f"LOWER BOUND for the operating threshold: {_mv(result['lower_bound_v'])} "
-                        f"(noise edge + 0.5 mV).")
+                        f"(noise edge + 0.5 mV). In the GUI: 'Discriminator A level in V' no less "
+                        f"negative than {_gui_volts(result['lower_bound_v'])}.")
             if result["lower_bound_v"] < PICKUP_SAFE_V:
                 report.note("That is below 10 mV, where the manual warns of DISC pickup. This "
                             "scan shows whether it happened in THIS cabling; keep the cables "
@@ -2474,7 +2519,8 @@ def run_threshold_scan_dark(device) -> tuple:
             report.values["lower_bound_V"] = _gui_volts(result["lower_bound_v"])
             report.values["dark_counts_vanish_V"] = _gui_volts(result["vanish_v"])
         report.headline = (
-            f"lower bound {_mv(result['lower_bound_v'])}, dark counts vanish from "
+            f"lower bound {_mv(result['lower_bound_v'])} (GUI {_gui_volts(result['lower_bound_v'])}), "
+            f"dark counts vanish from "
             f"{_mv(result['vanish_v'])}" if result["valid"] and result["lower_bound_v"] is not None
             else "no lower bound: " + ("; ".join(result["reasons"]) or "see the report")
         )
@@ -2651,7 +2697,9 @@ def run_threshold_scan_light(device) -> tuple:
             report.note(reason)
         if result["recommended_v"] is not None:
             low, high = result["window_v"] or (None, None)
-            report.note(f"RECOMMENDED A DISC LVL: -{result['recommended_v'] * 1e3:.1f} mV, FALL.")
+            report.note(f"RECOMMENDED A DISC LVL: -{result['recommended_v'] * 1e3:.1f} mV, FALL. "
+                        f"In the GUI, type {_gui_volts(result['recommended_v'])} into "
+                        f"'Discriminator A level in V' (the field is in volts).")
             report.note(f"Basis: {result['recommended_basis']}.")
             report.note(f"It counts {1.0 - result['recommended_loss']:.1%} of the photons "
                         f"counted at the reference level {_mv(result['reference_v'])}.")
@@ -2676,7 +2724,8 @@ def run_threshold_scan_light(device) -> tuple:
                 "upper_bound_1pct_loss_V": _gui_volts(high),
             })
             report.headline = (
-                f"recommended A DISC LVL -{result['recommended_v'] * 1e3:.1f} mV, counting "
+                f"recommended A DISC LVL -{result['recommended_v'] * 1e3:.1f} mV "
+                f"(type {_gui_volts(result['recommended_v'])} in the GUI), counting "
                 f"{1.0 - result['recommended_loss']:.0%} of photons"
                 + (f"; S/sqrt(B) within 5 % of best from {_mv(result['optimum_band_v'][0])} to "
                    f"{_mv(result['optimum_band_v'][1])}" if result["optimum_band_v"] else "")
