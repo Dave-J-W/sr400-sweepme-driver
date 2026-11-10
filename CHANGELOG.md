@@ -33,6 +33,10 @@ Newest first. Gotcha and section numbers refer to
   port object either, the refusal now says so, as a diagnostic.
 - **Tier 1 no longer fails on GPIB.** Its RS-232-only check treated the driver's own refusal of
   `SW` and `MI` as a failure. A GPIB run reported 20/22; it now reports 22/22.
+- **Stopping a run no longer shows an exception.** On SweepMe! 1.5.8.9 every stop raised
+  *"The measurement was stopped while waiting for the SR400 count data"*, although nothing had
+  failed. A stop during counting now leaves the SR400 idle and ends the point quietly, with every
+  value NaN rather than a partial count. Timeouts and instrument errors still raise.
 
 ### Changed
 

@@ -1068,6 +1068,48 @@ def test_timeout(driver):
     else:
         check(False, "a timeout is raised")
 
+    # --- a user stop is not a fault --------------------------------------------------
+    # Measured on SweepMe! 1.5.8.9: every stop showed "Exception: The measurement was stopped
+    # while waiting for the SR400 count data", although nothing had gone wrong.
+    sr400 = VirtualSR400()
+    device = make_device(
+        driver,
+        sr400,
+        **{
+            "Counter A input": "INPUT 1",
+            "Counter T input": "TRIG",
+            "Preset counts (T or B)": 1e6,
+            "Dwell time in s": 2e-3,
+            "Timeout in s": 30.0,
+        },
+    )
+    sr400.rate["TRIG"] = 1e-6  # the period never ends on its own, so only the stop can end it
+    device.connect()
+    device.initialize()
+    device.configure()
+    polls = {"n": 0}
+
+    def stop_after_two_polls():
+        polls["n"] += 1
+        return polls["n"] > 2
+
+    device.is_run_stopped = stop_after_two_polls
+    start = time.time()
+    try:
+        device.measure()
+        raised = ""
+    except Exception as exc:  # noqa: BLE001
+        raised = str(exc)
+    duration = time.time() - start
+    check(raised == "", f"a user stop during counting raises nothing (raised {raised!r})")
+    check(duration < 5.0, f"and ends the wait promptly, not at the timeout (took {duration:.2f} s)")
+    check(not sr400.running, "and leaves the SR400 idle rather than counting")
+    values = device.call()
+    check(
+        len(values) == len(device.variables) and all(v != v for v in values),
+        f"and the interrupted point is NaN throughout, never a partial count (got {values})",
+    )
+
 
 def test_echo_detection(driver):
     print("\n[11] detection of a wrong COM menu setting (RS-232 ECHO = ON)")

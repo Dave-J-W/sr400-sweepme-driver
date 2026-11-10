@@ -94,6 +94,15 @@ CLOCK_FREQUENCY = 1e7
 """Internal timebase in Hz. Device.CLOCK_FREQUENCY mirrors this."""
 
 
+class RunStopped(Exception):  # noqa: N818 -- a signal, not an error
+    """The user pressed stop while the driver was waiting on the SR400.
+
+    This is not a fault. measure() catches it and ends the point without data, so SweepMe!
+    shows no exception for a normal stop. Code that waits outside measure(), such as the
+    self-test, sees it as an ordinary exception with a plain message.
+    """
+
+
 class CountPlan(NamedTuple):
     """How to reach a requested total live time out of representable count periods."""
 
@@ -965,23 +974,31 @@ class Device(EmptyDevice):
         self._check_status(self.get_status_byte(), context="measurement start")
 
         status = 0
-        if self.uses_external_dwell:
-            # With EXTERNAL dwell every count period has to be started separately
-            # (manual, DWELL menu: "the next COUNT PERIOD begins with another START").
-            for _ in range(self.periods):
+        try:
+            if self.uses_external_dwell:
+                # With EXTERNAL dwell every count period has to be started separately
+                # (manual, DWELL menu: "the next COUNT PERIOD begins with another START").
+                for _ in range(self.periods):
+                    self.start_counting()
+                    status |= self._wait_for_status(
+                        self.STATUS_DATA_READY | self.STATUS_SCAN_FINISHED,
+                        self.acquisition_timeout,
+                    )
+            else:
                 self.start_counting()
-                status |= self._wait_for_status(
-                    self.STATUS_DATA_READY | self.STATUS_SCAN_FINISHED,
-                    self.acquisition_timeout,
-                )
-        else:
-            self.start_counting()
-            wait_mask = self.STATUS_SCAN_FINISHED
-            if self.periods == 1:
-                # For a single period, data ready and scan finished occur together; accepting
-                # both makes the driver independent of the polling order.
-                wait_mask |= self.STATUS_DATA_READY
-            status |= self._wait_for_status(wait_mask, self.acquisition_timeout)
+                wait_mask = self.STATUS_SCAN_FINISHED
+                if self.periods == 1:
+                    # For a single period, data ready and scan finished occur together;
+                    # accepting both makes the driver independent of the polling order.
+                    wait_mask |= self.STATUS_DATA_READY
+                status |= self._wait_for_status(wait_mask, self.acquisition_timeout)
+        except RunStopped:
+            # A stop is the user's command, not a fault. Measured on SweepMe! 1.5.8.9: raising
+            # here made every stop show "Exception: the measurement was stopped while waiting".
+            # The interrupted point has no valid counts, so it is NaN, never a partial number.
+            self.measured_counts = {"A": float("nan"), "B": float("nan")}
+            self.measured_count_time = float("nan")
+            return
 
         self._check_status(status, context="measurement")
 
@@ -1309,9 +1326,10 @@ class Device(EmptyDevice):
                 return accumulated
 
             if self.is_run_stopped():
+                # Leave the instrument idle; measure() turns this into a quiet end of point.
                 self.pause_counting()
-                msg = "The measurement was stopped while waiting for the SR400 count data."
-                raise Exception(msg)
+                msg = "The run was stopped by the user while the SR400 was counting."
+                raise RunStopped(msg)
 
             if time.time() > deadline:
                 # Leave the instrument idle rather than counting into a scan nobody reads.

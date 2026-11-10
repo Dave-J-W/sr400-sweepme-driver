@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "480/480 checks passed"
+python tests/test_sr400_virtual.py   # expect "484/484 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
