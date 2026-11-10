@@ -32,6 +32,12 @@ def _minutes(seconds: float) -> str:
     return f"{seconds / 60.0:.1f} min"
 
 
+def _hv_text(device) -> str:
+    """The PMT HV the operator entered, e.g. '1000', or '' when none was entered."""
+    hv = getattr(device, "pmt_hv_v", None)
+    return f"{hv:g}" if hv else ""
+
+
 def _gui_volts(magnitude_v):
     """A threshold magnitude as typed into the GUI: negative volts, 0.1 mV resolution; '' if None."""
     return "" if magnitude_v is None else round(-abs(magnitude_v), 4)
@@ -102,6 +108,9 @@ class Report:
             f"when            : {timestamp}",
             f"port            : {self.device.port_string or '(none)'}",
             f"interface       : {'RS-232' if self.device.is_rs232 else 'GPIB'}",
+            f"PMT HV          : "
+            + (f"{_hv_text(self.device)} V (entered by the operator; the driver never sets or reads it)"
+               if _hv_text(self.device) else "not recorded (enter it in the GUI field to record it)"),
             f"driver          : {os.path.basename(os.path.dirname(os.path.abspath(__file__)))}",
             "",
             "No instrument storage slot was used: the settings this test changes were saved by",
@@ -127,14 +136,7 @@ class Report:
         # (AppData\Local\SweepMe!\temp) -- hidden, and not somewhere a deliverable should live --
         # so it is only the fallback. Each failure's reason is kept: "could not be written"
         # with no cause wastes an afternoon, and the report is the point of the exercise.
-        stem = os.path.splitext(name)[0]
-        if extras:
-            body.append("")
-            body.append("Companion files, same folder:")
-            for suffix in extras:
-                kind = {".csv": "raw data, one row per measurement",
-                        ".svg": "plot -- opens in any web browser"}.get(suffix, "")
-                body.append(f"  {stem}{suffix}   {kind}")
+        base_stem = os.path.splitext(name)[0]
 
         driver = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
         errors = []
@@ -144,9 +146,23 @@ class Report:
                 if identifier == "DATADEVICES":
                     folder = os.path.join(folder, driver)
                 os.makedirs(folder, exist_ok=True)
-                path = os.path.join(folder, name)
+                # Never overwrite a record. Names carry the time to the second, and two tests can
+                # finish in the same second: measured on the bench, where one HV's dark scan
+                # silently replaced another's. A clash gets -2, -3, ... on every file of the set.
+                stem, n = base_stem, 2
+                while any(os.path.exists(os.path.join(folder, stem + suffix))
+                          for suffix in (".txt", *(extras or {}))):
+                    stem, n = f"{base_stem}-{n}", n + 1
+                lines = list(body)
+                if extras:
+                    lines += ["", "Companion files, same folder:"]
+                    for suffix in extras:
+                        kind = {".csv": "raw data, one row per measurement",
+                                ".svg": "plot -- opens in any web browser"}.get(suffix, "")
+                        lines.append(f"  {stem}{suffix}   {kind}")
+                path = os.path.join(folder, stem + ".txt")
                 with open(path, "w") as handle:
-                    handle.write("\n".join(body) + "\n")
+                    handle.write("\n".join(lines) + "\n")
                 self.extra_paths = {}
                 for suffix, content in (extras or {}).items():
                     extra = os.path.join(folder, stem + suffix)
@@ -165,9 +181,10 @@ class Report:
     # The threshold columns are in volts, signed as typed into 'Discriminator A level in V'
     # (the R8486's pulses are negative, slope FALL): -6.4 mV is -0.0064. Blank when a test does
     # not produce that number, or refused to.
-    LOG_COLUMNS = ("when", "test", "result",
+    LOG_COLUMNS = ("when", "test", "result", "pmt_hv_V",
                    "recommended_disc_A_level_V", "photons_counted_at_recommended",
                    "lower_bound_V", "upper_bound_1pct_loss_V", "dark_counts_vanish_V",
+                   "settle_minutes", "settled_rate_cps",
                    "headline", "passed", "checks", "port", "interface", "first_failure", "report")
 
     def _append_to_log(self, folder: str, timestamp: str, report_path: str) -> None:
@@ -193,6 +210,7 @@ class Report:
             "port": self.device.port_string or "(none)",
             "interface": "RS-232" if self.device.is_rs232 else "GPIB",
             "result": result,
+            "pmt_hv_V": _hv_text(self.device),
             "passed": self.passed,
             "checks": self.checks,
             "headline": self.headline,
@@ -1474,11 +1492,22 @@ def _least_squares(design: list, y: list):
 
 
 def _differential(rows: list) -> list:
-    """-dR/dV in cps/mV by a centred stencil of +-0.5 mV: the pulse-height density."""
+    """-dR/dV in cps/mV by a centred stencil of +-0.5 mV: the pulse-height density.
+
+    Where the grid is coarser than the stencil (2 mV steps above 15.2 mV), +-0.5 mV finds the row
+    itself on both sides and the density would be undefined. Found on the bench, 2026-11-10: at
+    higher PMT HV the single-PE peak moves past 15 mV and could then never be found, so it stuck
+    at 16 mV whatever the gain. There the stencil falls back to the neighbouring rows. On the fine
+    grid, where it finds distinct rows, nothing changes.
+    """
     out = []
-    for row in rows:
+    for i, row in enumerate(rows):
         lo = _value_at(rows, row["abs_v"] - DIFF_WINDOW_V)
         hi = _value_at(rows, row["abs_v"] + DIFF_WINDOW_V)
+        if lo is row and i > 0:
+            lo = rows[i - 1]
+        if hi is row and i + 1 < len(rows):
+            hi = rows[i + 1]
         span_mv = (hi["abs_v"] - lo["abs_v"]) * 1e3
         out.append((lo["rate"] - hi["rate"]) / span_mv if span_mv > 0 else float("nan"))
     return out
@@ -1779,7 +1808,7 @@ def _scan_setup(device) -> None:
 
 
 def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float,
-                   fast_target: int = 0, fast_seconds: float = 0.0) -> dict:
+                   fast_target: int = 0, fast_seconds: float = 0.0, min_seconds: float = 0.0) -> dict:
     """Count at one threshold until the target or max_seconds, whichever first.
 
     The target is target_counts, or fast_target where the rate measured so far says fast_target
@@ -1801,10 +1830,11 @@ def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float,
         target = target_counts
         if fast_target > target_counts and counts > 0 and fast_target * live / counts < fast_seconds:
             target = fast_target
-        if counts >= target or live >= max_seconds - 1e-9:
+        if (counts >= target and live >= min_seconds - 1e-9) or live >= max_seconds - 1e-9:
             break
         remaining = max_seconds - live
         needed = (target - counts) * live / counts if counts > 0 else period * 10.0
+        needed = max(needed, min_seconds - live)
         period = max(MIN_PERIOD_SECONDS, min(needed * 1.1, remaining))
 
     return {"abs_v": abs_v, "level_v": level, "counts": counts, "live_s": live,
@@ -1858,6 +1888,7 @@ def _mv(v) -> str:
 import html as _html
 
 _SCAN_COLUMNS = {
+    "settle": ("block", "abs_v_V", "level_V", "counts", "live_s", "t_s"),
     "dark": ("abs_v_V", "level_V", "counts", "live_s", "t_s"),
     "light": ("repeat", "direction", "abs_v_V", "level_V", "counts", "live_s", "t_s"),
 }
@@ -1877,6 +1908,7 @@ def _scan_meta(device, kind: str, stamp: str, **extra) -> dict:
         "counter": SCAN_COUNTER,
         "input": f"SIGNAL INPUT {SCAN_INPUT}",
         "slope": SCAN_SLOPE.upper(),
+        "hv_V": _hv_text(device),
     }
     meta.update({k: str(v) for k, v in extra.items()})
     return meta
@@ -1885,12 +1917,15 @@ def _scan_meta(device, kind: str, stamp: str, **extra) -> dict:
 def scan_csv(meta: dict, records: list) -> str:
     """A scan record: '#' metadata lines, a header, then one raw row per measurement."""
     columns = _SCAN_COLUMNS[meta["kind"]]
-    t0 = min((r["t"] for r in records if "t" in r), default=0.0)
+    # Scan times are relative to the first point. A settling record's times are already the
+    # elapsed time since the check began, which is what its analysis needs: kept as they are.
+    t0 = 0.0 if meta["kind"] == "settle" else min((r["t"] for r in records if "t" in r), default=0.0)
     lines = [f"# {key}: {value}" for key, value in meta.items()]
     lines.append(",".join(columns))
     for r in records:
         values = {
             "repeat": r.get("repeat", ""), "direction": r.get("direction", ""),
+            "block": r.get("block", ""),
             "abs_v_V": f"{r['abs_v']:.5f}", "level_V": f"{r['level_v']:.5f}",
             "counts": str(int(r["counts"])), "live_s": f"{r['live_s']:.6f}",
             "t_s": f"{r.get('t', t0) - t0:.3f}",
@@ -1922,6 +1957,8 @@ def read_scan_csv(path: str):
 
     if meta.get("kind") == "dark":
         return meta, [point(r) for r in rows]
+    if meta.get("kind") == "settle":
+        return meta, [dict(point(r), block=int(r["block"])) for r in rows]
 
     passes = []
     for row in rows:
@@ -2178,7 +2215,8 @@ def plot_dark(result: dict, meta: dict) -> str:
         # say it too, where no reader can miss it, not only in the CSV header.
         svg.text(W - 24, 30, meta["note"], 14, "end", weight="bold", color="#c0392b")
     svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
-                     f"driver {meta.get('driver', '')}   counts and live time are raw; rate = counts / live time", 11, color="#555")
+                     f"PMT HV {_meta_hv(meta)}   driver {meta.get('driver', '')}   "
+                     f"counts and live time are raw; rate = counts / live time", 11, color="#555")
     verdict = ("+VALID covered-PMT measurement" if result["valid"]
                else "!INVALID -- " + "; ".join(result["reasons"]))
     shift = _text_block(svg, 24, 74, 150, [verdict], 13) - 74 - 17
@@ -2231,6 +2269,10 @@ def plot_dark(result: dict, meta: dict) -> str:
     return svg.render()
 
 
+def _meta_hv(meta: dict) -> str:
+    return f"{meta['hv_V']} V" if meta.get("hv_V") else "not recorded"
+
+
 def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str:
     rows = result["rows"]
     findings = _light_findings(result, dark)
@@ -2257,7 +2299,8 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
         # say it too, where no reader can miss it, not only in the CSV header.
         svg.text(W - 24, 30, meta["note"], 14, "end", weight="bold", color="#c0392b")
     svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
-                     f"{len(passes)} passes   dark scan used: {meta.get('dark_csv') or 'none this session'}", 11, color="#555")
+                     f"PMT HV {_meta_hv(meta)}   {len(passes)} passes   "
+                     f"dark scan used: {meta.get('dark_csv') or 'none this session'}", 11, color="#555")
     _text_block(svg, 24, 74, 165, [headline], 13)
 
     if not rows:
@@ -2487,7 +2530,9 @@ def _scan_files(report, meta: dict, records: list, draw) -> dict:
 def plot_csv(path: str) -> str:
     """Regenerate a scan's SVG from its CSV alone. Returns the path written."""
     meta, data = read_scan_csv(path)
-    if meta.get("kind") == "dark":
+    if meta.get("kind") == "settle":
+        svg = plot_settle(analyse_settle(data), meta)
+    elif meta.get("kind") == "dark":
         svg = plot_dark(analyse_dark(data), meta)
     else:
         dark = None
@@ -2506,6 +2551,7 @@ def plot_csv(path: str) -> str:
                 except Exception:  # noqa: BLE001
                     continue
                 if (dmeta.get("kind") == "dark" and dmeta.get("port") == meta.get("port")
+                        and dmeta.get("hv_V", "") == meta.get("hv_V", "")
                         and dmeta.get("when", "") <= meta.get("when", "")):
                     found = name
                     break
@@ -2520,6 +2566,244 @@ def plot_csv(path: str) -> str:
     with open(out, "w", encoding="utf-8") as handle:
         handle.write(svg)
     return out
+
+
+# ----------------------------------------------------------------- settling check
+
+# How the dark rate is judged settled, after an HV change or light exposure. Rather than a fixed
+# wait, the rate at the operating threshold is counted in blocks, and a straight line is fitted
+# (weighted by Poisson) through the blocks of the last 5 minutes. Settled means that slope is
+# consistent with zero, within 2 sigma. A block lasts at least 60 s, and longer until it holds
+# 1000 counts, but at most 3 min.
+#
+# Why a slope and not block-to-block agreement: on the bench (2026-11-10, simulated 15-min
+# transient) blocks of 1000 counts lasted 15 s at 69 cps, each differed from the last by 1.4 %,
+# well inside any tolerance, and "settled" was declared while the rate was still falling 6 % per
+# minute. A comparison only sees drift that is fast relative to its own window; the 5-minute fit
+# sees what a 10-minute dark scan would suffer.
+#
+# The resolution is set by counting statistics: at a few cps the check can only resolve drifts of
+# a few % per minute, and it says so. Below SETTLE_MIN_COUNTS in a window it cannot judge at all,
+# and says that instead of NOT SETTLED. PROVISIONAL: no real settling curve of this tube has been
+# measured yet.
+SETTLE_BLOCK_COUNTS = 1000
+SETTLE_BLOCK_MIN_SECONDS = 60.0
+SETTLE_BLOCK_MAX_SECONDS = 180.0
+SETTLE_WINDOW_SECONDS = 300.0
+SETTLE_MAX_SECONDS = 1800.0
+SETTLE_DRIFT_TARGET = 0.005  # per minute: 5 % over a 10-minute dark scan
+SETTLE_MIN_COUNTS = 100      # in a 5-minute window; fewer and a slope is mostly noise
+SETTLE_DEFAULT_V = 0.0058  # if the GUI level is outside 2-40 mV: the first real lower bound
+
+PROMPT_SETTLE = (
+    "SR400 dark settling check.\n\n"
+    "1. Cover the R8486 and make sure NO light can reach it.\n"
+    "2. Set the PMT high voltage, and enter the same value in the GUI field "
+    "'PMT high voltage in V' so the records carry it.\n\n"
+    "The driver then counts dark pulses at the operating threshold until the rate stops "
+    "changing (at most 30 minutes), and reports how long it took. Progress is in the debug log.\n\n"
+    "Press OK when the tube is covered."
+)
+
+
+def _settle_slope(rows: list):
+    """Weighted straight line rate(t): (relative slope per min, its sigma, mean rate), or None."""
+    # A zero-count block is a measurement too: it gets the uncertainty of one count, not dropped.
+    pts = [(r["t"] / 60.0, r["rate"], _math.sqrt(max(r["counts"], 1)) / r["live_s"])
+           for r in rows if "t" in r and r["live_s"] > 0]
+    if len(pts) < 3:
+        return None
+    w = [1.0 / sig ** 2 for _, _, sig in pts]
+    sw = sum(w)
+    tm = sum(wi * t for wi, (t, _, _) in zip(w, pts)) / sw
+    rm = sum(wi * r for wi, (_, r, _) in zip(w, pts)) / sw
+    stt = sum(wi * (t - tm) ** 2 for wi, (t, _, _) in zip(w, pts))
+    if stt <= 0 or rm <= 0:
+        return None
+    slope = sum(wi * (t - tm) * (r - rm) for wi, (t, r, _) in zip(w, pts)) / stt
+    return slope / rm, (1.0 / _math.sqrt(stt)) / rm, rm
+
+
+def analyse_settle(blocks: list) -> dict:
+    """Pure analysis of the settling blocks: when the 5-minute slope became consistent with zero."""
+    rows = [_rate_row(b) for b in blocks]
+    result = {"rows": rows, "settled": False, "settled_after_s": None, "settled_rate": None,
+              "trend": None, "drift_per_min": None, "drift_sigma_per_min": None,
+              "resolution_per_min": None, "judgeable": False}
+    for i, row in enumerate(rows):
+        if "t" not in row:
+            continue
+        # Back from this block until the window spans 5 minutes AND holds 3 blocks: with 3-minute
+        # blocks a 5-minute window alone would hold two, and two points have no slope to test.
+        window, enough = [], False
+        for r in reversed(rows[: i + 1]):
+            window.insert(0, r)
+            span = row["t"] - (window[0]["t"] - window[0]["live_s"])
+            if span >= SETTLE_WINDOW_SECONDS - 1e-6 and len(window) >= 3:
+                enough = True
+                break
+        if not enough or sum(r["counts"] for r in window) < SETTLE_MIN_COUNTS:
+            continue
+        result["judgeable"] = True
+        fit = _settle_slope(window)
+        if fit is None:
+            continue
+        drift, sigma, mean = fit
+        row["drift"], row["drift_sigma"] = drift, sigma
+        if abs(drift) <= 2.0 * sigma:
+            result.update(settled=True, settled_after_s=row["t"], settled_rate=mean,
+                          drift_per_min=drift, drift_sigma_per_min=sigma,
+                          resolution_per_min=2.0 * sigma, settled_index=i)
+            break
+        result.update(drift_per_min=drift, drift_sigma_per_min=sigma, resolution_per_min=2.0 * sigma)
+    if len(rows) >= 2 and rows[0]["rate"] > 0:
+        result["trend"] = rows[-1]["rate"] / rows[0]["rate"] - 1.0
+    return result
+
+
+def run_dark_settling(device) -> tuple:
+    report = Report(device, "dark settling check")
+    saved = _save_settings(device, SAVED_SETTINGS)
+    stamp = _timestamp()
+    blocks, extras, result = [], {}, None
+    level = abs(device.discriminator_levels.get("A", -SETTLE_DEFAULT_V))
+    if not 0.002 <= level <= 0.040:
+        report.note(f"The GUI's Discriminator A level ({level * 1e3:.1f} mV) is outside 2-40 mV, "
+                    f"so the check uses {SETTLE_DEFAULT_V * 1e3:.1f} mV instead.")
+        level = SETTLE_DEFAULT_V
+    level = round(level / 0.0002) * 0.0002
+    try:
+        report.section("conditions -- covered R8486, at the operating threshold")
+        _scan_conditions_note(report)
+        report.note(
+            f"Counts at -{level * 1e3:.1f} mV in blocks of at least {SETTLE_BLOCK_MIN_SECONDS:g} s and "
+            f"{SETTLE_BLOCK_COUNTS} counts (at most {SETTLE_BLOCK_MAX_SECONDS:g} s), until a straight line "
+            f"through the last {SETTLE_WINDOW_SECONDS / 60:g} min has a slope consistent with zero; gives "
+            f"up after {SETTLE_MAX_SECONDS / 60:g} min.",
+        )
+        _scan_setup(device)
+        report.section("blocks, in time order")
+        started = time.monotonic()
+        live_total = 0.0
+        _progress(f"dark settling check at -{level * 1e3:.1f} mV, PMT HV "
+                  f"{_hv_text(device) or 'not recorded'}: blocks of at least {SETTLE_BLOCK_MIN_SECONDS:g} s "
+                  f"until the {SETTLE_WINDOW_SECONDS / 60:g}-min drift is consistent with zero, "
+                  f"at most {SETTLE_MAX_SECONDS / 60:g} min.")
+        while True:
+            point = _measure_point(device, level, SETTLE_BLOCK_COUNTS, SETTLE_BLOCK_MAX_SECONDS,
+                                   min_seconds=SETTLE_BLOCK_MIN_SECONDS)
+            point["block"] = len(blocks) + 1
+            live_total += point["live_s"]
+            # Elapsed time is wall time, but never less than the time spent counting: the two agree
+            # on hardware, and a simulator that compresses wall time still gets a true clock.
+            point["t"] = max(time.monotonic() - started, live_total)
+            blocks.append(point)
+            result = analyse_settle(blocks)
+            last = result["rows"][-1]
+            change = (f", drift over the last {SETTLE_WINDOW_SECONDS / 60:g} min "
+                      f"{last['drift']:+.2%} +- {last['drift_sigma']:.2%} per min"
+                      if "drift" in last else f", {SETTLE_WINDOW_SECONDS / 60:g} min of blocks not yet collected")
+            _progress(f"dark settling: block {len(blocks)}: {point['counts']} counts in "
+                      f"{point['live_s']:.1f} s = {last['rate']:.4g} cps{change}. "
+                      f"Elapsed {_minutes(point['t'])}.")
+            if result["settled"] or point["t"] >= SETTLE_MAX_SECONDS:
+                break
+
+        report.table([(f"block {r['block']}", f"{r['counts']} counts in {r['live_s']:.1f} s = "
+                       f"{r['rate']:.4g} +- {r['sigma']:.2g} cps at {_minutes(r['t'])}"
+                       + (f", 5-min drift {r['drift']:+.2%} +- {r['drift_sigma']:.2%}/min" if "drift" in r else ""))
+                      for r in result["rows"]], ("block", "counts, rate, elapsed, 5-min drift"))
+        report.section("findings")
+        if result["settled"]:
+            report.check(True, f"the dark rate settled after {_minutes(result['settled_after_s'])}, "
+                               f"at {result['settled_rate']:.4g} cps")
+            resolution = result["resolution_per_min"]
+            coarse = resolution > SETTLE_DRIFT_TARGET
+            report.headline = (f"settled after {_minutes(result['settled_after_s'])} at "
+                               f"{result['settled_rate']:.4g} cps (-{level * 1e3:.1f} mV, PMT HV "
+                               f"{_hv_text(device) or 'not recorded'})"
+                               + (f"; resolves drift only above {resolution:.1%}/min" if coarse else ""))
+            report.note(f"Drift over the last {SETTLE_WINDOW_SECONDS / 60:g} min: "
+                        f"{result['drift_per_min']:+.2%} +- {result['drift_sigma_per_min']:.2%} per minute, "
+                        f"consistent with zero. A drift slower than about {resolution:.1%} per minute would "
+                        f"also have passed (over a ~10 min dark scan, up to {10 * resolution:.0%})"
+                        + (f", which is coarser than the {SETTLE_DRIFT_TARGET:.1%}/min this check aims for: "
+                           f"the count rate at this threshold is too low to resolve it in "
+                           f"{SETTLE_WINDOW_SECONDS / 60:g} min." if coarse else "."))
+            report.values["settle_minutes"] = round(result["settled_after_s"] / 60.0, 2)
+            report.values["settled_rate_cps"] = round(result["settled_rate"], 4)
+        elif not result["judgeable"]:
+            total = sum(r["counts"] for r in result["rows"])
+            report.note(f"Only {total} counts in {_minutes(blocks[-1]['t'])} at -{level * 1e3:.1f} mV: too few "
+                        f"to fit a drift (a {SETTLE_WINDOW_SECONDS / 60:g}-min window needs "
+                        f"{SETTLE_MIN_COUNTS}). Settling is unknown, not refuted.")
+            report.headline = (f"CANNOT JUDGE settling: only {total} counts at -{level * 1e3:.1f} mV in "
+                               f"{_minutes(blocks[-1]['t'])}. Use a lower operating threshold for the check, "
+                               f"or accept that settling is unknown.")
+        else:
+            trend = (f"still drifting {result['drift_per_min']:+.1%} +- {result['drift_sigma_per_min']:.1%} per min"
+                     if result["drift_per_min"] is not None else
+                     f"{result['trend']:+.0%} from the first block to the last" if result["trend"] is not None else "")
+            report.check(False, f"the dark rate settled within {SETTLE_MAX_SECONDS / 60:g} min ({trend})")
+            report.headline = (f"NOT SETTLED within {SETTLE_MAX_SECONDS / 60:g} min ({trend}). The dark "
+                               f"scan that follows will carry the drift.")
+        extras = _scan_files(report, _scan_meta(device, "settle", stamp), blocks,
+                             lambda meta: plot_settle(result, meta))
+    finally:
+        device.reset_counters()
+        failed = _restore_settings(device, SAVED_SETTINGS, saved)
+        report.section("restore")
+        report.check(not failed, f"every changed setting was restored (unrestored: {failed or 'none'})")
+    return report, report.write(stamp, extras)
+
+
+def plot_settle(result: dict, meta: dict) -> str:
+    """Rate per block against time, with the settled rate, so the transient can be seen."""
+    rows = result["rows"]
+    W, P = 1200, 360
+    svg = _Svg(W, 150 + P + 140)
+    svg.text(24, 30, "SR400 dark settling check -- covered R8486 on SIGNAL INPUT 1, discriminator A, FALL",
+             17, weight="bold")
+    if meta.get("note"):
+        svg.text(W - 24, 30, meta["note"], 14, "end", weight="bold", color="#c0392b")
+    level = f"-{float(rows[0]['abs_v']) * 1e3:.1f} mV" if rows else "?"
+    svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
+                     f"PMT HV {_meta_hv(meta)}   threshold {level}   raw counts and live time per block",
+             11, color="#555")
+    if result["settled"]:
+        head = (f"+SETTLED after {_minutes(result['settled_after_s'])}, at {result['settled_rate']:.4g} counts/s: "
+                f"drift over the last {SETTLE_WINDOW_SECONDS / 60:g} min {result['drift_per_min']:+.2%} +- "
+                f"{result['drift_sigma_per_min']:.2%}/min, consistent with zero. Drifts below "
+                f"~{result['resolution_per_min']:.1%}/min are not resolved at this count rate.")
+    elif not result.get("judgeable"):
+        head = (f"!CANNOT JUDGE: too few counts ({sum(r['counts'] for r in rows)}) to fit a drift; "
+                f"settling is unknown, not refuted.")
+    else:
+        head = ("!NOT SETTLED within " + f"{SETTLE_MAX_SECONDS / 60:g} min"
+                + (f": still drifting {result['drift_per_min']:+.2%} +- {result['drift_sigma_per_min']:.2%}/min."
+                   if result["drift_per_min"] is not None else "."))
+    _text_block(svg, 24, 76, 165, [head], 13)
+    if not rows:
+        return svg.render()
+    tmax = max(r["t"] for r in rows) / 60.0
+    rates = [r["rate"] for r in rows if r["rate"] > 0]
+    a = _Panel(svg, 90, 120, 1000, P, (0.0, tmax * 1.05 + 0.1),
+               (min(rates, default=0.1) * 0.8, max(rates, default=1.0) * 1.25))
+    a.frame("dark count rate per block, +-1 sigma Poisson", "time since the check started, min",
+            "rate, counts/s")
+    xs = [r["t"] / 60.0 for r in rows]
+    a.errorbars(xs, [r["rate"] for r in rows], [r["sigma"] for r in rows], "#1f77b4")
+    a.series(xs, [r["rate"] for r in rows], "#1f77b4", "o", width=1.0)
+    if result["settled"]:
+        a.hline(result["settled_rate"], _C["bound"], f"settled {result['settled_rate']:.4g} counts/s", "5,3")
+        a.vline(result["settled_after_s"] / 60.0, _C["bound"], f"settled at {_minutes(result['settled_after_s'])}", None, 0)
+    _text_block(svg, 24, 120 + P + 62, 165, [
+        f"{len(rows)} blocks, each at least {SETTLE_BLOCK_MIN_SECONDS:g} s and until {SETTLE_BLOCK_COUNTS} counts "
+        f"(at most {SETTLE_BLOCK_MAX_SECONDS:g} s). After each block a straight line, weighted by Poisson, is "
+        f"fitted through the last {SETTLE_WINDOW_SECONDS / 60:g} min; settled means its slope is within 2 sigma of zero.",
+        "The criterion is provisional: the first real settling curve of this tube decides whether it is sensible.",
+    ], 11)
+    return svg.render()
 
 
 # ------------------------------------------------------------------ dark action
@@ -2660,6 +2944,7 @@ def run_threshold_scan_dark(device) -> tuple:
         # Kept for the light scan in this session, with its CSV so the light scan's own CSV can
         # name it, and a regenerated light plot can find the background curve again.
         result["csv"] = report.extra_paths.get(".csv")
+        result["hv_V"] = _hv_text(device)
         device._dark_threshold_scan = result
     return report, path
 
@@ -2702,10 +2987,13 @@ def _latest_dark_scan_on_disk(device, report):
             continue
         if meta.get("kind") != "dark" or meta.get("port") != device.port_string:
             continue
+        if meta.get("hv_V", "") != _hv_text(device):
+            continue  # another HV, another gain: never the background for this light scan
         result = analyse_dark(points)
         if not result["valid"]:
             continue
         result["csv"] = candidate
+        result["hv_V"] = meta.get("hv_V", "")
         age = None
         try:
             age = (time.time() - time.mktime(time.strptime(meta.get("when", ""), "%Y-%m-%d %H:%M:%S"))) / 3600.0
@@ -2743,6 +3031,12 @@ def run_threshold_scan_light(device) -> tuple:
         probe = _measure_point(device, 0.006, LIGHT_TARGET_COUNTS, LIGHT_MAX_SECONDS)
         probe_rate = probe["counts"] / probe["live_s"]
         dark = getattr(device, "_dark_threshold_scan", None)
+        if dark is not None and dark.get("hv_V", "") != _hv_text(device):
+            # A dark scan at another HV has another gain: pairing them would score this light
+            # against the wrong background. Measured risk once HVs are being compared.
+            report.note(f"The dark scan in memory was taken at PMT HV {dark.get('hv_V') or 'not recorded'}, "
+                        f"this light scan at {_hv_text(device) or 'not recorded'}: not used.")
+            dark = None
         if dark is None:
             dark = _latest_dark_scan_on_disk(device, report)
         dark_at = _value_at(dark["rows"], 0.006)["rate"] if dark else None
@@ -2931,12 +3225,268 @@ def run_threshold_scan_light(device) -> tuple:
     return report, report.write(stamp, extras)
 
 
+# ----------------------------------------------------------------- HV comparison
+
+HV_LIGHT_CONSISTENCY = 0.15  # spread of the light rate at the valley beyond which S/sqrt(B) is not compared
+HV_MIN_FOR_OPTIMUM = 3
+
+
+def _absolute_snr(light: dict, dark: dict):
+    """Best (S - B)/sqrt(B) in sqrt(counts/s), and its level: comparable across HV for the same light."""
+    best = None
+    for row in light["rows"]:
+        d = _value_at(dark["rows"], row["abs_v"])
+        if d is None or abs(d["abs_v"] - row["abs_v"]) > 1e-6 or d["counts"] < FOM_MIN_DARK_COUNTS:
+            continue
+        snr = (row["rate"] - d["rate"]) / _math.sqrt(d["rate"])
+        if best is None or snr > best[0]:
+            best = (snr, row["abs_v"])
+    return best
+
+
+def _hv_verdict(rows: list) -> tuple:
+    """Pure: (verdict lines, optimum row or None, light consistent?) from per-HV rows.
+
+    An optimum is named only when at least three HVs are comparable (valid, not NOT SETTLED), the
+    photon rate at the valley agrees across them, and the best S/sqrt(B) lies strictly inside
+    the range. The photon fraction counted at the optimum's level is given beside it, and a
+    weak-signal optimum that throws most photons away says so.
+    """
+    usable = [r for r in rows if not r["problem"] and r.get("settled") is not False]
+    verdict, optimum = [], None
+    rates = [r["photon_rate"] for r in usable if r.get("photon_rate")]
+    consistent = False
+    if len(rates) >= 2:
+        spread = (max(rates) - min(rates)) / sorted(rates)[len(rates) // 2]
+        consistent = spread <= HV_LIGHT_CONSISTENCY
+        verdict.append(("" if consistent else "!") + f"Photon rate (light minus dark) at the valley varies by "
+                       f"{spread:.0%} across HV (limit {HV_LIGHT_CONSISTENCY:.0%})" + ("." if consistent else
+                       ": the light was not the same at each HV, so S/sqrt(B) is NOT compared across HV."))
+    for r in rows:
+        if r["problem"]:
+            verdict.append(f"!{r['hv']:g} V left out: {r['problem']}.")
+        elif r.get("settled") is False:
+            verdict.append(f"!{r['hv']:g} V left out: its dark rate had NOT SETTLED before the dark scan.")
+        elif r.get("settled") is None:
+            verdict.append(f"{r['hv']:g} V: no settling check that could judge, so settling is unknown.")
+    scored = [r for r in usable if r.get("best_snr") is not None]
+    if not consistent:
+        pass
+    elif len(scored) < HV_MIN_FOR_OPTIMUM:
+        verdict.append(f"!NO OPTIMUM named: {len(scored)} comparable HVs, at least {HV_MIN_FOR_OPTIMUM} needed.")
+    else:
+        best = max(scored, key=lambda r: r["best_snr"])
+        if best is scored[0] or best is scored[-1]:
+            verdict.append(f"!NO OPTIMUM named: the best S/sqrt(B) is at the edge of the range scanned "
+                           f"({best['hv']:g} V). Extend the range past it.")
+        else:
+            optimum = best
+            kept = best.get("snr_photon_fraction")
+            verdict.append(f"+OPTIMUM PMT HV {best['hv']:g} V: best S/sqrt(B) {best['best_snr']:.4g} "
+                           f"at -{best['best_snr_v'] * 1e3:.1f} mV (GUI {_gui_volts(best['best_snr_v'])})"
+                           + (f", counting {kept:.0%} of the photons there" if kept is not None else "") + ".")
+            if kept is not None and kept < 0.5:
+                verdict.append("!That optimum is for a weak, background-limited signal and throws away most "
+                               "photons. For a bright signal, prefer the HV with the best peak/valley.")
+    return verdict, optimum, consistent
+
+
+def hv_compare(folder: str) -> tuple:
+    """Compare threshold scans taken at several PMT HVs. Returns (csv_path, svg_path, lines).
+
+    Every light-scan CSV with a recorded HV is paired with the newest same-port, same-HV dark
+    scan not later than it, and with the newest such settling check. Each pair is re-analysed by
+    this code. The optimum HV is named only if at least three HVs are comparable, the light level
+    was the same at each, and the best S/sqrt(B) turns over inside the range scanned.
+    """
+    entries = []
+    for name in sorted(os.listdir(folder)):
+        if name.endswith(".csv"):
+            try:
+                meta, data = read_scan_csv(os.path.join(folder, name))
+            except Exception:  # noqa: BLE001 -- not a scan record
+                continue
+            if meta.get("hv_V") and meta.get("kind") in ("dark", "light", "settle"):
+                entries.append((meta, data, name))
+
+    def newest(kind, port, hv, before):
+        found = [e for e in entries if e[0]["kind"] == kind and e[0].get("port") == port
+                 and e[0]["hv_V"] == hv and e[0].get("when", "") <= before]
+        return max(found, key=lambda e: e[0].get("when", "")) if found else None
+
+    by_hv = {}
+    for meta, passes, name in entries:
+        if meta["kind"] != "light":
+            continue
+        hv = meta["hv_V"]
+        if hv in by_hv and by_hv[hv]["meta"].get("when", "") >= meta.get("when", ""):
+            continue  # the newest light scan at each HV
+        by_hv[hv] = {"meta": meta, "passes": passes, "light_csv": name}
+
+    rows = []
+    for hv, item in by_hv.items():
+        meta = item["meta"]
+        dark_e = newest("dark", meta.get("port"), hv, meta.get("when", ""))
+        if dark_e is None:
+            rows.append({"hv": float(hv), "problem": "no dark scan at this HV", "light_csv": item["light_csv"]})
+            continue
+        dark = analyse_dark(dark_e[1])
+        light = analyse_light(item["passes"], dark)
+        settle_e = newest("settle", meta.get("port"), hv, dark_e[0].get("when", ""))
+        settle = analyse_settle(settle_e[1]) if settle_e else None
+        peak = light["peak_v"]
+        half = round(0.5 * peak / 0.0002) * 0.0002 if peak else None
+        dark_half = _value_at(dark["rows"], half)["rate"] if half else None
+        # Photons at the valley: the light rate there less the dark (and noise) rate. At low HV
+        # the valley sits in the noise, so the raw light rate there would not compare the light.
+        photon_rate = None
+        if light["valley_v"] is not None and light["plateau_rate"]:
+            photon_rate = light["plateau_rate"] - _value_at(dark["rows"], light["valley_v"])["rate"]
+        best = _absolute_snr(light, dark)
+        snr_fraction = None
+        if best and photon_rate:
+            at = _value_at(light["rows"], best[1])["rate"] - _value_at(dark["rows"], best[1])["rate"]
+            snr_fraction = at / photon_rate
+        rows.append({
+            "hv": float(hv), "problem": "" if light["valid"] and dark["valid"] else "; ".join(
+                light["reasons"] + dark["reasons"]) or "invalid scan",
+            "valley_v": light["valley_v"], "peak_v": peak, "pv": light["pv_ratio"],
+            "valley_rate": light["plateau_rate"], "photon_rate": photon_rate,
+            "half_peak_v": half, "dark_at_half": dark_half,
+            "lower_bound_v": dark["lower_bound_v"], "recommended_v": light["recommended_v"],
+            "recommended_loss": light["recommended_loss"],
+            "best_snr": best[0] if best else None, "best_snr_v": best[1] if best else None,
+            "snr_photon_fraction": snr_fraction,
+            "settled": None if settle is None or not settle["judgeable"] else settle["settled"],
+            "settle_min": (settle["settled_after_s"] / 60.0) if settle and settle["settled"] else None,
+            "light_csv": item["light_csv"], "dark_csv": dark_e[2], "settle_csv": settle_e[2] if settle_e else "",
+        })
+    rows.sort(key=lambda r: r["hv"])
+
+    verdict, optimum, consistent = _hv_verdict(rows)
+
+    stamp = _timestamp().replace(":", "").replace(" ", "_")
+    columns = ("hv_V", "valley_mV", "spe_peak_mV", "peak_to_valley", "light_rate_at_valley_cps",
+               "photon_rate_at_valley_cps",
+               "half_peak_level_mV", "dark_rate_at_half_peak_cps", "lower_bound_V", "recommended_V",
+               "photons_counted_at_recommended", "best_abs_snr", "best_abs_snr_level_V", "settled",
+               "settle_minutes", "light_csv", "dark_csv", "settle_csv", "problem")
+
+    def fmt(v, scale=1.0, digits=4):
+        return "" if v is None else f"{v * scale:.{digits}g}"
+
+    lines = [",".join(columns)]
+    for r in rows:
+        lines.append(",".join([
+            f"{r['hv']:g}", fmt(r.get("valley_v"), 1e3), fmt(r.get("peak_v"), 1e3), fmt(r.get("pv")),
+            fmt(r.get("valley_rate")), fmt(r.get("photon_rate")),
+            fmt(r.get("half_peak_v"), 1e3), fmt(r.get("dark_at_half")),
+            "" if r.get("lower_bound_v") is None else str(_gui_volts(r["lower_bound_v"])),
+            "" if r.get("recommended_v") is None else str(_gui_volts(r["recommended_v"])),
+            "" if r.get("recommended_loss") is None else f"{1 - r['recommended_loss']:.4f}",
+            fmt(r.get("best_snr")),
+            "" if r.get("best_snr_v") is None else str(_gui_volts(r["best_snr_v"])),
+            "" if r.get("settled") is None else str(r["settled"]), fmt(r.get("settle_min"), 1.0, 3),
+            r.get("light_csv", ""), r.get("dark_csv", ""), r.get("settle_csv", ""),
+            r.get("problem", "").replace(",", ";"),
+        ]))
+    csv_path = os.path.join(folder, f"SR400_hv_compare_{stamp}.csv")
+    with open(csv_path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    svg_path = os.path.join(folder, f"SR400_hv_compare_{stamp}.svg")
+    with open(svg_path, "w", encoding="utf-8") as handle:
+        handle.write(plot_hv_compare(rows, verdict, optimum, consistent))
+    return csv_path, svg_path, verdict
+
+
+def _hv_summary(r: dict) -> str:
+    """One readable line per HV; any metric the scans could not give is 'n/a'."""
+    if r["problem"]:
+        return f"{r['hv']:g} V: left out: {r['problem']}"
+    pv = f"{r['pv']:.2f}" if r.get("pv") is not None else "n/a (no valley resolved)"
+    dark = (f"{r['dark_at_half']:.3g} counts/s at -{r['half_peak_v'] * 1e3:.1f} mV (half the peak)"
+            if r.get("dark_at_half") is not None and r.get("half_peak_v") else "n/a")
+    snr = (f"{r['best_snr']:.4g} at -{r['best_snr_v'] * 1e3:.1f} mV (GUI {_gui_volts(r['best_snr_v'])})"
+           if r.get("best_snr") is not None else "not scored")
+    settle = (", settled after " + _minutes(r["settle_min"] * 60) if r.get("settle_min") is not None else
+              ", NOT SETTLED" if r.get("settled") is False else ", settling unknown")
+    return (f"{r['hv']:g} V: valley {_mv(r.get('valley_v'))}, SPE peak {_mv(r.get('peak_v'))}, P/V {pv}, "
+            f"dark {dark}, best S/sqrt(B) {snr}{settle}")
+
+
+def plot_hv_compare(rows: list, verdict: list, optimum, consistent: bool) -> str:
+    W, P = 1200, 300
+    good = [r for r in rows if not r["problem"]]
+    summary = [_hv_summary(r) for r in rows]
+    text_h = 22 + 16 * sum(max(1, len(t) // 160 + 1) for t in verdict + summary)
+    svg = _Svg(W, int(120 + 2 * (P + 82) + text_h))
+    svg.text(24, 30, "SR400 PMT high-voltage comparison -- threshold scans of the R8486 at each HV", 17, weight="bold")
+    svg.text(24, 50, f"{len(rows)} HVs with a light scan; each paired with the newest same-port, same-HV "
+                     f"dark scan and settling check before it; all re-analysed by this code", 11, color="#555")
+    if not good:
+        _text_block(svg, 24, 80, 165, verdict + summary)
+        return svg.render()
+    hvs = [r["hv"] for r in good]
+    pad = max(10.0, 0.05 * (max(hvs) - min(hvs)))
+    xlim = (min(hvs) - pad, max(hvs) + pad)
+    top, lx, rx, pw = 90, 90, 690, 480
+
+    def having(key):
+        return [r for r in good if r.get(key) is not None]
+
+    a = _Panel(svg, lx, top, pw, P, xlim, (0.0, max((r["peak_v"] for r in having("peak_v")), default=0.01) * 1e3 * 1.3 + 0.5))
+    a.frame("(a) gain: valley and single-PE peak", "PMT high voltage, V", "|level|, mV")
+    a.series([r["hv"] for r in having("peak_v")], [r["peak_v"] * 1e3 for r in having("peak_v")],
+             "#34495e", "o", label="single-PE peak")
+    a.series([r["hv"] for r in having("valley_v")], [r["valley_v"] * 1e3 for r in having("valley_v")],
+             _C["valley"], "o", "4,3", label="valley")
+    a.legend()
+    missing = [f"{r['hv']:g}" for r in good if r.get("valley_v") is None]
+    if missing:
+        a.note(f"no valley resolved at {', '.join(missing)} V", "#c0392b", corner="br")
+
+    b = _Panel(svg, rx, top, pw, P, xlim, (0.0, max((r["pv"] for r in having("pv")), default=1.0) * 1.3 + 0.1))
+    b.frame("(b) peak / valley: how cleanly photons separate from noise", "PMT high voltage, V", "peak / valley")
+    b.series([r["hv"] for r in having("pv")], [r["pv"] for r in having("pv")], "#1a7f37", "o")
+
+    with_dark = [r for r in good if r.get("dark_at_half")]
+    darks = [r["dark_at_half"] for r in with_dark]
+    c = _Panel(svg, lx, top + P + 82, pw, P, xlim, (min(darks, default=0.1) / 3, max(darks, default=1) * 3), log_y=True)
+    c.frame("(c) dark rate at half the single-PE peak (log)", "PMT high voltage, V", "counts/s (log)")
+    c.series([r["hv"] for r in with_dark], darks, "#c0392b", "o")
+
+    scored = [r for r in good if r["best_snr"] is not None]
+    if consistent and scored:
+        d = _Panel(svg, rx, top + P + 82, pw, P, xlim, (0.0, max(r["best_snr"] for r in scored) * 1.15))
+        d.frame("(d) best S/sqrt(B) at each HV, same light", "PMT high voltage, V", "S/sqrt(B), sqrt(counts/s)")
+        d.series([r["hv"] for r in scored], [r["best_snr"] for r in scored], "#1a7f37", "o")
+        if optimum:
+            d.vline(optimum["hv"], _C["rec"], f"optimum {optimum['hv']:g} V", None, 0)
+    else:
+        svg.rect(rx, top + P + 82, pw, P, stroke="#cccccc")
+        svg.text(rx + 12, top + P + 108, "(d) S/sqrt(B) across HV: NOT SHOWN", 13, weight="bold")
+        _text_block(svg, rx + 12, top + P + 132, 70, [
+            "The light rate differed between HVs, so the background-limited figure of merit cannot "
+            "be compared across them. Repeat with the same light source and setting at every HV."
+            if not consistent else "No HV had a dark scan with enough counts to score."], 11)
+    _text_block(svg, 24, top + 2 * (P + 82) + 4, 165, verdict + summary)
+    return svg.render()
+
+
 if __name__ == "__main__":
     import sys as _sys
 
     if len(_sys.argv) >= 3 and _sys.argv[1] == "plot":
         for csv_path in _sys.argv[2:]:
             print(plot_csv(csv_path))
+    elif len(_sys.argv) == 3 and _sys.argv[1] == "hv-compare":
+        table, figure, verdict = hv_compare(_sys.argv[2])
+        print(table)
+        print(figure)
+        for line in verdict:
+            print(line.lstrip("+!"))
     else:
         print("usage: python selftest.py plot <scan.csv> [<scan.csv> ...]")
-        print("Regenerates each scan's SVG from its CSV. Needs nothing beyond Python itself.")
+        print("       python selftest.py hv-compare <folder>")
+        print("plot regenerates each scan's SVG from its CSV. hv-compare compares the scans in a")
+        print("folder taken at different PMT high voltages. Both need nothing beyond Python itself.")

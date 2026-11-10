@@ -303,3 +303,60 @@ are beside them in [`images/`](images/) if you want to try it.
 | *the SR400 is counting* | press STOP on the SR400, then run it again |
 | *the SR400 did not answer a status query* | check the instrument is on and connected, and the port and GPIB address are right |
 | *the self-test module could not be loaded* | `selftest.py` is missing from the driver folder: copy the whole folder again |
+
+---
+
+## 10. Finding the best PMT high voltage
+
+The threshold depends on the high voltage. More HV means more gain: the single-photon pulses grow
+and move away from the electronic noise, so they separate better. At some point the dark counts
+start to rise faster than the separation improves. The procedure below runs the scans at several
+voltages and lets the driver compare them. The HV is set **by hand**. The driver never sets or
+reads it; it only records the value you type in.
+
+**Before you start.** Choose 4–5 voltages, for example 900, 950, 1000, 1050 and 1100 V. Check the
+R8486 data sheet for its maximum rating and stay below it. Use **the same light source, at the
+same setting, at every voltage**: the comparison checks this and refuses to compare light levels
+that differ.
+
+**At each voltage, one short run:**
+
+1. Set the HV on the supply. Type **the same value** into the Logger module's field
+   **`PMT high voltage in V (record only, 0 = not recorded)`**. Every report, CSV and figure then
+   carries it.
+2. Tick **`Dark settling check (PMT covered)`**, **`Dark threshold scan (PMT covered)`** and
+   **`Light threshold scan (steady light)`**, and start a short run (one point).
+3. When asked, cover the tube. The **settling check** counts dark pulses at your operating
+   threshold until the rate stops changing. It fits a straight line through the last 5 minutes
+   and needs the slope to be consistent with zero. This takes at least 5 minutes, and at most 30.
+   You don't have to guess a settling time. The debug log shows the drift after every block. The
+   dark scan follows straight away.
+4. When asked, uncover the tube and set the light. The light scan follows.
+
+**Then compare.** From the results folder (§8), with the path to `selftest.py` in the driver
+folder:
+
+```bash
+python "C:/Users/Public/Documents/SweepMe!/CustomDevices/Logger-Stanford_SR400/selftest.py" hv-compare .
+```
+
+It writes `SR400_hv_compare_<date_time>.csv`, a
+table with one row per voltage, and an `.svg` figure with four panels against HV:
+
+- **(a) gain:** where the valley and the single-photon peak sit, in mV. Both should rise with HV.
+- **(b) peak/valley:** how cleanly photons separate from noise. Higher is better.
+- **(c) dark rate at half the single-photon peak:** the background at a threshold that scales with
+  the gain, so the voltages are compared fairly.
+- **(d) best S/√B** at each voltage, with the same light.
+
+It names an **optimum HV** only when at least three voltages are comparable, the light was the same
+at each, and the best S/√B turns over *inside* the range. If the best is at the highest or lowest
+voltage scanned, it says so and asks you to extend the range. A voltage whose dark rate had
+**not settled** is left out. The line naming the optimum also gives the fraction of photons
+counted there. If that is under half, it warns that this optimum suits only a weak signal.
+
+**What the settling check can and cannot see.** At a few counts per second, the check can only
+resolve drifts of a few percent per minute in 5 minutes, and its report says exactly how much.
+If it reports **CANNOT JUDGE**, there were too few counts at your threshold to fit a drift.
+Settling is then unknown, not refuted. These limits are provisional: the first real settling
+curve of this tube will show whether they are sensible.

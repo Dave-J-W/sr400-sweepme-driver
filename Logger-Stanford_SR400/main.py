@@ -565,6 +565,8 @@ class Device(EmptyDevice):
         self.trigger_level: float = 0.0
         self.discriminator_slopes: dict[str, str] = {"A": "Fall", "B": "Fall", "T": "Fall"}
         self.discriminator_levels: dict[str, float] = {"A": -0.010, "B": -0.010, "T": -0.010}
+        # The PMT high voltage as entered by the operator, or None when not entered. Record only.
+        self.pmt_hv_v: float | None = None
         self.gate_modes: dict[str, str] = {"A": "CW", "B": "CW"}
         self.gate_delays: dict[str, float] = {"A": 0.0, "B": 0.0}
         self.gate_widths: dict[str, float] = {"A": 1e-6, "B": 1e-6}
@@ -629,6 +631,9 @@ class Device(EmptyDevice):
             "Dwell time in s": self.DEFAULT_DWELL_TIME,
             "   ": None,
             "Signal path": None,
+            # A record only: the driver never sets or reads the HV. It is written into every
+            # scan's CSV, report, figure and the test log, so an HV comparison can group them.
+            self.PMT_HV_FIELD: 0.0,
             "Trigger slope": list(self.SLOPES.keys()),
             "Trigger level in V": 0.0,
             "Discriminator A slope": ["Fall", "Rise"],
@@ -713,6 +718,8 @@ class Device(EmptyDevice):
         self.reset_at_start = bool(parameter.get("Reset instrument at start", False))
         self.lock_front_panel = bool(parameter.get("Lock front panel", False))
         self.print_phase = bool(parameter.get("Print SweepMe! phase", False))
+        hv = self._as_float(parameter, self.PMT_HV_FIELD, 0.0)
+        self.pmt_hv_v = hv if hv > 0 else None
         self.end_of_run_tests = [
             entry for entry in self.END_OF_RUN_TESTS if bool(parameter.get(entry[0], False))
         ]
@@ -1928,9 +1935,15 @@ class Device(EmptyDevice):
     # The end-of-run tests, in the order they run: (GUI label, report name, selftest runner,
     # selftest prompt attribute). Tier 1 first, because if the known-answer test fails nothing
     # after it can be trusted. The prompt attribute names a blocking acknowledgement.
+    PMT_HV_FIELD = "PMT high voltage in V (record only, 0 = not recorded)"
+
     END_OF_RUN_TESTS = (
         ("Self-test tier 1 (no cabling)", "self-test tier 1", "run_tier1", ""),
         ("Self-test tier 2 (A DISC to INPUT 2 cable)", "self-test tier 2", "run_tier2", ""),
+        # Before the dark scan: after an HV change or light exposure the dark rate relaxes, and
+        # this counts until it has stopped moving instead of waiting a fixed time.
+        ("Dark settling check (PMT covered)", "dark settling check",
+         "run_dark_settling", "PROMPT_SETTLE"),
         ("Dark threshold scan (PMT covered)", "threshold scan (dark)",
          "run_threshold_scan_dark", "PROMPT_DARK"),
         ("Light threshold scan (steady light)", "threshold scan (light)",
@@ -1940,6 +1953,10 @@ class Device(EmptyDevice):
     # Valid dark-scan results by port, for the rest of this SweepMe! session. Class-level on
     # purpose: it must outlive the driver instance of the run that produced it.
     _session_dark_scans: ClassVar[dict] = {}
+
+    def _dark_scan_key(self) -> str:
+        """A dark scan belongs to one port at one PMT HV: another HV is another gain."""
+        return f"{self.port_string}|{self.pmt_hv_v or ''}"
 
     def _run_end_of_run_tests(self) -> None:
         """Run the tests ticked in the GUI, after the run's measurements, on the run's own port.
@@ -1979,7 +1996,7 @@ class Device(EmptyDevice):
             if runner_name == "run_threshold_scan_light" and getattr(
                 self, "_dark_threshold_scan", None,
             ) is None:
-                carried = type(self)._session_dark_scans.get(self.port_string)
+                carried = type(self)._session_dark_scans.get(self._dark_scan_key())
                 if carried is not None:
                     self._dark_threshold_scan = carried
 
@@ -2004,7 +2021,7 @@ class Device(EmptyDevice):
             if runner_name == "run_threshold_scan_dark":
                 result = getattr(self, "_dark_threshold_scan", None)
                 if result is not None:
-                    type(self)._session_dark_scans[self.port_string] = result
+                    type(self)._session_dark_scans[self._dark_scan_key()] = result
 
             self.message_box(self._self_test_summary(tier, report, path))
 

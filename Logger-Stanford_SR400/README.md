@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "561/561 checks passed"
+python tests/test_sr400_virtual.py   # expect "587/587 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -762,12 +762,13 @@ an action is clicked.
 
 ### 9.0 Running them: the end-of-run tests
 
-Under **End-of-run tests** in the Logger module there are four checkboxes, all unticked by default:
+Under **End-of-run tests** in the Logger module there are five checkboxes, all unticked by default:
 
 | Checkbox | Runs | Physical setup it needs |
 |---|---|---|
 | `Self-test tier 1 (no cabling)` | §9.3 | none |
 | `Self-test tier 2 (A DISC to INPUT 2 cable)` | §9.4 | the loopback cable |
+| `Dark settling check (PMT covered)` | §9.8 | PMT covered |
 | `Dark threshold scan (PMT covered)` | §9.7 | PMT covered |
 | `Light threshold scan (steady light)` | §9.7 | gentle, steady light |
 
@@ -1059,3 +1060,45 @@ Both scans keep the safety invariants of §9.2: refuse while counting (before pr
 everything without a storage slot, never send `SE`, never raise. Each writes its report, CSV and
 SVG plot together (§9.6); a scan refused at the light probe writes the report only, because there
 was no sweep to plot.
+
+### 9.8 Dark settling, and comparing PMT high voltages
+
+**The HV is a record, not a setting.** The field `PMT high voltage in V (record only, 0 = not
+recorded)` goes into every report header, every scan CSV (`# hv_V:`), every figure and the test
+log's `pmt_hv_V` column. The driver never sets or reads the supply. **A light scan only uses a
+dark scan taken at the same recorded HV**, whether from memory, from the session cache or from
+disk, because another HV is another gain. Before this rule, a light scan could silently be scored
+against the background of a different voltage.
+
+**The settling check** (`run_dark_settling`, end-of-run test `Dark settling check (PMT covered)`)
+counts at the GUI's `Discriminator A level`, because that is the rate the measurement depends on.
+It uses blocks of at least 60 s and 1000 counts, at most 180 s. After each block it fits a
+Poisson-weighted straight line through blocks spanning the last 5 minutes, and at least three of
+them. It calls the rate settled when the slope is within 2σ of zero, and gives up after 30
+minutes. The report and figure give the measured drift in %/min with its uncertainty, and the
+smallest drift the check could have resolved at that count rate. With fewer than 100 counts in
+the window it reports **CANNOT JUDGE**. The raw blocks go to a CSV (`kind: settle`, times since
+the check began).
+
+*Why a slope, not block-to-block agreement.* The first design compared consecutive blocks. On the
+bench, at 69 cps, 1000-count blocks lasted 15 s and differed by 1.4 % each. The test passed
+straight away while the simulated rate was still falling about 6 % a minute: a comparison only
+sees drift that is fast relative to its own window. All the settling values are **provisional**:
+no real settling curve of this tube has been measured.
+
+**`python selftest.py hv-compare <folder>`** pairs each light scan that has a recorded HV with the
+newest same-port, same-HV dark scan and settling check before it, and re-analyses them. It writes
+a table and a four-panel figure against HV: (a) valley and single-PE peak, (b) peak/valley,
+(c) dark rate at half the peak, (d) the best absolute (S − B)/√B. The verdict is a pure function,
+`_hv_verdict`, tested on constructed rows. It names an optimum only with at least three comparable
+HVs, a photon rate (light minus dark, at the valley) that agrees within 15 % across them, and a
+best S/√B strictly inside the range. A NOT SETTLED voltage is left out. An optimum that counts
+under half the photons is flagged as weak-signal only.
+
+Two bugs were found on the way, and are fixed for every scan:
+
+- **The pulse-height density was undefined on the 2 mV grid above 15.2 mV**, so a single-PE peak
+  that the gain had moved past 15 mV could never be found. It stuck at 16 mV whatever the HV. The
+  stencil now falls back to the neighbouring rows there; fine-grid results are unchanged.
+- **Reports written in the same second overwrote each other**, since names carry the time to the
+  second. A clash now gets `-2`, `-3`, ... on every file of the set.

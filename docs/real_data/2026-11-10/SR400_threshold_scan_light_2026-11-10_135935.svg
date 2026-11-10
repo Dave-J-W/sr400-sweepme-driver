@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1191" viewBox="0 0 1200 1191">
 <rect x="0" y="0" width="1200" height="1191" fill="white"/>
 <text x="24.0" y="30.0" font-size="17" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">SR400 threshold scan, LIGHT -- R8486 on SIGNAL INPUT 1, discriminator A, FALL</text>
-<text x="24.0" y="50.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">2026-11-10 13:59:35   port GPIB0::23::INSTR (GPIB)   6 passes   dark scan used: SR400_threshold_scan_dark_2026-11-10_132008.csv (found beside this file)</text>
+<text x="24.0" y="50.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">2026-11-10 13:59:35   port GPIB0::23::INSTR (GPIB)   PMT HV not recorded   6 passes   dark scan used: SR400_threshold_scan_dark_2026-11-10_132008.csv (found beside this file)</text>
 <text x="24.0" y="74.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#1a7f37">RECOMMENDED A DISC LVL -6.8 mV, FALL -- counts 75.6% of photons at the reference level.  Basis: background-limited optimum: the level maximising S/sqrt(B), from this</text>
 <text x="24.0" y="91.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#1a7f37">session&#x27;s dark and light scans together.</text>
 <clipPath id="clip1"><rect x="90.0" y="135.0" width="480.0" height="330.0"/></clipPath>
@@ -858,7 +858,7 @@
 <rect x="90.0" y="547.0" width="53.8" height="330.0" fill="#bdc3c7" stroke="none" fill-opacity="0.35"/>
 <text x="93.0" y="871.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555" font-style="italic"></text>
 <text x="562.0" y="867.0" font-size="11" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#555" font-style="italic">shaded: rate rises with level up to 2.0 mV (noise hump), so no density</text>
-<polyline points="146.4,611.6 151.5,611.6 156.6,609.9 161.7,612.1 166.8,637.7 172.0,645.9 177.1,645.9 182.2,646.6 187.3,648.1 192.5,653.7 197.6,653.7 202.7,653.2 207.8,647.3 212.9,646.7 218.1,642.6 223.2,643.7 228.3,641.5 233.4,642.8 238.6,640.0 243.7,639.1 253.9,633.7 264.2,631.8 274.4,632.3 284.7,632.4 294.9,631.4 305.2,632.3 315.4,633.4 325.6,633.2 335.9,635.2 346.1,637.5 356.4,639.2 366.6,641.0 376.9,643.0 387.1,646.3 397.4,648.5 407.6,651.2 417.9,653.1 428.1,655.5 438.3,657.8 448.6,660.7 458.8,664.2 469.1,666.2 479.3,670.5 499.8,672.2" fill="none" stroke="#34495e" stroke-width="1.0" clip-path="url(#clip3)"/>
+<polyline points="146.4,611.6 151.5,611.6 156.6,609.9 161.7,612.1 166.8,637.7 172.0,645.9 177.1,645.9 182.2,646.6 187.3,648.1 192.5,653.7 197.6,653.7 202.7,653.2 207.8,647.3 212.9,646.7 218.1,642.6 223.2,643.7 228.3,641.5 233.4,642.8 238.6,640.0 243.7,639.1 253.9,633.7 264.2,631.8 274.4,632.3 284.7,632.4 294.9,631.4 305.2,632.3 315.4,633.4 325.6,633.2 335.9,635.2 346.1,637.5 356.4,639.2 366.6,641.0 376.9,643.0 387.1,646.3 397.4,648.5 407.6,651.2 417.9,653.1 428.1,655.5 438.3,657.8 448.6,660.7 458.8,664.2 469.1,666.2 479.3,670.5 499.8,679.3 551.0,683.2" fill="none" stroke="#34495e" stroke-width="1.0" clip-path="url(#clip3)"/>
 <circle cx="146.4" cy="611.6" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
 <circle cx="151.5" cy="611.6" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
 <circle cx="156.6" cy="609.9" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
@@ -902,7 +902,8 @@
 <circle cx="458.8" cy="664.2" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
 <circle cx="469.1" cy="666.2" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
 <circle cx="479.3" cy="670.5" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
-<circle cx="499.8" cy="672.2" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
+<circle cx="499.8" cy="679.3" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
+<circle cx="551.0" cy="683.2" r="3.5" fill="#34495e" stroke="#34495e" stroke-width="1.2" clip-path="url(#clip3)"/>
 <polyline points="125.9,635.1 131.0,608.4 136.1,608.4 141.2,614.3 146.4,627.4 151.5,627.4 156.6,636.6 161.7,643.3 166.8,659.0 172.0,680.5 177.1,680.5 182.2,711.0 187.3,728.1 192.5,747.3 197.6,747.3 202.7,755.8 207.8,761.4 212.9,769.2 218.1,782.0 223.2,786.9 228.3,793.9 233.4,801.6 238.6,809.9 243.7,819.7 253.9,818.8 264.2,826.1 305.2,834.1 325.6,857.2" fill="none" stroke="#c0392b" stroke-width="1.0" clip-path="url(#clip3)"/>
 <circle cx="125.9" cy="635.1" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2" clip-path="url(#clip3)"/>
 <circle cx="131.0" cy="608.4" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2" clip-path="url(#clip3)"/>

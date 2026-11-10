@@ -92,6 +92,9 @@ class VirtualSR400:
                 # rate PEAKS (~2.3e5 cps at 1.2 mV) and falls again below that, by about e per
                 # 0.45 mV. noise_peak_v > 0 models that hump.
                 "noise_peak_v": 0.0, "noise_rise_v": 0.00045,
+                # A dark rate relaxing after an HV change or light exposure:
+                # dark_rate * (1 + dark_excess * exp(-t / dark_tau_s)), t in simulated seconds.
+                "dark_excess": 0.0, "dark_tau_s": 600.0,
                 **pmt,
             }
         self._disc_shift = {0: 0.0, 1: 0.0, 2: 0.0}
@@ -255,7 +258,8 @@ class VirtualSR400:
         if self.disc_slope[counter] != 1 or level >= 0.0:
             return noise
         light = p["light_rate"] * (1.0 + p["drift_per_s"] * self.sim_time())
-        return noise + (p["dark_rate"] + max(light, 0.0)) * self._spe_survival(max(effective, 0.0))
+        dark = p["dark_rate"] * (1.0 + p["dark_excess"] * math.exp(-self.sim_time() / p["dark_tau_s"]))
+        return noise + (dark + max(light, 0.0)) * self._spe_survival(max(effective, 0.0))
 
     def _rate_for(self, source: str) -> float:
         """Pulse rate at a source, with cable 1 feeding counter A's source into INPUT 2."""
@@ -2646,11 +2650,15 @@ def test_end_of_run_tests(driver):
     tmpdir = tempfile.mkdtemp(prefix="sr400_endrun_")
     st = driver.selftest
     labels = [entry[0] for entry in driver.Device.END_OF_RUN_TESTS]
+    # By runner, not by position: inserting a test (the settling check) must not re-aim these.
+    by_runner = {entry[2]: entry[0] for entry in driver.Device.END_OF_RUN_TESTS}
+    TIER1, DARK, LIGHT = (by_runner['run_tier1'], by_runner['run_threshold_scan_dark'],
+                          by_runner['run_threshold_scan_light'])
 
     gui = driver.Device().set_GUIparameter()
     check(
         all(gui.get(label) is False for label in labels),
-        f"all four end-of-run tests are GUI checkboxes, unticked by default ({labels})",
+        f"all {len(labels)} end-of-run tests are GUI checkboxes, unticked by default ({labels})",
     )
 
     class FakeReport:
@@ -2699,7 +2707,7 @@ def test_end_of_run_tests(driver):
               f"with nothing ticked deinitialize() sends and shows nothing (got {boxes})")
 
         # --- tier 1 ticked: nothing before measuring, the test after ---------------------
-        sr400, device, boxes = run_device(**{labels[0]: True})
+        sr400, device, boxes = run_device(**{TIER1: True})
         check(boxes == [], f"a ticked test does not run before or during the measurement (got {boxes})")
         device.deinitialize()
         check(
@@ -2722,7 +2730,7 @@ def test_end_of_run_tests(driver):
             and os.path.exists(last.get("report", "")),
             f"its last row records this tier-1 run and points at the report (got {last})",
         )
-        sr400, device, boxes = run_device(**{labels[0]: True})
+        sr400, device, boxes = run_device(**{TIER1: True})
         device.deinitialize()
         with open(log_path, newline="", encoding="utf-8") as handle:
             rows_after = list(csv.DictReader(handle))
@@ -2731,7 +2739,7 @@ def test_end_of_run_tests(driver):
 
         # --- a failing test is reported, not raised -----------------------------------
         st.run_tier1 = lambda device: (FakeReport(failures=["known-answer count wrong"]), None)
-        sr400, device, boxes = run_device(**{labels[0]: True})
+        sr400, device, boxes = run_device(**{TIER1: True})
         try:
             device.deinitialize()
             raised = ""
@@ -2753,7 +2761,7 @@ def test_end_of_run_tests(driver):
         st.run_tier1 = raising_tier1
         saved_dark = st.run_threshold_scan_dark
         st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
-        sr400, device, boxes = run_device(**{labels[0]: True, labels[2]: True})
+        sr400, device, boxes = run_device(**{TIER1: True, DARK: True})
         try:
             device.deinitialize()
             raised = ""
@@ -2775,7 +2783,7 @@ def test_end_of_run_tests(driver):
             return FakeReport(), None
 
         st.run_threshold_scan_dark = fake_dark
-        sr400, device, boxes = run_device(**{labels[2]: True})
+        sr400, device, boxes = run_device(**{DARK: True})
         device.message_box = lambda message, blocking=False: (
             order.append("prompt" if blocking else "summary"), boxes.append((str(message), blocking)),
         )
@@ -2787,7 +2795,7 @@ def test_end_of_run_tests(driver):
         # --- a stopped run skips them; a stop during one ends it quietly ------------------
         ran = []
         st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
-        sr400, device, boxes = run_device(**{labels[2]: True})
+        sr400, device, boxes = run_device(**{DARK: True})
         device.is_run_stopped = lambda: True
         device.deinitialize()
         check(ran == [] and boxes == [], f"a stopped run skips the end-of-run tests (got {ran}, {boxes})")
@@ -2796,7 +2804,7 @@ def test_end_of_run_tests(driver):
             raise driver.RunStopped("stopped")
 
         st.run_threshold_scan_dark = stopped
-        sr400, device, boxes = run_device(**{labels[2]: True})
+        sr400, device, boxes = run_device(**{DARK: True})
         try:
             device.deinitialize()
             raised = ""
@@ -2808,7 +2816,7 @@ def test_end_of_run_tests(driver):
         ran = []
         st.run_tier1 = lambda device: (ran.append("tier 1"), (FakeReport(), None))[1]
         st.run_threshold_scan_dark = lambda device: (ran.append("dark"), (FakeReport(), None))[1]
-        sr400, device, boxes = run_device(**{labels[2]: True, labels[0]: True})
+        sr400, device, boxes = run_device(**{DARK: True, TIER1: True})
         device.deinitialize()
         check(ran == ["tier 1", "dark"], f"tier 1 runs before the dark scan (got {ran})")
 
@@ -2828,9 +2836,9 @@ def test_end_of_run_tests(driver):
             driver.Device._session_dark_scans.clear()
             st.run_threshold_scan_dark = fake_dark_valid
             st.run_threshold_scan_light = fake_light
-            sr400, device, boxes = run_device(**{labels[2]: True})
+            sr400, device, boxes = run_device(**{DARK: True})
             device.deinitialize()
-            sr400, device, boxes = run_device(**{labels[3]: True})  # a new instance
+            sr400, device, boxes = run_device(**{LIGHT: True})  # a new instance
             device.deinitialize()
             check(
                 (seen.get("dark") or {}).get("marker") == "dark run",
@@ -2838,7 +2846,7 @@ def test_end_of_run_tests(driver):
             )
             seen.clear()
             sr400 = VirtualSR400()
-            device = _selftest_device(driver, sr400, tmpdir, Port="COM3", **{labels[3]: True})
+            device = _selftest_device(driver, sr400, tmpdir, Port="COM3", **{LIGHT: True})
             device.message_box = lambda message, blocking=False: None
             device.message_info = lambda message: None
             device.deinitialize()
@@ -3000,6 +3008,162 @@ def test_real_scans_in_repo(driver):
           and st._gui_volts(one["settable_v"]) == -0.0042,
           f"1 % loss is at the settable 4.2 mV, GUI -0.0042 (got {one})")
     check(0.05 < one["sigma_mv"] < 0.2, f"with an honest uncertainty of about 0.1 mV (got {one['sigma_mv']:.3f})")
+
+
+def test_settling_and_hv(driver):
+    print("\n[23f] the PMT HV record, the dark settling check, and hv-compare")
+
+    import csv
+    import tempfile
+
+    st = driver.selftest
+    field = driver.Device.PMT_HV_FIELD
+    check(driver.Device().set_GUIparameter().get(field) == 0.0, f"'{field}' is a GUI field, 0 by default")
+    device = make_device(driver, VirtualSR400(), **{field: 1000})
+    check(device.pmt_hv_v == 1000.0, "an entered HV reaches the driver")
+    device = make_device(driver, VirtualSR400())
+    check(device.pmt_hv_v is None, "0 means not recorded")
+
+    # --- settling: a relaxing dark rate is waited out, a steady one passes quickly ---------------
+    def settle_device(tmp, hv, **pmt):
+        # 2e3x, not 1e5x: at 1e5x the set-up alone lasts thousands of simulated seconds, and a
+        # 10-minute dark transient would be over before the first block.
+        sr400 = VirtualSR400(pmt=pmt, time_scale=2e3)
+        device, log = _scan_device(driver, sr400, tmp)
+        device.pmt_hv_v = hv
+        return device, log
+
+    tmp = tempfile.mkdtemp(prefix="sr400_settle_")
+    device, _ = settle_device(tmp, 1000.0)
+    report, path = st.run_dark_settling(device)
+    _, blocks = st.read_scan_csv(path.replace(".txt", ".csv"))
+    res = st.analyse_settle(blocks)
+    earliest = max(st.SETTLE_WINDOW_SECONDS, 3 * st.SETTLE_BLOCK_MAX_SECONDS)  # 5 min AND 3 blocks
+    check(res["settled"] and res["settled_after_s"] <= earliest + st.SETTLE_BLOCK_MAX_SECONDS,
+          f"a steady dark rate settles as soon as {st.SETTLE_WINDOW_SECONDS / 60:g} min of blocks are in "
+          f"(after {res['settled_after_s']:.0f} s, {report.headline})")
+    text = open(path).read()
+    check("PMT HV          : 1000 V" in text, "the report header records the PMT HV")
+    check("would" in text and "also have passed" in text and "per minute" in text,
+          "and states the measured drift and the slowest drift the test could miss")
+
+    device, _ = settle_device(tmp, 1000.0, dark_excess=3.0, dark_tau_s=600.0)
+    report, path = st.run_dark_settling(device)
+    _, blocks = st.read_scan_csv(path.replace(".txt", ".csv"))
+    res = st.analyse_settle(blocks)
+    check(res["settled"] and res["settled_after_s"] is not None,
+          f"a dark rate relaxing 4x -> 1x with tau 10 min is reported settled ({report.headline})")
+    check(res["settled"] and res["settled_rate"] < 0.6 * res["rows"][0]["rate"],
+          f"and its settled rate is well below the first block's "
+          f"({res['settled_rate']:.3g} against {res['rows'][0]['rate']:.3g} cps)")
+    check(res["settled"] and res["settled_after_s"] > 2 * st.SETTLE_WINDOW_SECONDS,
+          f"which takes well over the minimum {st.SETTLE_WINDOW_SECONDS / 60:g} min "
+          f"({res['settled_after_s'] / 60 if res['settled_after_s'] else 0:.1f} min)")
+
+    device, _ = settle_device(tmp, 1000.0, dark_excess=20.0, dark_tau_s=900.0)
+    report, path = st.run_dark_settling(device)
+    check(report.failures != [] and "NOT SETTLED" in report.headline,
+          f"a rate still falling ~13 % per block at the cap is NOT SETTLED ({report.headline})")
+    rows = list(csv.DictReader(open(os.path.join(_report_dir(tmp), st.Report.LOG_NAME), encoding="utf-8")))
+    settled_rows = [r for r in rows if r["test"] == "dark settling check" and r["settle_minutes"]]
+    check(settled_rows and all(r["pmt_hv_V"] == "1000" for r in rows),
+          "the test log carries the HV on every row, and the settling time where it settled")
+    svg = path.replace(".txt", ".svg")
+    check(os.path.exists(svg) and "PMT HV 1000 V" in open(svg, encoding="utf-8").read(),
+          "the settling figure is written, with the HV on it")
+
+    # --- a light scan never uses a dark scan taken at another HV --------------------------------
+    tmp = tempfile.mkdtemp(prefix="sr400_hvpair_")
+    device, _ = settle_device(tmp, 900.0)
+    st.run_threshold_scan_dark(device)
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    light_dev, _ = _scan_device(driver, sr400, tmp)
+    light_dev.pmt_hv_v = 1000.0
+    light_dev._dark_threshold_scan = device._dark_threshold_scan  # in memory, from 900 V
+    report, path = st.run_threshold_scan_light(light_dev)
+    text = open(path).read()
+    check("taken at PMT HV 900" in text and "from disk" not in text,
+          "a light scan at 1000 V refuses the 900 V dark scan in memory, and finds none on disk at 1000 V")
+
+    # --- hv-compare over four HVs: gain rises with HV, dark counts climb steeply above 1000 V -----
+    tmp = tempfile.mkdtemp(prefix="sr400_hvcmp_")
+    for hv in (900.0, 1000.0, 1100.0, 1200.0):
+        g = (hv / 1000.0) ** 6
+        pmt = {"spe_mean": 0.010 * g, "spe_sigma": 0.004 * g, "spe_exp_scale": 0.0015 * g}
+        sr400 = VirtualSR400(pmt=dict(pmt), time_scale=1e5)
+        dev, _ = _scan_device(driver, sr400, tmp)
+        dev.pmt_hv_v = hv
+        dev.discriminator_levels["A"] = -0.0040
+        st.run_dark_settling(dev)
+        st.run_threshold_scan_dark(dev)
+        sr400.pmt["light_rate"] = 5.0e4
+        st.run_threshold_scan_light(dev)
+    table, figure, verdict = st.hv_compare(_report_dir(tmp))
+    rows = list(csv.DictReader(open(table, encoding="utf-8")))
+    check([r["hv_V"] for r in rows] == ["900", "1000", "1100", "1200"],
+          f"hv-compare finds one row per HV, in order (got {[r['hv_V'] for r in rows]})")
+    peaks = [float(r["spe_peak_mV"]) for r in rows if r["spe_peak_mV"]]
+    check(len(peaks) >= 3 and peaks == sorted(peaks) and len(set(peaks)) == len(peaks),
+          f"the single-PE peak rises strictly with HV, as the gain does, also past 15 mV where the "
+          f"grid is coarse (got {peaks} mV)")
+
+    # Two reports written in the same second must both survive.
+    tmp2 = tempfile.mkdtemp(prefix="sr400_clash_")
+    dev2, _ = _scan_device(driver, VirtualSR400(), tmp2)
+    first = st.Report(dev2, "clash test").write("2026-11-10 12:00:00", {".csv": "first"})
+    second = st.Report(dev2, "clash test").write("2026-11-10 12:00:00", {".csv": "second"})
+    check(first != second and os.path.exists(first) and os.path.exists(second)
+          and open(first.replace(".txt", ".csv")).read() == "first",
+          f"a second report in the same second gets its own name and leaves the first intact "
+          f"({os.path.basename(first)}, {os.path.basename(second)})")
+    check(all(r["dark_csv"] and r["settle_csv"] for r in rows)
+          and all(r["settled"] in ("True", "") for r in rows),
+          f"each HV is paired with its own dark scan and settling check, none NOT SETTLED "
+          f"(settled: {[r['settled'] for r in rows]})")
+    # With a dark rate that does not grow with HV, more gain only separates photons from noise
+    # better, so the best is at the top of the range -- and the right answer is "extend it".
+    check(any("edge of the range scanned (1200 V)" in line for line in verdict)
+          and not any(line.startswith("+OPTIMUM") for line in verdict),
+          f"when S/sqrt(B) still rises at the top HV, no optimum is named and the range is to be "
+          f"extended ({verdict})")
+
+    # The decision itself, on constructed rows.
+    def row(hv, snr, **extra):
+        return dict({"hv": hv, "problem": "", "photon_rate": 4.0e4, "best_snr": snr,
+                     "best_snr_v": 0.0064, "snr_photon_fraction": 0.9, "settled": True}, **extra)
+
+    verdict, optimum, _ = st._hv_verdict([row(900, 1.0e4), row(1000, 1.5e4), row(1100, 1.2e4)])
+    check(optimum is not None and optimum["hv"] == 1000 and any("counting 90%" in v for v in verdict),
+          f"a turnover inside the range names that HV, with the photon fraction ({verdict})")
+    verdict, optimum, _ = st._hv_verdict([row(900, 1.0e4), row(1000, 1.5e4)])
+    check(optimum is None and any("at least 3 needed" in v for v in verdict), "two HVs are not enough")
+    verdict, optimum, _ = st._hv_verdict([row(900, 1.0e4), row(1000, 1.5e4, settled=False), row(1100, 1.2e4),
+                                          row(1200, 1.1e4)])
+    check(optimum is not None and optimum["hv"] == 1100 and any("NOT SETTLED" in v for v in verdict),
+          f"an HV that had not settled is left out, and says why ({verdict})")
+    verdict, optimum, _ = st._hv_verdict([row(900, 1.0e4), row(1000, 1.5e4, snr_photon_fraction=0.3),
+                                          row(1100, 1.2e4)])
+    check(any("throws away most photons" in v for v in verdict),
+          "a weak-signal optimum that keeps under half the photons is flagged")
+    check(os.path.exists(figure) and "(d) best S/sqrt(B)" in open(figure, encoding="utf-8").read(),
+          "and the comparison figure is written")
+
+    # Guards: the light must be the same at every HV, and an optimum needs three HVs.
+    tmp = tempfile.mkdtemp(prefix="sr400_hvcmp_light_")
+    for hv, light in ((900.0, 5.0e4), (1000.0, 2.0e4), (1100.0, 5.0e4)):
+        g = (hv / 1000.0) ** 6
+        sr400 = VirtualSR400(pmt={"spe_mean": 0.010 * g, "spe_sigma": 0.004 * g}, time_scale=1e5)
+        dev, _ = _scan_device(driver, sr400, tmp)
+        dev.pmt_hv_v = hv
+        st.run_threshold_scan_dark(dev)
+        sr400.pmt["light_rate"] = light
+        st.run_threshold_scan_light(dev)
+    _, figure, verdict = st.hv_compare(_report_dir(tmp))
+    check(any("NOT compared" in line for line in verdict) and not any(l.startswith("+OPTIMUM") for l in verdict),
+          f"light that differs between HVs blocks the S/sqrt(B) comparison ({verdict[:1]})")
+    check("NOT SHOWN" in open(figure, encoding="utf-8").read(), "and panel (d) says NOT SHOWN")
+    check(any("settling unknown" in line or "settling is unknown" in line for line in verdict),
+          "an HV with no settling check is marked as unknown, not as settled")
 
 
 def test_threshold_scans(driver):
@@ -3504,6 +3668,7 @@ def main() -> int:
         test_gpib_drain,
         test_real_dark_scan,
         test_real_scans_in_repo,
+        test_settling_and_hv,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,

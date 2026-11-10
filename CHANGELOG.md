@@ -72,6 +72,18 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **Comparing PMT high voltages.** A `PMT high voltage in V` GUI field records the HV; the driver
+  never sets it. The HV goes into every report, CSV, figure and the test log. A new end-of-run
+  test, **`Dark settling check (PMT covered)`**, counts at the operating threshold until a straight
+  line through the last 5 minutes has a slope consistent with zero, instead of waiting a fixed
+  time, and reports the drift it could have missed. **`python selftest.py hv-compare <folder>`**
+  compares the scans across HV and names an optimum only when the data support one. Driver README
+  **§9.8**; the guide's new **§10** gives the procedure.
+- **A light scan only uses a dark scan at the same recorded HV.**
+- **Fixed:** the pulse-height density was undefined on the coarse grid above 15.2 mV, so at higher
+  gain the single-PE peak could not be found. **Fixed:** reports finishing in the same second
+  overwrote each other; they now get `-2`, `-3`, ...
+
 - **The dark scan stops in the tail**, once three thresholds in a row are below 0.5 cps. On the
   first real scan's rates it stops at 14.0 mV after 10.1 minutes, against 36 mV after 21.1. The
   level where dark counts vanish is then not measured, and the report says so.
