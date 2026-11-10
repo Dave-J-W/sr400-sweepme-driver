@@ -7,6 +7,12 @@ Newest first. Gotcha and section numbers refer to
 
 ### Fixed
 
+- **The dark figure's legend hid "NOT the optimum".** The legend box was drawn over the second half
+  of the dark-counts-vanish label, the one warning that figure exists to give. The label now sits
+  below the legend. Found by looking at the rendered example figure, not by any test.
+- **The figures' text named action buttons** ("run_threshold_scan_light measures how much") that the
+  lab's SweepMe! 1.5.7.9 does not use. They now name the scans.
+
 - **Tier 1 no longer dies on GPIB at its buffer-threshold check.** Run as an end-of-run test
   over GPIB (2026-11-10), it waited out the port read timeout in `_drain_port()` and then raised
   `VisaIOError VI_ERROR_TMO`. `_drain_port()` took `""` to mean empty, which is what a COM read
@@ -66,6 +72,15 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **Example figures in the threshold-scan guide, and the guide moved to
+  [`docs/THRESHOLD_SCAN_GUIDE.md`](docs/THRESHOLD_SCAN_GUIDE.md).** The figures are a dark and a
+  light scan from the simulated R8486, made by the real pipeline and drawn from CSVs committed beside
+  them in `docs/images/`, so `selftest.py plot` regenerates them. Each says "SIMULATED EXAMPLE -- not
+  a measurement" on the figure itself: a record can now carry a `note`, and the figure draws it. A
+  bench check regenerates both and fails if the published figures drift from the plotting code. The
+  guide also drops its last button-era wording ("click again", same-session-only dark results). The
+  scan prompts, the description pane and both READMEs point at the new location.
+
 - **A running test log, `SR400_test_log.csv`**, beside the reports in DataDevices. Every self-test
   and threshold scan appends one row: when, which test, PASS/FAIL/ABORTED, the headline, the pass
   count, the port and the report's path. The scans also fill in their thresholds as numbers, in
@@ -73,7 +88,7 @@ Newest first. Gotcha and section numbers refer to
   bound from the light scan, and the lower bound and dark-vanish level from the dark scan. Each
   summary message names the log. Driver README **§9.6**.
 
-- **[`THRESHOLD_SCAN_GUIDE.md`](Logger-Stanford_SR400/THRESHOLD_SCAN_GUIDE.md)**, a step-by-step
+- **[`THRESHOLD_SCAN_GUIDE.md`](docs/THRESHOLD_SCAN_GUIDE.md)**, a step-by-step
   operator's guide to the threshold scans, written for someone who has just learned what the
   discriminator threshold is. It covers what the scans are looking for and why "zero dark counts"
   is the wrong answer, a setup checklist, each scan in order, how to read every panel of both

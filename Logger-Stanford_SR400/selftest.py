@@ -900,7 +900,7 @@ def _tier2_probe_cable1(device, report) -> bool:
         )
         device.message_box(
             f"SR400 self-test tier 2: no signal on INPUT 2, so the loopback cable is not "
-            f"connected. Join {CABLE_1} and click 'run_self_test_loopback' again.\n\n"
+            f"connected. Join {CABLE_1} and run tier 2 again (the 'Self-test tier 2' end-of-run test).\n\n"
             f"Nothing was changed. Counter B saw {counts_b} counts where about {counts_a} were "
             f"expected.",
         )
@@ -1267,7 +1267,8 @@ PROMPT_DARK = (
     "Never expose the PMT to room light with the high voltage on.\n\n"
     "Takes roughly 15-20 minutes: at ~8 dark counts/s each threshold needs up to 30 s for "
     "adequate statistics.\n\n"
-    "New to this? Step-by-step guide: THRESHOLD_SCAN_GUIDE.md in the driver folder.\n\n"
+    "New to this? Step-by-step guide: docs/THRESHOLD_SCAN_GUIDE.md in the "
+    "sr400-sweepme-driver repository.\n\n"
     "Press OK to start."
 )
 
@@ -1280,7 +1281,8 @@ PROMPT_LIGHT = (
     "dark-optimised level would cost.\n\n"
     "Never expose the PMT to room light with the high voltage on. Too much light distorts the "
     "result and is refused.\n\n"
-    "New to this? Step-by-step guide: THRESHOLD_SCAN_GUIDE.md in the driver folder.\n\n"
+    "New to this? Step-by-step guide: docs/THRESHOLD_SCAN_GUIDE.md in the "
+    "sr400-sweepme-driver repository.\n\n"
     "Press OK to start."
 )
 
@@ -2091,6 +2093,10 @@ def plot_dark(result: dict, meta: dict) -> str:
     H = 118 + 17 * (verdict_lines - 1) + 420 + 78 + 180 + 70 + text_height
     svg = _Svg(W, int(H))
     svg.text(24, 30, "SR400 threshold scan, DARK -- covered R8486 on SIGNAL INPUT 1, discriminator A, FALL", 17, weight="bold")
+    if meta.get("note"):
+        # A record can say what it is -- e.g. that it is simulated -- and then the figure must
+        # say it too, where no reader can miss it, not only in the CSV header.
+        svg.text(W - 24, 30, meta["note"], 14, "end", weight="bold", color="#c0392b")
     svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
                      f"driver {meta.get('driver', '')}   counts and live time are raw; rate = counts / live time", 11, color="#555")
     verdict = ("+VALID covered-PMT measurement" if result["valid"]
@@ -2124,7 +2130,9 @@ def plot_dark(result: dict, meta: dict) -> str:
         a.vline(result["lower_bound_v"] * 1e3, _C["bound"], f"lower bound {result['lower_bound_v'] * 1e3:.1f} mV", None, 1)
     if result["vanish_v"] is not None:
         a.vline(result["vanish_v"] * 1e3, _C["vanish"],
-                f"dark counts vanish {result['vanish_v'] * 1e3:.1f} mV -- NOT the optimum", "5,3", 2)
+                f"dark counts vanish {result['vanish_v'] * 1e3:.1f} mV -- NOT the optimum", "5,3", 4)
+        # slot 4, not 2: the legend sits top-right and drew straight over this label's second half
+        # -- hiding exactly the "NOT the optimum" warning. Four rows down clears the legend box.
     a.legend()
 
     b = _Panel(svg, 90, 118 + shift + 420 + 78, 980, 180, (0.0, xmax), (0.0, DARK_MAX_SECONDS * 1.15))
@@ -2159,6 +2167,10 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
     H = row2 + P + 70 + text_height
     svg = _Svg(W, int(H))
     svg.text(24, 30, "SR400 threshold scan, LIGHT -- R8486 on SIGNAL INPUT 1, discriminator A, FALL", 17, weight="bold")
+    if meta.get("note"):
+        # A record can say what it is -- e.g. that it is simulated -- and then the figure must
+        # say it too, where no reader can miss it, not only in the CSV header.
+        svg.text(W - 24, 30, meta["note"], 14, "end", weight="bold", color="#c0392b")
     svg.text(24, 50, f"{meta.get('when', '')}   port {meta.get('port', '')} ({meta.get('interface', '')})   "
                      f"{len(passes)} passes   dark scan used: {meta.get('dark_csv') or 'none this session'}", 11, color="#555")
     _text_block(svg, 24, 74, 165, [headline], 13)
@@ -2245,7 +2257,7 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
         svg.text(rx + 12, row2 + 26, "(d) S/sqrt(B): NOT SHOWN", 13, weight="bold")
         _text_block(svg, rx + 12, row2 + 50, 70, [
             "No dark scan from this session, so there is no background curve to divide by.",
-            "Run run_threshold_scan_dark first, then this scan again in the same session, "
+            "Run the dark threshold scan first, then this scan again on the same port, "
             "or regenerate this plot from both CSVs: the background-limited optimum needs both.",
         ], 11)
 
@@ -2273,7 +2285,7 @@ def _dark_findings(result: dict) -> list:
     if result["vanish_v"] is not None:
         out.append(f"Dark counts vanish (zero counts in {DARK_MAX_SECONDS:g} s) from {_mv(result['vanish_v'])}. "
                    f"Do NOT operate there: it is above most single-PE pulses, so it throws signal away. "
-                   f"run_threshold_scan_light measures how much.")
+                   f"The light threshold scan measures how much.")
     elif rows:
         out.append(f"Dark counts never reached zero in the scanned range (to {rows[-1]['abs_v'] * 1e3:.1f} mV).")
     for reason in result["reasons"]:
@@ -2425,7 +2437,7 @@ def run_threshold_scan_dark(device) -> tuple:
             report.note(reason)
         report.note(
             "Do NOT choose the level where dark counts vanish. It is above most single-PE "
-            "pulses too, so it throws signal away. Run run_threshold_scan_light to measure "
+            "pulses too, so it throws signal away. Run the light threshold scan to measure "
             "how much: its report gives the loss at that level, and the upper bound.",
         )
 

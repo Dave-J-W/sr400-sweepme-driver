@@ -381,8 +381,9 @@ class Device(EmptyDevice):
         Together
         they recommend a level and write a report, the raw data and a plot to
         Public Documents &gt; SweepMe! &gt; DataDevices &gt; Logger-Stanford_SR400. Enter the result in
-        "Discriminator A level in V" in <i>volts</i>: -6.4 mV is -0.0064. Step-by-step guide:
-        THRESHOLD_SCAN_GUIDE.md in this driver's folder.</p>
+        "Discriminator A level in V" in <i>volts</i>: -6.4 mV is -0.0064. Step-by-step guide,
+        with example figures: <a href="https://github.com/Dave-J-W/sr400-sweepme-driver/blob/main/docs/THRESHOLD_SCAN_GUIDE.md">docs/THRESHOLD_SCAN_GUIDE.md</a> in the
+        sr400-sweepme-driver repository.</p>
         """
 
     # ---------------------------------------------------------------- constants

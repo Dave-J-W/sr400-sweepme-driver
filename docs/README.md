@@ -1,9 +1,20 @@
-# Historical record: the drafts and plans this driver came from
+# docs
 
-Nothing in this folder is loadable by SweepMe!. It is kept so the reasoning
-behind [`Logger-Stanford_SR400`](../Logger-Stanford_SR400/) stays recoverable.
+Nothing in this folder is loadable by SweepMe!: it is documentation, and the record of how the
+driver came to be.
 
-## Contents
+## For operators
+
+- [THRESHOLD_SCAN_GUIDE.md](THRESHOLD_SCAN_GUIDE.md) — choosing the discriminator threshold,
+  step by step, for someone who has just learned what the threshold is. Illustrated with example
+  figures from a simulated R8486; [`images/`](images/) holds those figures and the CSVs they are
+  drawn from, so `python ../Logger-Stanford_SR400/selftest.py plot images/<example>.csv`
+  regenerates them.
+
+## Historical record: the drafts and plans this driver came from
+
+Kept so the reasoning behind [`Logger-Stanford_SR400`](../Logger-Stanford_SR400/) stays
+recoverable.
 
 - [MANUAL_AUDIT.md](MANUAL_AUDIT.md) — every command, limit and status bit checked against
   the SR400 manual Revision 2.7, what it fixed, and a pdftotext trap that mis-pairs the

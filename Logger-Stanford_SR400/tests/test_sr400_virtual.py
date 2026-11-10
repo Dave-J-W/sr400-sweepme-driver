@@ -3238,6 +3238,48 @@ def test_scan_records_and_plots(driver):
     check("== restore" in text, "a tier-2 run stopped at the cable probe still reports the restore")
 
 
+def test_guide_example_figures(driver):
+    print("\n[26] the guide's example figures match what the plotting code makes from their CSVs")
+
+    import shutil
+    import tempfile
+
+    st = driver.selftest
+    images = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                          "docs", "images")
+    names = ("example_threshold_scan_dark", "example_threshold_scan_light")
+    for name in names:
+        for suffix in (".csv", ".svg"):
+            check(os.path.exists(os.path.join(images, name + suffix)),
+                  f"docs/images/{name}{suffix} is committed")
+
+    # Regenerate in a scratch folder, never in docs/: the test must not rewrite what it checks.
+    work = tempfile.mkdtemp(prefix="sr400_examples_")
+    for name in names:
+        if os.path.exists(os.path.join(images, name + ".csv")):
+            shutil.copy(os.path.join(images, name + ".csv"), work)
+    for name in names:
+        csv_path = os.path.join(work, name + ".csv")
+        committed = os.path.join(images, name + ".svg")
+        if not (os.path.exists(csv_path) and os.path.exists(committed)):
+            continue
+        fresh = open(st.plot_csv(csv_path), encoding="utf-8").read()
+        published = open(committed, encoding="utf-8").read()
+        # A mismatch means the plotting code changed and the guide shows an old figure.
+        # Regenerate with: python Logger-Stanford_SR400/selftest.py plot docs/images/<name>.csv
+        check(fresh == published,
+              f"{name}.svg is exactly what selftest.py plot makes from its CSV -- if not, regenerate it")
+        check("SIMULATED EXAMPLE" in published,
+              f"{name}.svg says on the figure that it is simulated")
+
+    text = open(os.path.join(images, "example_threshold_scan_light.csv"), encoding="utf-8").read()
+    check("# dark_csv: example_threshold_scan_dark.csv" in text,
+          "the light example is scored against the dark example, by name")
+    check("S/sqrt(B), relative" in open(os.path.join(images, "example_threshold_scan_light.svg"),
+                                        encoding="utf-8").read(),
+          "so the light example shows the S/sqrt(B) panel the guide describes")
+
+
 def main() -> int:
     driver_path = Path(__file__).resolve().parent.parent / "main.py"
     driver = load_driver(driver_path)
@@ -3273,6 +3315,7 @@ def main() -> int:
         test_gpib_drain,
         test_threshold_scans,
         test_scan_records_and_plots,
+        test_guide_example_figures,
     ):
         test(driver)
 

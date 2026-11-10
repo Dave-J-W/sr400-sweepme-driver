@@ -4,7 +4,7 @@ For the **R8486 photomultiplier on SIGNAL INPUT 1** of the SR400. You need to kn
 discriminator threshold *is*: the smallest pulse the SR400 will count. This guide covers how to
 choose it, using the driver's two threshold scans.
 
-The technical reference is §9.7 of [README.md](README.md). You don't need it to follow this.
+The technical reference is §9.7 of the [driver README](../Logger-Stanford_SR400/README.md). You don't need it to follow this.
 
 ---
 
@@ -32,11 +32,13 @@ counts is not.
 
 | Scan | Light on the PMT | What it finds |
 |---|---|---|
-| **Dark** — `run_threshold_scan_dark` | none: PMT covered | where the noise stops, i.e. the **lowest** sensible level |
-| **Light** — `run_threshold_scan_light` | gentle and steady | where you start losing real photons, i.e. the **highest** sensible level |
+| **Dark** — `Dark threshold scan (PMT covered)` | none: PMT covered | where the noise stops, i.e. the **lowest** sensible level |
+| **Light** — `Light threshold scan (steady light)` | gentle and steady | where you start losing real photons, i.e. the **highest** sensible level |
 
-Run the **dark scan first**, then the light scan straight afterwards. The light scan uses the
-dark scan's result to compute the best level, so together they give one recommended number.
+Run the **dark scan first**, then the light scan. The light scan uses the dark scan's result
+to compute the best level, so together they give one recommended number. The dark result is kept
+for the port it was measured on for as long as SweepMe! stays open, so run the light scan before
+closing SweepMe!, on the same port.
 
 Neither scan changes your settings. Each one restores every setting it touched when it finishes.
 The recommended level is **advice for you to enter**, not something the scan applies.
@@ -62,7 +64,8 @@ The recommended level is **advice for you to enter**, not something the scan app
       matters. Once the scans are done, **don't move the cables**.
 - [ ] PMT **high voltage on** at its normal value (1000 V for the R8486), and left on for a few
       minutes so the dark rate settles.
-- [ ] **No measurement running.** The scans refuse to start while the SR400 is counting.
+- [ ] The SR400 **not counting from its own front panel** (press STOP on it if in doubt). The
+      scans refuse to start while it is counting.
 
 > **Safety.** Never expose the PMT to room light while the high voltage is on. It can damage the
 > tube. Turn the HV off before uncovering it, or use only the gentle light described in step 5.
@@ -86,6 +89,12 @@ The recommended level is **advice for you to enter**, not something the scan app
 
 Open the **`.svg`** file. It opens in any web browser (double-click, or drag it onto a browser
 window).
+
+Here is what a good dark result looks like. **It is a simulated example** — the red note at its
+top right says so — made by the driver's own test bench, so your tube's numbers will be different.
+What matters is the shape.
+
+![Example dark threshold scan, from the simulated R8486](images/example_threshold_scan_dark.svg)
 
 **Panel (a)** is the count rate at each threshold. The vertical axis is logarithmic, so each
 gridline is ten times the one below. Reading from left to right:
@@ -117,8 +126,8 @@ message says why:
 
 ## 5. Step 2 — the light scan
 
-Do this **straight after the dark scan**, without closing SweepMe! or changing the selected
-instrument, so the light scan can find the dark result.
+Do this **after the dark scan, before closing SweepMe!, and on the same port**, so the light
+scan can find the dark result.
 
 1. **Set up a gentle, steady light** on the PMT. A dim, stable source, well attenuated. Aim for
    roughly **10,000 to 100,000 counts per second**. If you don't know what your source gives,
@@ -129,9 +138,9 @@ instrument, so the light scan can find the dark result.
 3. The scan first **checks the light level**. It stops immediately, with nothing else changed,
    if the light is:
    - **too dim** (*"no usable light"*): there's not enough light to see the effect. Increase it a
-     little and click again.
+     little and run it again.
    - **too bright** (*"too bright"*): above about a million counts per second the SR400 starts
-     missing pulses, which distorts the result. Reduce it and click again.
+     missing pulses, which distorts the result. Reduce it and run it again.
 4. If the light level is fine, the scan sweeps the threshold **up and down three times**, six
    passes in all. This takes **about 5 minutes at ~40,000 counts per second**, and longer when the
    light is dimmer. **Keep the light exactly as it is until it finishes.** Comparing the passes is
@@ -141,7 +150,13 @@ instrument, so the light scan can find the dark result.
 
 ### Reading the light result
 
-Open the light scan's **`.svg`**. The top line, in green, states the recommended level and how it
+
+And a good light result, from the same simulated tube, scored against the dark example above.
+Again, the numbers are the simulator's, not your tube's:
+
+![Example light threshold scan, from the simulated R8486](images/example_threshold_scan_light.svg)
+
+Open your light scan's **`.svg`**. The top line, in green, states the recommended level and how it
 was chosen. Then four panels:
 
 **(a) Every pass.** All six passes plotted on top of each other. **They should overlap so
@@ -169,9 +184,9 @@ threshold. It rises as the noise is cut away, peaks, then falls slowly as photon
 - The **red dashed line** far to the right is where the dark counts vanished. The curve there is
   well below its peak, which is the proof that zero dark counts is not the optimum.
 
-If panel (d) says **NOT SHOWN**, the light scan couldn't find this session's dark scan. Its
-recommendation then comes from panel (c) alone. Run both scans again, back to back, or send both
-CSV files (see §8).
+If panel (d) says **NOT SHOWN**, the light scan couldn't find a dark scan for that port. Its
+recommendation then comes from panel (c) alone. Run both scans again on the same port before
+closing SweepMe!, or send both CSV files (see §8).
 
 ---
 
@@ -253,7 +268,8 @@ python selftest.py plot SR400_threshold_scan_light_<date_time>.csv
 ```
 
 `selftest.py` is in the driver folder. This also restores panel (d) if the two scans weren't run
-in the same session.
+in the same session. The example figures in this guide were made exactly this way, and their CSVs
+are beside them in [`images/`](images/) if you want to try it.
 
 ---
 
@@ -262,6 +278,6 @@ in the same session.
 | Message | Do this |
 |---|---|
 | *select a port first* | choose the SR400's port in the Logger module |
-| *the SR400 is counting* | stop the measurement, or press STOP on the SR400, then click again |
+| *the SR400 is counting* | press STOP on the SR400, then run it again |
 | *the SR400 did not answer a status query* | check the instrument is on and connected, and the port and GPIB address are right |
 | *the self-test module could not be loaded* | `selftest.py` is missing from the driver folder: copy the whole folder again |
