@@ -79,10 +79,16 @@ Newest first. Gotcha and section numbers refer to
   time, and reports the drift it could have missed. **`python selftest.py hv-compare <folder>`**
   compares the scans across HV and names an optimum only when the data support one. Driver README
   **§9.8**; the guide's new **§10** gives the procedure.
+- **hv-compare uses replicates.** Every light scan counts, not only the newest at each HV. Each
+  scan's S/√B is corrected to a common light level using its own photon rate, and each HV gets a
+  mean ± standard error. A second table lists every scan, and panel (e) shows the light level over
+  time. An optimum within twice its uncertainty of the runner-up is reported as NOT RESOLVED. The
+  intended procedure (guide §10) interleaves the voltages (975–1075 V in 25 V steps) over two or
+  three rounds, with the dark scan once per voltage.
 - **A light scan only uses a dark scan at the same recorded HV.**
 - **Fixed:** the pulse-height density was undefined on the coarse grid above 15.2 mV, so at higher
   gain the single-PE peak could not be found. **Fixed:** reports finishing in the same second
-  overwrote each other; they now get `-2`, `-3`, ...
+  overwrote each other; they now get `_2`, `_3`, ... (which sort after the original name)
 
 - **The dark scan stops in the tail**, once three thresholds in a row are below 0.5 cps. On the
   first real scan's rates it stops at 14.0 mV after 10.1 minutes, against 36 mV after 21.1. The

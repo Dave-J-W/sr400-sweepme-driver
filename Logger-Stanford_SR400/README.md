@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "587/587 checks passed"
+python tests/test_sr400_virtual.py   # expect "594/594 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -1086,13 +1086,22 @@ straight away while the simulated rate was still falling about 6 % a minute: a c
 sees drift that is fast relative to its own window. All the settling values are **provisional**:
 no real settling curve of this tube has been measured.
 
-**`python selftest.py hv-compare <folder>`** pairs each light scan that has a recorded HV with the
-newest same-port, same-HV dark scan and settling check before it, and re-analyses them. It writes
-a table and a four-panel figure against HV: (a) valley and single-PE peak, (b) peak/valley,
-(c) dark rate at half the peak, (d) the best absolute (S − B)/√B. The verdict is a pure function,
+**`python selftest.py hv-compare <folder>`** pairs **every** light scan that has a recorded HV
+with the newest same-port, same-HV dark scan and settling check before it, and re-analyses them.
+Repeated light scans at one HV are replicates. Each replicate's best (S − B)/√B is corrected to the
+median photon rate, light minus dark at the valley, by the ratio of the two. Signal scales with
+the light and background does not, so this is exact while the signal stays proportional. Each HV
+then gets the replicates' mean and standard error. A second table, `_replicates.csv`, lists every
+scan in time order. Panel (e) plots the light level of each scan in the order taken, so a source
+drift is seen rather than assumed. It writes
+tables and a five-panel figure: (a) valley and single-PE peak, (b) peak/valley,
+(c) dark rate at half the peak, (d) the corrected best (S − B)/√B, mean ± SE, against HV, and (e) the light level of each scan in time order. The verdict is a pure function,
 `_hv_verdict`, tested on constructed rows. It names an optimum only with at least three comparable
-HVs, a photon rate (light minus dark, at the valley) that agrees within 15 % across them, and a
-best S/√B strictly inside the range. A NOT SETTLED voltage is left out. An optimum that counts
+HVs, a photon rate (light minus dark, at the valley) that agrees within 50 % across all scans, and a
+best S/√B strictly inside the range. With replicates it reports the optimum as **NOT RESOLVED**
+from the runner-up when their gap is under twice its uncertainty. Light that varies by more than
+50 % across the scans blocks the comparison, since proportional correction is then in doubt.
+A NOT SETTLED voltage is left out. An optimum that counts
 under half the photons is flagged as weak-signal only.
 
 Two bugs were found on the way, and are fixed for every scan:
@@ -1101,4 +1110,4 @@ Two bugs were found on the way, and are fixed for every scan:
   that the gain had moved past 15 mV could never be found. It stuck at 16 mV whatever the HV. The
   stencil now falls back to the neighbouring rows there; fine-grid results are unchanged.
 - **Reports written in the same second overwrote each other**, since names carry the time to the
-  second. A clash now gets `-2`, `-3`, ... on every file of the set.
+  second. A clash now gets `_2`, `_3`, ... on every file of the set, which sort after the original name.

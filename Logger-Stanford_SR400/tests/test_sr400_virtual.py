@@ -3165,6 +3165,45 @@ def test_settling_and_hv(driver):
     check(any("settling unknown" in line or "settling is unknown" in line for line in verdict),
           "an HV with no settling check is marked as unknown, not as settled")
 
+    # --- interleaved replicates under a light that dims 30 % between rounds -----------------------
+    # Dark and settling once per HV, on the first visit; later rounds are light scans only, each
+    # paired with its HV's dark scan. The correction must bring each HV's replicates together.
+    tmp = tempfile.mkdtemp(prefix="sr400_hvrep_")
+    sims = {}
+    for round_number, light in ((1, 5.0e4), (2, 3.5e4)):
+        for hv in (975.0, 1000.0, 1025.0):
+            g = (hv / 1000.0) ** 6
+            if hv not in sims:
+                sims[hv] = VirtualSR400(pmt={"spe_mean": 0.010 * g, "spe_sigma": 0.004 * g,
+                                             "spe_exp_scale": 0.0015 * g}, time_scale=1e5)
+            sr400 = sims[hv]
+            dev, _ = _scan_device(driver, sr400, tmp)
+            dev.pmt_hv_v = hv
+            if round_number == 1:
+                sr400.pmt["light_rate"] = 0.0
+                st.run_threshold_scan_dark(dev)
+            sr400.pmt["light_rate"] = light
+            st.run_threshold_scan_light(dev)
+    table, figure, verdict = st.hv_compare(_report_dir(tmp))
+    rows = list(csv.DictReader(open(table, encoding="utf-8")))
+    check([r["n_replicates"] for r in rows] == ["2", "2", "2"] and all(r["best_abs_snr_se"] for r in rows),
+          f"each HV has its two replicates, and so an error bar ({[(r['hv_V'], r['n_replicates']) for r in rows]})")
+    reps = list(csv.DictReader(open(table.replace(".csv", "_replicates.csv"), encoding="utf-8")))
+    check(len(reps) == 6 and all(r["dark_csv"] for r in reps),
+          f"the replicate table has all six light scans, each paired with its HV's one dark scan ({len(reps)})")
+    for hv in ("975", "1000", "1025"):
+        mine = [r for r in reps if r["hv_V"] == hv]
+        raw = [float(r["best_abs_snr"]) for r in mine]
+        fixed = [float(r["best_abs_snr_corrected"]) for r in mine]
+        check(len(mine) == 2 and abs(raw[0] / raw[1] - 1) > 0.2 and abs(fixed[0] / fixed[1] - 1) < 0.08,
+              f"at {hv} V the 30 % dimmer round reads {abs(raw[0] / raw[1] - 1):.0%} lower raw, but the "
+              f"corrected replicates agree to {abs(fixed[0] / fixed[1] - 1):.1%}")
+    check(any("corrected to a common light level" in line for line in verdict),
+          "the verdict says the S/sqrt(B) values are light-corrected")
+    svg = open(figure, encoding="utf-8").read()
+    check("(e) light level of each scan" in svg and "grey = each scan" in svg,
+          "the figure shows every replicate and the light level over time")
+
 
 def test_threshold_scans(driver):
     print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")

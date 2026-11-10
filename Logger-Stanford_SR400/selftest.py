@@ -148,11 +148,13 @@ class Report:
                 os.makedirs(folder, exist_ok=True)
                 # Never overwrite a record. Names carry the time to the second, and two tests can
                 # finish in the same second: measured on the bench, where one HV's dark scan
-                # silently replaced another's. A clash gets -2, -3, ... on every file of the set.
+                # silently replaced another's. A clash gets _2, _3, ... on every file of the set.
                 stem, n = base_stem, 2
                 while any(os.path.exists(os.path.join(folder, stem + suffix))
                           for suffix in (".txt", *(extras or {}))):
-                    stem, n = f"{base_stem}-{n}", n + 1
+                    # "_2" sorts after the original name ("-2" would sort before it, since "-"
+                    # precedes "."), so newest-by-name stays newest. Seen as flaky tests.
+                    stem, n = f"{base_stem}_{n}", n + 1
                 lines = list(body)
                 if extras:
                     lines += ["", "Companion files, same folder:"]
@@ -3227,7 +3229,10 @@ def run_threshold_scan_light(device) -> tuple:
 
 # ----------------------------------------------------------------- HV comparison
 
-HV_LIGHT_CONSISTENCY = 0.15  # spread of the light rate at the valley beyond which S/sqrt(B) is not compared
+# Spread of the photon rate across all scans beyond which S/sqrt(B) is not compared. Each
+# replicate's S/sqrt(B) is corrected for its own light level, so this only refuses a gross change
+# (a moved source, a different filter), where proportionality itself is in doubt.
+HV_LIGHT_CONSISTENCY = 0.5
 HV_MIN_FOR_OPTIMUM = 3
 
 
@@ -3244,6 +3249,49 @@ def _absolute_snr(light: dict, dark: dict):
     return best
 
 
+def _aggregate_hv(replicates: list) -> list:
+    """One row per HV from its replicates: means, and the standard error of S/sqrt(B) when n >= 2."""
+    rows = []
+    for hv in sorted({r["hv"] for r in replicates}):
+        mine = [r for r in replicates if r["hv"] == hv]
+        good = [r for r in mine if not r["problem"]]
+        if not good:
+            rows.append({"hv": hv, "problem": "; ".join(sorted({r["problem"] for r in mine})),
+                         "n": 0, "replicates": mine, "light_csv": ";".join(r["light_csv"] for r in mine)})
+            continue
+
+        def mean(key):
+            vals = [r[key] for r in good if r.get(key) is not None]
+            return sum(vals) / len(vals) if vals else None
+
+        snrs = [r["snr_corrected"] for r in good if r.get("snr_corrected") is not None]
+        se = None
+        if len(snrs) >= 2:
+            m = sum(snrs) / len(snrs)
+            se = _math.sqrt(sum((x - m) ** 2 for x in snrs) / (len(snrs) - 1) / len(snrs))
+        levels = [r["best_snr_v"] for r in good if r.get("best_snr_v") is not None]
+        level = round(sum(levels) / len(levels) / 0.0002) * 0.0002 if levels else None
+        first = good[0]
+        rows.append({
+            "hv": hv, "problem": "", "n": len(good), "replicates": mine,
+            "valley_v": mean("valley_v"), "peak_v": mean("peak_v"), "pv": mean("pv"),
+            "valley_rate": mean("valley_rate"), "photon_rate": mean("photon_rate"),
+            "photon_rates": [r["photon_rate"] for r in good if r.get("photon_rate")],
+            "half_peak_v": first["half_peak_v"], "dark_at_half": first["dark_at_half"],
+            "lower_bound_v": first["lower_bound_v"], "recommended_v": mean("recommended_v"),
+            "recommended_loss": mean("recommended_loss"),
+            "best_snr": sum(snrs) / len(snrs) if snrs else None, "snr_se": se, "best_snr_v": level,
+            "snr_photon_fraction": mean("snr_photon_fraction"),
+            # Settling belongs to the dark scan the replicates share; any NOT SETTLED one counts.
+            "settled": (False if any(r.get("settled") is False for r in good)
+                        else True if any(r.get("settled") for r in good) else None),
+            "settle_min": first.get("settle_min"),
+            "light_csv": ";".join(r["light_csv"] for r in good), "dark_csv": first["dark_csv"],
+            "settle_csv": first["settle_csv"],
+        })
+    return rows
+
+
 def _hv_verdict(rows: list) -> tuple:
     """Pure: (verdict lines, optimum row or None, light consistent?) from per-HV rows.
 
@@ -3254,14 +3302,15 @@ def _hv_verdict(rows: list) -> tuple:
     """
     usable = [r for r in rows if not r["problem"] and r.get("settled") is not False]
     verdict, optimum = [], None
-    rates = [r["photon_rate"] for r in usable if r.get("photon_rate")]
+    rates = [x for r in usable for x in (r.get("photon_rates") or ([r["photon_rate"]] if r.get("photon_rate") else []))]
     consistent = False
     if len(rates) >= 2:
         spread = (max(rates) - min(rates)) / sorted(rates)[len(rates) // 2]
         consistent = spread <= HV_LIGHT_CONSISTENCY
         verdict.append(("" if consistent else "!") + f"Photon rate (light minus dark) at the valley varies by "
-                       f"{spread:.0%} across HV (limit {HV_LIGHT_CONSISTENCY:.0%})" + ("." if consistent else
-                       ": the light was not the same at each HV, so S/sqrt(B) is NOT compared across HV."))
+                       f"{spread:.0%} across the scans (limit {HV_LIGHT_CONSISTENCY:.0%})" + ("." if consistent else
+                       ": the light changed too much for a proportional correction to be trusted, so "
+                       "S/sqrt(B) is NOT compared across HV."))
     for r in rows:
         if r["problem"]:
             verdict.append(f"!{r['hv']:g} V left out: {r['problem']}.")
@@ -3281,6 +3330,17 @@ def _hv_verdict(rows: list) -> tuple:
                            f"({best['hv']:g} V). Extend the range past it.")
         else:
             optimum = best
+            runner = max((r for r in scored if r is not best), key=lambda r: r["best_snr"])
+            if best.get("snr_se") is not None and runner.get("snr_se") is not None:
+                gap = best["best_snr"] - runner["best_snr"]
+                sigma = _math.sqrt(best["snr_se"] ** 2 + runner["snr_se"] ** 2)
+                if gap < 2.0 * sigma:
+                    verdict.append(f"!{best['hv']:g} V is NOT RESOLVED from {runner['hv']:g} V: the gap "
+                                   f"{gap:.3g} is under twice its uncertainty ({sigma:.3g}). Either is as good, "
+                                   f"on this evidence; more replicates would separate them.")
+            else:
+                verdict.append("Single scans at some HVs: no error bar, so whether the optimum beats its "
+                               "neighbours is not known. Repeat each HV to find out.")
             kept = best.get("snr_photon_fraction")
             verdict.append(f"+OPTIMUM PMT HV {best['hv']:g} V: best S/sqrt(B) {best['best_snr']:.4g} "
                            f"at -{best['best_snr_v'] * 1e3:.1f} mV (GUI {_gui_volts(best['best_snr_v'])})"
@@ -3314,24 +3374,17 @@ def hv_compare(folder: str) -> tuple:
                  and e[0]["hv_V"] == hv and e[0].get("when", "") <= before]
         return max(found, key=lambda e: e[0].get("when", "")) if found else None
 
-    by_hv = {}
-    for meta, passes, name in entries:
-        if meta["kind"] != "light":
-            continue
+    replicates = []
+    for meta, passes, name in sorted((e for e in entries if e[0]["kind"] == "light"),
+                                     key=lambda e: e[0].get("when", "")):
         hv = meta["hv_V"]
-        if hv in by_hv and by_hv[hv]["meta"].get("when", "") >= meta.get("when", ""):
-            continue  # the newest light scan at each HV
-        by_hv[hv] = {"meta": meta, "passes": passes, "light_csv": name}
-
-    rows = []
-    for hv, item in by_hv.items():
-        meta = item["meta"]
         dark_e = newest("dark", meta.get("port"), hv, meta.get("when", ""))
         if dark_e is None:
-            rows.append({"hv": float(hv), "problem": "no dark scan at this HV", "light_csv": item["light_csv"]})
+            replicates.append({"hv": float(hv), "when": meta.get("when", ""), "problem": "no dark scan at this HV",
+                               "light_csv": name})
             continue
         dark = analyse_dark(dark_e[1])
-        light = analyse_light(item["passes"], dark)
+        light = analyse_light(passes, dark)
         settle_e = newest("settle", meta.get("port"), hv, dark_e[0].get("when", ""))
         settle = analyse_settle(settle_e[1]) if settle_e else None
         peak = light["peak_v"]
@@ -3347,8 +3400,9 @@ def hv_compare(folder: str) -> tuple:
         if best and photon_rate:
             at = _value_at(light["rows"], best[1])["rate"] - _value_at(dark["rows"], best[1])["rate"]
             snr_fraction = at / photon_rate
-        rows.append({
-            "hv": float(hv), "problem": "" if light["valid"] and dark["valid"] else "; ".join(
+        replicates.append({
+            "hv": float(hv), "when": meta.get("when", ""),
+            "problem": "" if light["valid"] and dark["valid"] else "; ".join(
                 light["reasons"] + dark["reasons"]) or "invalid scan",
             "valley_v": light["valley_v"], "peak_v": peak, "pv": light["pv_ratio"],
             "valley_rate": light["plateau_rate"], "photon_rate": photon_rate,
@@ -3359,17 +3413,31 @@ def hv_compare(folder: str) -> tuple:
             "snr_photon_fraction": snr_fraction,
             "settled": None if settle is None or not settle["judgeable"] else settle["settled"],
             "settle_min": (settle["settled_after_s"] / 60.0) if settle and settle["settled"] else None,
-            "light_csv": item["light_csv"], "dark_csv": dark_e[2], "settle_csv": settle_e[2] if settle_e else "",
+            "light_csv": name, "dark_csv": dark_e[2], "settle_csv": settle_e[2] if settle_e else "",
         })
-    rows.sort(key=lambda r: r["hv"])
 
+    # Signal scales with the light, background does not: so S/sqrt(B) scales with the light, and
+    # each replicate's value is brought to the median photon rate by that ratio. That corrects a
+    # drifting or unsteady source exactly, as long as the signal is proportional to the light.
+    # Interleaving the HVs over time (900, 950, 1000, 900, ...) is what makes the correction
+    # checkable: a source drift then shows as a trend in time, not as a trend in HV.
+    good_rates = sorted(r["photon_rate"] for r in replicates if not r["problem"] and r.get("photon_rate"))
+    reference = good_rates[len(good_rates) // 2] if good_rates else None
+    for r in replicates:
+        r["snr_corrected"] = (r["best_snr"] * reference / r["photon_rate"]
+                              if r.get("best_snr") is not None and r.get("photon_rate") and reference else None)
+
+    rows = _aggregate_hv(replicates)
     verdict, optimum, consistent = _hv_verdict(rows)
+    if reference:
+        verdict.insert(1 if verdict else 0, f"S/sqrt(B) is corrected to a common light level, the median photon rate "
+                       f"{reference:.4g} counts/s at the valley, replicate by replicate.")
 
     stamp = _timestamp().replace(":", "").replace(" ", "_")
-    columns = ("hv_V", "valley_mV", "spe_peak_mV", "peak_to_valley", "light_rate_at_valley_cps",
+    columns = ("hv_V", "n_replicates", "valley_mV", "spe_peak_mV", "peak_to_valley", "light_rate_at_valley_cps",
                "photon_rate_at_valley_cps",
                "half_peak_level_mV", "dark_rate_at_half_peak_cps", "lower_bound_V", "recommended_V",
-               "photons_counted_at_recommended", "best_abs_snr", "best_abs_snr_level_V", "settled",
+               "photons_counted_at_recommended", "best_abs_snr", "best_abs_snr_se", "best_abs_snr_level_V", "settled",
                "settle_minutes", "light_csv", "dark_csv", "settle_csv", "problem")
 
     def fmt(v, scale=1.0, digits=4):
@@ -3378,13 +3446,13 @@ def hv_compare(folder: str) -> tuple:
     lines = [",".join(columns)]
     for r in rows:
         lines.append(",".join([
-            f"{r['hv']:g}", fmt(r.get("valley_v"), 1e3), fmt(r.get("peak_v"), 1e3), fmt(r.get("pv")),
+            f"{r['hv']:g}", str(r.get("n", 0)), fmt(r.get("valley_v"), 1e3), fmt(r.get("peak_v"), 1e3), fmt(r.get("pv")),
             fmt(r.get("valley_rate")), fmt(r.get("photon_rate")),
             fmt(r.get("half_peak_v"), 1e3), fmt(r.get("dark_at_half")),
             "" if r.get("lower_bound_v") is None else str(_gui_volts(r["lower_bound_v"])),
             "" if r.get("recommended_v") is None else str(_gui_volts(r["recommended_v"])),
             "" if r.get("recommended_loss") is None else f"{1 - r['recommended_loss']:.4f}",
-            fmt(r.get("best_snr")),
+            fmt(r.get("best_snr")), fmt(r.get("snr_se")),
             "" if r.get("best_snr_v") is None else str(_gui_volts(r["best_snr_v"])),
             "" if r.get("settled") is None else str(r["settled"]), fmt(r.get("settle_min"), 1.0, 3),
             r.get("light_csv", ""), r.get("dark_csv", ""), r.get("settle_csv", ""),
@@ -3393,9 +3461,19 @@ def hv_compare(folder: str) -> tuple:
     csv_path = os.path.join(folder, f"SR400_hv_compare_{stamp}.csv")
     with open(csv_path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
+    rep_lines = ["when,hv_V,photon_rate_at_valley_cps,best_abs_snr,best_abs_snr_corrected,"
+                 "best_abs_snr_level_V,light_csv,dark_csv,problem"]
+    for r in sorted(replicates, key=lambda r: r["when"]):
+        rep_lines.append(",".join([
+            r["when"], f"{r['hv']:g}", fmt(r.get("photon_rate")), fmt(r.get("best_snr")),
+            fmt(r.get("snr_corrected")),
+            "" if r.get("best_snr_v") is None else str(_gui_volts(r["best_snr_v"])),
+            r.get("light_csv", ""), r.get("dark_csv", ""), r.get("problem", "").replace(",", ";")]))
+    with open(os.path.join(folder, f"SR400_hv_compare_{stamp}_replicates.csv"), "w", encoding="utf-8") as handle:
+        handle.write("\n".join(rep_lines) + "\n")
     svg_path = os.path.join(folder, f"SR400_hv_compare_{stamp}.svg")
     with open(svg_path, "w", encoding="utf-8") as handle:
-        handle.write(plot_hv_compare(rows, verdict, optimum, consistent))
+        handle.write(plot_hv_compare(rows, verdict, optimum, consistent, replicates))
     return csv_path, svg_path, verdict
 
 
@@ -3414,15 +3492,16 @@ def _hv_summary(r: dict) -> str:
             f"dark {dark}, best S/sqrt(B) {snr}{settle}")
 
 
-def plot_hv_compare(rows: list, verdict: list, optimum, consistent: bool) -> str:
+def plot_hv_compare(rows: list, verdict: list, optimum, consistent: bool, replicates=None) -> str:
     W, P = 1200, 300
+    replicates = replicates or []
     good = [r for r in rows if not r["problem"]]
     summary = [_hv_summary(r) for r in rows]
     text_h = 22 + 16 * sum(max(1, len(t) // 160 + 1) for t in verdict + summary)
-    svg = _Svg(W, int(120 + 2 * (P + 82) + text_h))
+    svg = _Svg(W, int(120 + 2 * (P + 82) + (220 + 82) + text_h))
     svg.text(24, 30, "SR400 PMT high-voltage comparison -- threshold scans of the R8486 at each HV", 17, weight="bold")
-    svg.text(24, 50, f"{len(rows)} HVs with a light scan; each paired with the newest same-port, same-HV "
-                     f"dark scan and settling check before it; all re-analysed by this code", 11, color="#555")
+    svg.text(24, 50, f"{len(rows)} HVs, {len(replicates)} light scans; each paired with the newest same-port, "
+                     f"same-HV dark scan and settling check before it; all re-analysed by this code", 11, color="#555")
     if not good:
         _text_block(svg, 24, 80, 165, verdict + summary)
         return svg.render()
@@ -3457,8 +3536,21 @@ def plot_hv_compare(rows: list, verdict: list, optimum, consistent: bool) -> str
 
     scored = [r for r in good if r["best_snr"] is not None]
     if consistent and scored:
-        d = _Panel(svg, rx, top + P + 82, pw, P, xlim, (0.0, max(r["best_snr"] for r in scored) * 1.15))
-        d.frame("(d) best S/sqrt(B) at each HV, same light", "PMT high voltage, V", "S/sqrt(B), sqrt(counts/s)")
+        reps = [x for x in replicates if x.get("snr_corrected") is not None and not x["problem"]]
+        # Zoomed to the data, not from zero: near the optimum the HVs differ by a few percent,
+        # which a zero-based axis flattens into a line. The axis label says it is zoomed.
+        highs = [r["best_snr"] + (r.get("snr_se") or 0) for r in scored] + [x["snr_corrected"] for x in reps]
+        lows = [r["best_snr"] - (r.get("snr_se") or 0) for r in scored] + [x["snr_corrected"] for x in reps]
+        pad = 0.15 * (max(highs) - min(lows)) or 0.05 * max(highs)
+        d = _Panel(svg, rx, top + P + 82, pw, P, xlim, (max(min(lows) - pad, 0.0), max(highs) + pad))
+        # No legend box: over the top-right it covered the highest HV's point. Named in the title.
+        d.frame("(d) best S/sqrt(B), same light: grey = each scan, green = mean +- SE",
+                "PMT high voltage, V", "S/sqrt(B), sqrt(counts/s) -- zoomed")
+        if reps:
+            d.series([x["hv"] for x in reps], [x["snr_corrected"] for x in reps], "#7f8c8d", "o",
+                     filled=False, line=False)
+        d.errorbars([r["hv"] for r in scored], [r["best_snr"] for r in scored],
+                    [r.get("snr_se") or 0 for r in scored], "#1a7f37")
         d.series([r["hv"] for r in scored], [r["best_snr"] for r in scored], "#1a7f37", "o")
         if optimum:
             d.vline(optimum["hv"], _C["rec"], f"optimum {optimum['hv']:g} V", None, 0)
@@ -3469,7 +3561,18 @@ def plot_hv_compare(rows: list, verdict: list, optimum, consistent: bool) -> str
             "The light rate differed between HVs, so the background-limited figure of merit cannot "
             "be compared across them. Repeat with the same light source and setting at every HV."
             if not consistent else "No HV had a dark scan with enough counts to score."], 11)
-    _text_block(svg, 24, top + 2 * (P + 82) + 4, 165, verdict + summary)
+    timed = [x for x in replicates if x.get("photon_rate") and not x["problem"]]
+    e_top = top + 2 * (P + 82)
+    if timed:
+        order = sorted(timed, key=lambda x: x["when"])
+        e = _Panel(svg, lx, e_top, rx + pw - lx, 220, (0.5, len(order) + 0.5),
+                   (0.0, max(x["photon_rate"] for x in order) * 1.25))
+        e.frame("(e) light level of each scan, in the order taken: a trend here is source drift, "
+                "and is corrected in (d)", "scan number, in time order", "photons/s at the valley")
+        e.series(list(range(1, len(order) + 1)), [x["photon_rate"] for x in order], "#1f77b4", "o", width=1.0)
+        for k, x in enumerate(order, start=1):
+            svg.text(e.px(k), e.py(x["photon_rate"]) - 8, f"{x['hv']:g}", 9, "middle", color="#555")
+    _text_block(svg, 24, e_top + 220 + 62, 165, verdict + summary)
     return svg.render()
 
 

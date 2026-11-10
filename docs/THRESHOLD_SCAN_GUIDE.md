@@ -314,12 +314,17 @@ start to rise faster than the separation improves. The procedure below runs the 
 voltages and lets the driver compare them. The HV is set **by hand**. The driver never sets or
 reads it; it only records the value you type in.
 
-**Before you start.** Choose 4–5 voltages, for example 900, 950, 1000, 1050 and 1100 V. Check the
-R8486 data sheet for its maximum rating and stay below it. Use **the same light source, at the
-same setting, at every voltage**: the comparison checks this and refuses to compare light levels
-that differ.
+**Before you start.** Choose the voltages. 1000 V is probably near the optimum already, so a
+fine bracket around it is enough: **975, 1000, 1025, 1050 and 1075 V**. Check the R8486 data
+sheet for its maximum rating and stay below it. Keep **the same light source and setting**
+throughout.
 
-**At each voltage, one short run:**
+**Interleave, and repeat.** Visit the voltages in order and then go round again: 975, 1000, …,
+1075, then 975, 1000, … once more, two or three rounds in all. A light source that drifts then
+shows up as a trend over *time*, which the comparison corrects, rather than as a trend over
+*voltage*. The replicates give each voltage an error bar.
+
+**First round: at each voltage, one short run with all three tests.**
 
 1. Set the HV on the supply. Type **the same value** into the Logger module's field
    **`PMT high voltage in V (record only, 0 = not recorded)`**. Every report, CSV and figure then
@@ -333,6 +338,12 @@ that differ.
    dark scan follows straight away.
 4. When asked, uncover the tube and set the light. The light scan follows.
 
+**Later rounds: the light scan only.** Set the HV and type it in, tick only
+**`Light threshold scan`**, and run. It uses that voltage's dark scan from the first round,
+matched by the recorded HV, so the dark work is done once per voltage. Allow the tube a minute
+after each HV change before starting. The first round takes about 25 minutes per voltage; later
+rounds take about 5 minutes per voltage.
+
 **Then compare.** From the results folder (§8), with the path to `selftest.py` in the driver
 folder:
 
@@ -341,16 +352,23 @@ python "C:/Users/Public/Documents/SweepMe!/CustomDevices/Logger-Stanford_SR400/s
 ```
 
 It writes `SR400_hv_compare_<date_time>.csv`, a
-table with one row per voltage, and an `.svg` figure with four panels against HV:
+table with one row per voltage, `SR400_hv_compare_<date_time>_replicates.csv` with one row per scan, and an `.svg` figure with five panels:
 
 - **(a) gain:** where the valley and the single-photon peak sit, in mV. Both should rise with HV.
 - **(b) peak/valley:** how cleanly photons separate from noise. Higher is better.
 - **(c) dark rate at half the single-photon peak:** the background at a threshold that scales with
   the gain, so the voltages are compared fairly.
-- **(d) best S/√B** at each voltage, with the same light.
+- **(d) best S/√B** at each voltage: each scan in grey, the mean ± standard error in green. Each
+  scan's value is corrected to a common light level using its own measured photon rate, since
+  signal scales with the light and background does not.
+- **(e) the light level of every scan, in the order taken.** A step or a trend here is the source
+  drifting. The correction in (d) removes it; this panel shows it actually happened.
 
-It names an **optimum HV** only when at least three voltages are comparable, the light was the same
-at each, and the best S/√B turns over *inside* the range. If the best is at the highest or lowest
+It names an **optimum HV** only when at least three voltages are comparable and the best S/√B
+turns over *inside* the range. With replicates it also says whether the winner is **resolved**
+from the runner-up. If their gap is under twice its uncertainty, either voltage is as good on the
+evidence. It refuses to compare at all only if the light changed by more than 50 % between scans
+(a moved source, a different filter), because then proportional correction is in doubt. If the best is at the highest or lowest
 voltage scanned, it says so and asks you to extend the range. A voltage whose dark rate had
 **not settled** is left out. The line naming the optimum also gives the fraction of photons
 counted there. If that is under half, it warns that this optimum suits only a weak signal.
