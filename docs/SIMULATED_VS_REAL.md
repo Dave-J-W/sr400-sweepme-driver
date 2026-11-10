@@ -12,7 +12,8 @@ bench fails if a committed figure differs from what the code draws.
 
 **Conditions of the real scans.** R8486 on SIGNAL INPUT 1, discriminator A, slope FALL; SR400 over
 GPIB (NI GPIB-USB-HS); SweepMe! 1.5.7.9. Dark: tube covered. Light: room light, 3.3e5 counts/s at
-6 mV. The PMT high voltage is not recorded in these files.
+6 mV. PMT high voltage **1000 V** for both scans. That comes from the operator's account; the scan
+files do not record it.
 
 **The simulated examples predate two driver changes**, so their sampling differs from a scan
 made today. They were recorded before fast thresholds counted to 500 and before the dark scan

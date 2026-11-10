@@ -5,7 +5,8 @@ against the simulated examples, panel by panel, in [`../../SIMULATED_VS_REAL.md`
 
 **Setup.** R8486 on SIGNAL INPUT 1, counter A, discriminator A, slope FALL, gates CW. SR400 at
 GPIB address 23 through an NI GPIB-USB-HS, driven by SweepMe! 1.5.7.9. Dark: tube covered. Light:
-room light, 3.3e5 counts/s at 6 mV. **The PMT high voltage is not recorded here.**
+room light, 3.3e5 counts/s at 6 mV. **PMT high voltage: 1000 V**, for both scans. That is from
+the operator, recorded here afterwards; the CSVs and reports do not contain it.
 
 | File | What it is | Status |
 |---|---|---|
