@@ -14,7 +14,7 @@ SR400 predates IEEE-488.2 and has **no `*IDN?`, `*RST` or `*CLS`**.
 1. **On the instrument (front panel, COM menu):**
    - RS-232: set `BAUD`, `BITS`, `PARITY` to match your port (driver defaults: 9600, 8, none)
      and set **`RS-232 ECHO = OFF`**.
-   - GPIB: set `GPIB ADDR` to something in 1…30.
+   - GPIB: set `GPIB ADDR` to something in 1…30. The driver asserts REN itself (gotcha 12).
 2. Copy the whole `Logger-Stanford_SR400` folder into SweepMe!'s custom-driver folder —
    `C:\Users\Public\Documents\SweepMe!\CustomDevices\` for SweepMe! 1.5.8.
 3. Add a **Logger** module, pick the SR400, choose the port.
@@ -288,6 +288,27 @@ stays quiet.
 `Lock front panel = True` on a GPIB port is silently a no-op (use REN/LLO/GTL from your controller
 instead).
 
+**GPIB needs REN, and must not be device-cleared.** Two lines in the manual's GPIB capabilities
+section decide whether GPIB works at all:
+
+- *"The SR400 will respond to commands only if it is addressed to listen and the Remote Enable
+  line (REN) is asserted."* Without REN, a query is accepted at the handshake level and then never
+  answered, so the read times out with nothing received. **Measured** on 2026-11-10 with an NI
+  GPIB-USB-HS: REN was still off after an interface clear even with *Assert REN when SC* ticked in
+  NI MAX, and `CM` timed out with 0 bytes. With REN asserted by hand it answered `3<cr><lf>`.
+  `connect()` therefore asserts REN and addresses the SR400 itself, through VISA's
+  `control_ren(VI_GPIB_REN_ASSERT_ADDRESS)`, before its first command. The REM LED lights once the
+  SR400 is in remote.
+- DCL and SDC are both answered *"Same as CL command"*, which resets the whole setup. pysweepme clears
+  every port right after opening it, and on GPIB that clear is an SDC. The driver sets
+  `port_properties["clear"]` to off for GPIB ports, so a connect no longer resets the instrument.
+  For COM ports it stays on, because there it only flushes the serial buffers. The deliberate reset
+  is still available as *Reset instrument at start*.
+
+If GPIB still fails, NI's **GPIB Interactive Control** (ibic) will test the bus without
+SweepMe!: `ibsic`, `ibsre 1`, `ibdev 0 23 0 13 1 0`, `ibwrt "CM\r"`, `ibrd 100`. Use your own
+address in place of 23. **Never use `ibclr`**, because it is a device clear and resets the SR400.
+
 ### 13. Cabling: the SR400 is a DCE
 
 It connects **straight-through** to a PC/terminal (which is a DTE). Connecting it to another DCE
@@ -380,7 +401,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "348/348 checks passed"
+python tests/test_sr400_virtual.py   # expect "470/470 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`

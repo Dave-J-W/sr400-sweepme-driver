@@ -1220,6 +1220,85 @@ def test_gpib_specifics(driver):
     device.set_srq_mask(4)
     check(sr400.srq_mask == 4, "the SRQ mask can be set via GPIB")
 
+    # --- REN: the SR400 ignores GPIB commands unless Remote Enable is asserted ----------
+    # Measured 2026-11-10 on a GPIB-USB-HS: REN off -> CM timed out with 0 bytes.
+    class FakeVisaResource:
+        def __init__(self, instrument, fail=False):
+            self.instrument = instrument
+            self.fail = fail
+            self.ren_calls = []  # (mode, number of commands already written)
+
+        def control_ren(self, mode):
+            self.ren_calls.append((mode, len(self.instrument.log)))
+            if self.fail:
+                raise RuntimeError("VI_ERROR_NCIC")
+
+    sr400 = VirtualSR400()
+    sr400.port = FakeVisaResource(sr400)
+    device = make_device(driver, sr400, Port="GPIB0::23::INSTR", **{"Counter A input": "INPUT 1"})
+    device.connect()
+    check(
+        sr400.port.ren_calls == [(3, 0)],
+        f"connect() asserts REN and addresses the SR400 (VI_GPIB_REN_ASSERT_ADDRESS = 3) before "
+        f"the first command (got {sr400.port.ren_calls})",
+    )
+
+    sr400 = VirtualSR400()
+    sr400.port = FakeVisaResource(sr400)
+    device = make_device(driver, sr400, **{"Counter A input": "INPUT 1"})
+    device.connect()
+    check(sr400.port.ren_calls == [], "a COM port never touches REN")
+
+    sr400 = VirtualSR400()
+    sr400.port = FakeVisaResource(sr400, fail=True)
+    device = make_device(driver, sr400, Port="GPIB0::23::INSTR", **{"Counter A input": "INPUT 1"})
+    try:
+        device.connect()
+        check(False, "a failing REN assertion raises")
+    except Exception as exc:
+        check(
+            "REN" in str(exc) and "VI_ERROR_NCIC" in str(exc),
+            f"a failing REN assertion is named, with the bus error: {exc}",
+        )
+    check(sr400.log == [], "nothing is written after REN could not be asserted")
+
+    # A port object with no VISA resource behind it (Prologix, or this bench) still connects.
+    sr400 = VirtualSR400()
+    device = make_device(driver, sr400, Port="GPIB0::23::INSTR", **{"Counter A input": "INPUT 1"})
+    device.connect()
+    check(True, "a GPIB port without control_ren() still connects")
+
+    # --- no device clear on GPIB: the SR400 treats SDC as CL --------------------------
+    device = make_device(driver, VirtualSR400(), Port="GPIB0::23::INSTR")
+    check(
+        device.port_properties.get("clear") is False,
+        "pysweepme's port clear is off for GPIB (SDC would reset the SR400 like CL)",
+    )
+    device = make_device(driver, VirtualSR400(), Port="COM3")
+    check(
+        device.port_properties.get("clear") is True,
+        "pysweepme's port clear stays on for COM (it only flushes the serial buffers)",
+    )
+
+    # --- the GPIB no-answer message is about GPIB, not RS-232 ---------------------------
+    class DeadPort:
+        def write(self, command):
+            pass
+
+        def read(self):
+            return ""
+
+    device = make_device(driver, DeadPort(), Port="GPIB0::23::INSTR")
+    try:
+        device.connect()
+        check(False, "a silent GPIB port raises")
+    except Exception as exc:
+        text = str(exc)
+        check(
+            "GPIB ADDR" in text and "GPIB0::23::INSTR" in text and "BAUD" not in text,
+            f"a silent GPIB port gets a GPIB-specific message: {text}",
+        )
+
 
 def test_reset_at_start(driver):
     print("\n[15] optional instrument reset at the start")

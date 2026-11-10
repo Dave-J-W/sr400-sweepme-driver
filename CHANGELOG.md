@@ -5,6 +5,22 @@ Newest first. Gotcha and section numbers refer to
 
 ## Unreleased
 
+### Fixed
+
+- **GPIB now works: `connect()` asserts REN.** The SR400 answers GPIB commands only while the
+  Remote Enable line is asserted. On the bench (NI GPIB-USB-HS, 2026-11-10), REN stayed off even
+  with *Assert REN when SC* ticked in NI MAX, and every query timed out with nothing received. The
+  driver now calls VISA's `control_ren(VI_GPIB_REN_ASSERT_ADDRESS)` before its first command, so
+  it no longer depends on that board setting. A Prologix controller, which has no `control_ren()`,
+  is left to handle REN itself. Gotcha **12**.
+- **A GPIB connect no longer resets the SR400.** pysweepme clears every port after opening it.
+  On GPIB that clear is a Selected Device Clear, which the SR400 treats as `CL`, so the setup
+  reverted to defaults on every connect even with *Reset instrument at start* off. The port clear
+  is now off for GPIB and still on for COM, where it only flushes the serial buffers.
+- **The no-answer error names the right interface.** On GPIB it now asks about power, the cable
+  and `GPIB ADDR`, and quotes the bus error. The RS-232 baud, parity and echo advice it used to
+  give is now shown only for COM ports.
+
 ### Added
 
 - **[`THRESHOLD_SCAN_GUIDE.md`](Logger-Stanford_SR400/THRESHOLD_SCAN_GUIDE.md)**, a step-by-step

@@ -92,6 +92,19 @@ One genuine inconsistency in the manual itself, not an extraction artefact: the 
 `m × 3.33 ms` in the abridged list and `wait value times 3.3 ms` on p. 37. The difference is 1 % of
 a value the driver sets to zero anyway.
 
+## Missed by the audit: the GPIB capabilities section
+
+The audit checked commands against the command list but not against the bus behaviour, and
+that section decides whether GPIB works at all. It was found on the bench on 2026-11-10, when
+GPIB queries timed out:
+
+| Manual ("SR400 with the GPIB Interface", GPIB Capabilities) | Consequence for the driver |
+|---|---|
+| *"The SR400 will respond to commands only if it is addressed to listen and the Remote Enable line (REN) is asserted."* | `connect()` asserts REN itself. Measured: with REN off, `CM` timed out with 0 bytes; with REN on it answered `3<cr><lf>`. |
+| DCL and SDC: *"Same as CL command"* | pysweepme's automatic port clear (an SDC on GPIB) is turned off for GPIB ports, or every connect would reset the setup. |
+
+Both are gotcha 12 in the driver README.
+
 ## Still unverified after the audit
 
 See README §7.1. Two of the three are response-format details the driver parses through `float()`

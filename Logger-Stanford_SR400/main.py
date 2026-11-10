@@ -328,7 +328,10 @@ class Device(EmptyDevice):
         the command back plus "OK&gt;" prompts and this driver cannot read any value.</li>
         <li>If a previous program changed the RS-232 end-of-record sequence with the SE command,
         enable "Reset instrument at start" once (CL restores the default terminator, a single CR).</li>
-        <li><b>GPIB:</b> set the GPIB address (1...30) in the COM menu. Nothing else is needed.</li>
+        <li><b>GPIB:</b> set the GPIB address (1...30) in the COM menu. The driver asserts the
+        Remote Enable line (REN) itself, without which the SR400 ignores every GPIB command, and it
+        skips the GPIB device clear that SweepMe! would otherwise send on connect (the SR400 treats
+        a device clear as CL and resets its whole setup).</li>
         <li>The SR400 has no *IDN? command. The driver verifies the connection by reading the
         counting mode (CM).</li>
         </ul>
@@ -684,6 +687,13 @@ class Device(EmptyDevice):
         # Ignored by the port manager for GPIB ports; only the COM branch reads it.
         self.port_properties["baudrate"] = self._as_int(parameter, "Baudrate", 9600)
 
+        # pysweepme clears every port right after opening it ("clear" defaults to True). On a
+        # COM port that only flushes the serial buffers, which is wanted. On a GPIB port it is
+        # a VISA clear, i.e. a Selected Device Clear, and the manual's GPIB command table says
+        # the SR400 answers SDC "Same as CL command": the whole setup reverts to defaults on
+        # every connect, silently overriding 'Reset instrument at start' = False.
+        self.port_properties["clear"] = self.is_rs232
+
         # Captured before either mode function can override them, so the messages can name
         # what the user actually typed rather than what was derived from it.
         self.requested_periods = self.periods
@@ -817,14 +827,24 @@ class Device(EmptyDevice):
         """
         self._phase("connect")
 
+        if not self.is_rs232:
+            self._assert_remote_enable()
+
         try:
             response = self._query("CM")
         except Exception as exc:
-            msg = (
-                "No answer from the SR400. Please check the port settings and the SR400 COM menu "
-                "(RS-232: BAUD, BITS, PARITY must match the port, ECHO must be OFF; "
-                "GPIB: address 1-30)."
-            )
+            if self.is_rs232:
+                msg = (
+                    "No answer from the SR400. Please check the port settings and the SR400 COM "
+                    "menu: BAUD, BITS and PARITY must match the port, and ECHO must be OFF."
+                )
+            else:
+                msg = (
+                    f"No answer from the SR400 on {self.port_string}. Please check that the "
+                    "SR400 is switched on, that the GPIB cable is seated at both ends, and that "
+                    "GPIB ADDR in the SR400 COM menu matches the address in the port "
+                    f"(1-30). GPIB error: {exc}"
+                )
             raise Exception(msg) from exc
 
         if response.upper().startswith("CM") or "OK>" in response or "??>" in response:
@@ -994,6 +1014,41 @@ class Device(EmptyDevice):
     # ==================================================================
     #  internal helpers
     # ==================================================================
+
+    # VISA's VI_GPIB_REN_ASSERT_ADDRESS: assert REN and address the device to listen, which is
+    # exactly the condition the SR400 needs to enter REMote.
+    VI_GPIB_REN_ASSERT_ADDRESS = 3
+
+    def _assert_remote_enable(self) -> None:
+        """Assert the GPIB Remote Enable line and put the SR400 in REMote.
+
+        Manual, "GPIB Capabilities": "The SR400 will respond to commands only if it is
+        addressed to listen and the Remote Enable line (REN) is asserted." Without REN the
+        instrument accepts the bytes of a query at the handshake level and then never answers,
+        so the read times out with nothing received.
+
+        Measured on the bench, 2026-11-10, NI GPIB-USB-HS: with "Assert REN when SC" ticked in
+        NI MAX, REN was still deasserted after an interface clear (ibsre reported a previous
+        value of 0) and CM timed out with 0 bytes. With REN asserted by hand, CM answered
+        "3<cr><lf>". So the driver asserts REN itself rather than depending on the board setting.
+
+        A Prologix controller is not a VISA resource and has no control_ren(); it is left to the
+        controller's own handling of REN.
+        """
+        resource = getattr(self.port, "port", None)
+        control_ren = getattr(resource, "control_ren", None)
+        if not callable(control_ren):
+            return
+
+        try:
+            control_ren(self.VI_GPIB_REN_ASSERT_ADDRESS)
+        except Exception as exc:
+            msg = (
+                f"Could not assert the GPIB Remote Enable line (REN) on {self.port_string}. The "
+                "SR400 ignores GPIB commands unless REN is asserted. Check that the GPIB board is "
+                f"the System Controller in NI MAX. GPIB error: {exc}"
+            )
+            raise Exception(msg) from exc
 
     def _query(self, command: str) -> str:
         """Send a query command and return the stripped answer."""
