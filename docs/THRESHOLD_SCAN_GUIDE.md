@@ -79,9 +79,12 @@ The recommended level is **advice for you to enter**, not something the scan app
    End-of-run tests), then start a short run. The scan starts after the run's last point.
 3. A message appears: *"Cover the R8486 and make sure NO light can reach it…"*. Check, then
    press **OK**.
-4. Wait. This takes **about 15–20 minutes**. A covered R8486 gives only ~8 counts per second, so
-   each threshold needs up to 30 s to collect enough counts to be meaningful. Progress messages
-   appear in SweepMe!'s General tab. **Don't touch the bench or uncover the PMT.**
+4. Wait. The first real scan took **21 minutes**; with the current sampling the same tube takes
+   about **16**. A covered R8486 gives only a few counts per second, so each threshold above the
+   noise needs up to 30 s to collect enough counts to be meaningful. Once the rate stays below
+   1 count per second, the scan steps 2 mV at a time. **SweepMe!'s debug log shows one line per
+   threshold**, with the time elapsed and an upper bound on the time left. **Don't touch the bench
+   or uncover the PMT.**
 5. A final message gives a one-line result, for example *"lower bound 6.2 mV, dark counts vanish
    from 20.0 mV"*, and the paths of three files.
 
@@ -92,7 +95,9 @@ window).
 
 Here is what a good dark result looks like. **It is a simulated example** — the red note at its
 top right says so — made by the driver's own test bench, so your tube's numbers will be different.
-What matters is the shape.
+What matters is the shape. A **real** scan of the same tube differs in ways worth knowing before
+you read your own, above all a noise hump at the far left. See
+[SIMULATED_VS_REAL.md](SIMULATED_VS_REAL.md) for the two side by side, panel by panel.
 
 ![Example dark threshold scan, from the simulated R8486](images/example_threshold_scan_dark.svg)
 
@@ -126,8 +131,10 @@ message says why:
 
 ## 5. Step 2 — the light scan
 
-Do this **after the dark scan, before closing SweepMe!, and on the same port**, so the light
-scan can find the dark result.
+Do this **after the dark scan, on the same port**. The light scan uses the dark scan to score
+each level. If SweepMe! has been restarted since the dark scan, the light scan reads the newest
+dark scan for that port from the results folder (§8). Its report says which file it used and how
+old it is.
 
 1. **Set up a gentle, steady light** on the PMT. A dim, stable source, well attenuated. Aim for
    roughly **10,000 to 100,000 counts per second**. If you don't know what your source gives,
@@ -165,15 +172,24 @@ scan. The figure will then say NO RECOMMENDATION, and you should steady the sour
 
 **(b) Zoomed in.** The same data scaled so that the count rate at the *reference level* (the
 purple line, normally the valley from panel (c)) is 1.0. The curve drops as the threshold rises,
-because it is cutting into real photon pulses. The grey dashed lines mark 1 %,
+because it is cutting into real photon pulses. The grey dashed lines mark 0.1 %, 1 %,
 2 %, 5 % and 10 % loss. The green line is the recommended level. Where it crosses the curve
 tells you what fraction of photons you keep.
 
-**(c) Pulse sizes.** This shows how many pulses there are of each size. Look for a **dip**
-(purple line, *valley*) followed by a **hump** (*single-PE peak*, near 10 mV). The hump is your
-single photons, and the dip is the gap between noise and photons. If there's no hump, the noise
-and the photons overlap at this gain. The figure will say so, and that's a sign the tube needs a
-preamplifier.
+**(c) Pulse sizes, light and dark.** This shows how many pulses there are of each size, on a
+logarithmic axis, for the light scan (filled dots) and the dark scan (hollow red dots). Look for a
+**dip** (purple line, *valley*) followed by a **hump** (*SPE peak*, the single-photoelectron
+peak, near 10 mV in the example). The hump is your single photons, and the dip is the gap between
+noise and photons. The red dark curve shows how far below the light the background is at each
+level. A **grey shaded strip** at the far left marks levels where the rate *rises* with the
+threshold, a noise hump that real tubes have. There, a pulse size has no meaning. If there's no
+hump in the light curve, the noise and the photons overlap at this gain. The figure will say so,
+and that's a sign the tube needs a preamplifier.
+
+**The box under panel (c)** lists the level at each count loss, 0.1 % to 10 %, each with its
+uncertainty and the exact value to type into the GUI. A loss too small for the scan to measure is
+marked **NOT SEPARABLE**, with the number of counts it would need. With a typical light scan
+that is the case for 0.1 %.
 
 **(d) Signal against background.** This is how the recommendation is made. It combines the two
 scans into one score, signal divided by the square root of background (S/√B), for every
@@ -184,9 +200,11 @@ threshold. It rises as the noise is cut away, peaks, then falls slowly as photon
 - The **red dashed line** far to the right is where the dark counts vanished. The curve there is
   well below its peak, which is the proof that zero dark counts is not the optimum.
 
-If panel (d) says **NOT SHOWN**, the light scan couldn't find a dark scan for that port. Its
-recommendation then comes from panel (c) alone. Run both scans again on the same port before
-closing SweepMe!, or send both CSV files (see §8).
+If panel (d) says **NOT SHOWN**, the light scan couldn't find a dark scan for that port, either
+in memory or in the results folder. Its recommendation then comes from panel (c) alone. Run the
+dark scan on the same port, then the light scan again. To redraw an existing light figure with
+panel (d), put the two CSV files in one folder and regenerate the plot (see §8). The plot finds
+the dark CSV beside the light one.
 
 ---
 

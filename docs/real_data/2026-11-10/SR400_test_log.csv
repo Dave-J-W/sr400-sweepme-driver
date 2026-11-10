@@ -1,0 +1,3 @@
+when,test,result,recommended_disc_A_level_V,photons_counted_at_recommended,lower_bound_V,upper_bound_1pct_loss_V,dark_counts_vanish_V,headline,passed,checks,port,interface,first_failure,report
+2026-11-10 13:20:08,threshold scan dark,PASS,,,-0.001,,-0.032,"lower bound 1.0 mV, dark counts vanish from 32.0 mV",2,2,GPIB0::23::INSTR,GPIB,,C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\SR400_threshold_scan_dark_2026-11-10_132008.txt
+2026-11-10 13:59:35,threshold scan light,PASS,-0.004,1.0,,-0.0042,,"recommended A DISC LVL -4.0 mV, counting 100% of photons",5,5,GPIB0::23::INSTR,GPIB,,C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\SR400_threshold_scan_light_2026-11-10_135935.txt

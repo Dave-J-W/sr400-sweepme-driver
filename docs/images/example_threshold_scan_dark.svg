@@ -279,11 +279,11 @@
 <circle cx="1033.8" cy="638.4" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2" clip-path="url(#clip2)"/>
 <line x1="90.0" y1="639.5" x2="1070.0" y2="639.5" stroke="#c0392b" stroke-width="1" stroke-dasharray="4,3"/>
 <text x="94.0" y="636.5" font-size="9" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#c0392b">time cap 30 s</text>
-<rect x="730.6" y="622.0" width="333.4" height="38.0" fill="white" stroke="#cccccc" fill-opacity="0.92"/>
-<circle cx="747.6" cy="632.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2"/>
-<text x="764.6" y="636.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">reached 200 counts</text>
-<circle cx="747.6" cy="647.0" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2"/>
-<text x="764.6" y="651.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">hit the 30 s cap: fewer counts, wider error bar</text>
+<rect x="631.4" y="622.0" width="432.6" height="38.0" fill="white" stroke="#cccccc" fill-opacity="0.92"/>
+<circle cx="648.4" cy="632.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2"/>
+<text x="665.4" y="636.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">reached its count target (500 where that took &lt; 10 s, else 200)</text>
+<circle cx="648.4" cy="647.0" r="3.5" fill="white" stroke="#c0392b" stroke-width="1.2"/>
+<text x="665.4" y="651.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">hit the 30 s cap: fewer counts, wider error bar</text>
 <text x="24.0" y="858.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Scanned 57 thresholds, 0.4 to 24.0 mV; 152867 counts in 1001 s of live time.</text>
 <text x="24.0" y="874.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Noise edge (heuristic: log-slope &lt; 1.0 per mV over 1 mV): 5.2 mV.  Lower bound for the operating threshold: 5.8 mV (noise edge + 0.5 mV).</text>
 <text x="24.0" y="890.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Dark counts vanish (zero counts in 30 s) from 20.0 mV. Do NOT operate there: it is above most single-PE pulses, so it throws signal away. The light</text>

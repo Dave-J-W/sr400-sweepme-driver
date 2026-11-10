@@ -1282,7 +1282,7 @@ VALLEY_PV_RATIO = 1.2           # single-PE peak must stand this far above the v
 DRIFT_TOLERANCE = 0.02          # pass-to-pass scale change worth flagging
 HYSTERESIS_RESOLUTION_V = 0.0002  # the discriminator's own 0.2 mV step
 PICKUP_SAFE_V = 0.010           # manual p. 22
-LOSS_LEVELS = (0.01, 0.02, 0.05, 0.10)
+LOSS_LEVELS = (0.001, 0.01, 0.02, 0.05, 0.10)
 FOM_MIN_DARK_COUNTS = 20        # below this sqrt(B) is too uncertain to divide by (> 11 %)
 FOM_BAND = 0.95                 # levels within 5 % of the best S/sqrt(B) are reported as a band
 
@@ -1478,6 +1478,11 @@ def _differential(rows: list) -> list:
     return out
 
 
+def _pct(loss: float) -> str:
+    """0.1 % and 1 %, never 0 % for a loss below one percent."""
+    return f"{loss * 100:.1f} %" if loss < 0.01 else f"{loss * 100:.0f} %"
+
+
 def _crossing(rows: list, values: list, target: float, start_v: float):
     """First |level| >= start_v where values falls to target, linearly interpolated."""
     previous = None
@@ -1572,6 +1577,34 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
     fractions = [r["rate"] / plateau for r in rows]
     for loss in LOSS_LEVELS:
         result["loss_v"][loss] = _crossing(rows, fractions, 1.0 - loss, reference)
+
+    # How well each loss level is pinned. A loss is a DIFFERENCE of two Poisson rates, so its
+    # relative uncertainty is about sqrt(2/N) with N counts per level. Dividing by the local
+    # slope of the normalised curve turns that into mV. A level that sits within its own
+    # uncertainty of the reference, or within one 0.2 mV discriminator step, is not separable
+    # from it. Measured 2026-11-10: with ~7e4 counts per level the loss is +-0.5 %, so 0.1 %
+    # loss cannot be told apart from the reference, and resolving it needs ~8e6 counts per level.
+    ref_counts = _value_at(rows, reference)["counts"]
+    sigma_loss = _math.sqrt(2.0 / ref_counts) if ref_counts > 0 else float("inf")
+    result["loss_sigma"] = sigma_loss
+    result["counts_per_level"] = ref_counts
+    result["loss_detail"] = {}
+    for loss, v in result["loss_v"].items():
+        if v is None:
+            result["loss_detail"][loss] = None
+            continue
+        lo, hi = _value_at(rows, v - DIFF_WINDOW_V), _value_at(rows, v + DIFF_WINDOW_V)
+        span_mv = (hi["abs_v"] - lo["abs_v"]) * 1e3
+        slope = (lo["rate"] - hi["rate"]) / plateau / span_mv if span_mv > 0 else 0.0
+        sigma_v = sigma_loss / slope if slope > 0 else float("inf")  # mV
+        above_mv = (v - reference) * 1e3
+        result["loss_detail"][loss] = {
+            "v": v, "sigma_mv": sigma_v,
+            "separable": above_mv > sigma_v,
+            # The discriminator sets |level| in 0.2 mV steps: report the step the user can set.
+            "settable_v": round(v / HYSTERESIS_RESOLUTION_V) * HYSTERESIS_RESOLUTION_V,
+            "counts_needed": 8.0 / loss ** 2,  # sqrt(2/N) <= loss/2
+        }
 
     # --- drift and hysteresis, separated by their signatures ------------------------------
     # Each pass gets a light-level factor from the near-flat region. That region is not truly
@@ -2181,7 +2214,8 @@ def plot_dark(result: dict, meta: dict) -> str:
     hit = [r for r in rows if r["counts"] >= DARK_TARGET_COUNTS]
     capped = [r for r in rows if r["counts"] < DARK_TARGET_COUNTS]
     b.series([r["abs_v"] * 1e3 for r in hit], [r["live_s"] for r in hit], "#1a7f37", "o", line=False,
-             label=f"reached {DARK_TARGET_COUNTS} counts")
+             label=f"reached its count target ({DARK_FAST_TARGET_COUNTS} where that took "
+                   f"< {DARK_FAST_SECONDS:g} s, else {DARK_TARGET_COUNTS})")
     b.series([r["abs_v"] * 1e3 for r in capped], [r["live_s"] for r in capped], "#c0392b", "o",
              filled=False, line=False, label=f"hit the {DARK_MAX_SECONDS:g} s cap: fewer counts, wider error bar")
     b.hline(DARK_MAX_SECONDS, "#c0392b", f"time cap {DARK_MAX_SECONDS:g} s", left=True)
@@ -2205,7 +2239,11 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
         headline = "!NO RECOMMENDATION -- " + ("; ".join(result["reasons"]) or "see the report")
     top = 118 + 17 * (len(_wrapped(headline.lstrip("+!"), 165)) - 1)
     row2 = top + P + 82
-    H = row2 + P + 70 + text_height
+    # Panel (c)'s readout goes under its axes, never over the data: sized from its own lines.
+    readout = ([f"Count loss vs the reference {_mv(result['reference_v'])} (raw rates, +- Poisson):"]
+               + _loss_lines(result)) if result.get("loss_detail") else []
+    readout_h = (10 + 14 * len(readout)) if readout else 0
+    H = row2 + P + 70 + readout_h + text_height
     svg = _Svg(W, int(H))
     svg.text(24, 30, "SR400 threshold scan, LIGHT -- R8486 on SIGNAL INPUT 1, discriminator A, FALL", 17, weight="bold")
     if meta.get("note"):
@@ -2251,34 +2289,72 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
             b.series([p["abs_v"] * 1e3 for p in pts], [p["counts"] / p["live_s"] / plateau for p in pts], color,
                      "^" if ps["direction"] == "up" else "v", None if ps["direction"] == "up" else "4,3", 0.8)
         for i, loss in enumerate(LOSS_LEVELS):
-            b.hline(1.0 - loss, "#7f8c8d", f"{loss:.0%} loss", stagger=i % 2)
-        b.vline(ref, _C["valley"], f"reference {ref:.1f} mV", "5,3", 0)
+            b.hline(1.0 - loss, "#7f8c8d", f"{_pct(loss)}", stagger=i)
+        # Slots 6-8 put these labels under the loss lines, which crowd the top of the panel.
+        b.vline(ref, _C["valley"], f"reference {ref:.1f} mV", "5,3", 6)
         if result["noise_edge_v"] is not None:
-            b.vline(result["noise_edge_v"] * 1e3, _C["edge"], f"noise edge {result['noise_edge_v'] * 1e3:.1f}", "5,3", 1)
+            b.vline(result["noise_edge_v"] * 1e3, _C["edge"], f"noise edge {result['noise_edge_v'] * 1e3:.1f}", "5,3", 7)
         if result["recommended_v"] is not None:
-            b.vline(result["recommended_v"] * 1e3, _C["rec"], f"recommended {result['recommended_v'] * 1e3:.1f}", None, 2)
+            b.vline(result["recommended_v"] * 1e3, _C["rec"], f"recommended {result['recommended_v'] * 1e3:.1f}", None, 8)
     else:
         svg.text(rx, top + 40, "(b) NOT SHOWN: no reference level, so nothing to normalise to.", 12, color="#c0392b")
 
-    # (c) pulse-height density: where the valley and single-PE peak are
+    # (c) where the pulses are, light and dark, and what each level costs in counts.
+    # Log y, because the light density is ~1e4 times the dark one and a linear axis flattens the
+    # dark curve to zero. A negative density -- the rate RISING with the level, as in the noise
+    # hump of the real tube (measured 2026-11-10) -- has no meaning as a density, so that region
+    # is shaded and named instead of drawn off the bottom of the panel.
     dens = [(r["abs_v"] * 1e3, r["density"]) for r in rows if _math.isfinite(r.get("density", float("nan")))]
-    peak = max((d for v, d in dens if result["peak_v"] is not None and v >= result["peak_v"] * 1e3 - 1e-6), default=None)
-    if result["valley_v"] is not None and peak:
-        c = _Panel(svg, lx, row2, pw, P, (0.0, xmax), (0.0, peak * 1.6))
-        c.frame("(c) pulse-height density, -d(rate)/d(level)", "|discriminator level|, mV", "counts/s per mV")
-        c.series([v for v, _ in dens], [d for _, d in dens], "#34495e", "o", width=1.0)
-        off = [(v, d) for v, d in dens if d > peak * 1.6]
-        if off:
-            c.note(f"noise runs off scale below {max(v for v, _ in off):.1f} mV "
-                   f"(up to {max(d for _, d in off):.3g} counts/s per mV)", corner="br")
-        c.vline(result["valley_v"] * 1e3, _C["valley"], f"valley {result['valley_v'] * 1e3:.1f} mV", "5,3", 1)
-        c.vline(result["peak_v"] * 1e3, "#34495e", f"single-PE peak {result['peak_v'] * 1e3:.1f} mV", "5,3", 2)
+    positive = [(v, d) for v, d in dens if d > 0]
+    dark_dens = []
+    if dark and dark.get("rows"):
+        drows = dark["rows"]
+        for r, d in zip(drows, _differential(drows)):
+            lo = _value_at(drows, r["abs_v"] - DIFF_WINDOW_V)
+            hi = _value_at(drows, r["abs_v"] + DIFF_WINDOW_V)
+            # Thin tails make a differential of noise: only where both ends had real counts.
+            if _math.isfinite(d) and d > 0 and min(lo["counts"], hi["counts"]) >= FOM_MIN_DARK_COUNTS:
+                dark_dens.append((r["abs_v"] * 1e3, d))
+    values = [d for _, d in positive] + [d for _, d in dark_dens]
+    c = _Panel(svg, lx, row2, pw, P, (0.0, xmax),
+               (min(values, default=1.0) / 3, max(values, default=10.0) * 30), log_y=True)
+    c.frame("(c) pulse-height density, light and dark (log)", "|discriminator level|, mV",
+            "counts/s per mV (log)")
+    rising = [v for v, d in dens if d <= 0]
+    if rising:
+        c.band(0.0, max(rising) + 0.1, _C["noise"], "", opacity=0.35)
+        c.note(f"shaded: rate rises with level up to {max(rising):.1f} mV (noise hump), "
+               f"so no density", corner="br", line=0)
+    c.series([v for v, _ in positive], [d for _, d in positive], "#34495e", "o", width=1.0,
+             label="light, this scan")
+    if dark_dens:
+        c.series([v for v, _ in dark_dens], [d for _, d in dark_dens], "#c0392b", "o", width=1.0,
+                 filled=False, label="dark scan, covered tube")
     else:
-        positive = [d for _, d in dens if d > 0]
-        c = _Panel(svg, lx, row2, pw, P, (0.0, xmax), (min(positive, default=1) / 3, max(positive, default=10) * 3), log_y=True)
-        c.frame("(c) pulse-height density (log): NO VALLEY RESOLVED", "|discriminator level|, mV", "counts/s per mV (log)")
-        c.series([v for v, d in dens if d > 0], positive, "#34495e", "o", width=1.0)
-        c.note("noise and single-PE pulses are not separated at this gain", "#c0392b")
+        c.note("dark density NOT SHOWN: no dark scan", "#c0392b", corner="br", line=1)
+    slot = 0
+    if result["valley_v"] is not None:
+        c.vline(result["valley_v"] * 1e3, _C["valley"], f"valley {result['valley_v'] * 1e3:.1f}", "5,3", slot)
+        slot += 1
+    if result["peak_v"] is not None:
+        c.vline(result["peak_v"] * 1e3, "#34495e", f"SPE peak {result['peak_v'] * 1e3:.1f}", "5,3", slot)
+        slot += 1
+    if dark and dark.get("noise_edge_v") is not None:
+        c.vline(dark["noise_edge_v"] * 1e3, _C["edge"], f"dark noise edge {dark['noise_edge_v'] * 1e3:.1f}", "2,3", slot)
+        slot += 1
+    one = (result.get("loss_detail") or {}).get(0.01)
+    if one and one["separable"]:
+        c.vline(one["v"] * 1e3, "#7f8c8d", f"1 % loss {one['v'] * 1e3:.1f}", "4,2", slot)
+    c.legend()
+    # The readout, under the axes: every loss level with its uncertainty and GUI value, or
+    # why it is not given. Spans both columns so no line has to wrap.
+    if readout:
+        by = row2 + P + 48
+        svg.rect(lx - 66, by, W - 2 * (lx - 66), readout_h, fill="#fafafa", stroke="#cccccc")
+        for k, line in enumerate(readout):
+            svg.text(lx - 58, by + 16 + 14 * k, line, 11,
+                     color="#c0392b" if "NOT SEPARABLE" in line else "#222",
+                     weight="bold" if k == 0 or "NOT SEPARABLE" in line else "normal")
 
     # (d) the background-limited figure of merit, which is what picks the level
     if result["fom"]:
@@ -2302,7 +2378,7 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
             "or regenerate this plot from both CSVs: the background-limited optimum needs both.",
         ], 11)
 
-    _text_block(svg, 24, row2 + P + 62, 165, findings)
+    _text_block(svg, 24, row2 + P + 62 + readout_h, 165, findings)
     return svg.render()
 
 
@@ -2334,15 +2410,33 @@ def _dark_findings(result: dict) -> list:
     return out
 
 
+def _loss_lines(result: dict) -> list:
+    """One line per loss level, with its uncertainty and GUI value, or why it is not given."""
+    out = []
+    ref = result.get("reference_v")
+    for loss in LOSS_LEVELS:
+        detail = (result.get("loss_detail") or {}).get(loss)
+        if detail is None:
+            out.append(f"{_pct(loss)} count loss: not reached in the scanned range.")
+        elif not detail["separable"]:
+            out.append(f"{_pct(loss)} count loss: NOT SEPARABLE from the reference {_mv(ref)} "
+                       f"(+-{detail['sigma_mv']:.2f} mV at {result['counts_per_level']:.2g} counts "
+                       f"per level; needs ~{detail['counts_needed']:.1g}).")
+        else:
+            out.append(f"{_pct(loss)} count loss at {detail['settable_v'] * 1e3:.1f} +- "
+                       f"{detail['sigma_mv']:.1f} mV (GUI {_gui_volts(detail['settable_v'])}).")
+    return out
+
+
 def _light_findings(result: dict, dark: dict | None) -> list:
     out = []
     if result["valley_v"] is not None:
         out.append(f"Valley {_mv(result['valley_v'])}, single-PE peak {_mv(result['peak_v'])}, peak/valley {result['pv_ratio']:.2f}.  "
                    f"Rate at the reference level {_mv(result['reference_v'])}: {result['plateau_rate']:.4g} counts/s.")
-    if result["loss_v"]:
-        line = "Counts fall below the reference by " + ", ".join(
-            f"{loss:.0%} at {_mv(v)}" for loss, v in result["loss_v"].items()) + "."
-        out.append("!UNRELIABLE under drift -- " + line if result["drift_flagged"] else line)
+    # The loss levels themselves are in the readout box under panel (c), once. Under drift
+    # they are not to be trusted, and that must be said where they are not.
+    if result["loss_v"] and result["drift_flagged"]:
+        out.append("!UNRELIABLE under drift -- the count-loss levels in the box above.")
     out.append(f"Noise edge {_mv(result['noise_edge_v'])}" + (" (from this session's dark scan)." if dark else
                " (from this scan alone -- judged only against this light level)."))
     if result["drift"] is not None:
@@ -2391,11 +2485,30 @@ def plot_csv(path: str) -> str:
         svg = plot_dark(analyse_dark(data), meta)
     else:
         dark = None
-        if meta.get("dark_csv"):
-            dark_path = os.path.join(os.path.dirname(os.path.abspath(path)), meta["dark_csv"])
-            if os.path.exists(dark_path):
-                _, dark_points = read_scan_csv(dark_path)
-                dark = analyse_dark(dark_points)
+        folder = os.path.dirname(os.path.abspath(path))
+        dark_path = os.path.join(folder, meta["dark_csv"]) if meta.get("dark_csv") else None
+        if dark_path is None or not os.path.exists(dark_path):
+            # A light scan recorded without its dark scan (as before the driver loaded it from
+            # disk) can still be drawn with one: the newest same-port dark CSV beside it that
+            # is not later than the light scan.
+            found = None
+            for name in sorted(os.listdir(folder), reverse=True):
+                if not (name.endswith(".csv") and "dark" in name):
+                    continue
+                try:
+                    dmeta, _ = read_scan_csv(os.path.join(folder, name))
+                except Exception:  # noqa: BLE001
+                    continue
+                if (dmeta.get("kind") == "dark" and dmeta.get("port") == meta.get("port")
+                        and dmeta.get("when", "") <= meta.get("when", "")):
+                    found = name
+                    break
+            if found:
+                dark_path = os.path.join(folder, found)
+                meta = dict(meta, dark_csv=f"{found} (found beside this file)")
+        if dark_path and os.path.exists(dark_path):
+            _, dark_points = read_scan_csv(dark_path)
+            dark = analyse_dark(dark_points)
         svg = plot_light(analyse_light(data, dark), data, dark, meta)
     out = os.path.splitext(path)[0] + ".svg"
     with open(out, "w", encoding="utf-8") as handle:
@@ -2693,8 +2806,8 @@ def run_threshold_scan_light(device) -> tuple:
                         f"peak/valley {result['pv_ratio']:.2f}")
         report.note(f"plateau rate at the reference level {_mv(result['reference_v'])}: "
                     f"{result['plateau_rate']:.4g} cps" if result["plateau_rate"] else "no plateau rate")
-        for loss, v in result["loss_v"].items():
-            report.note(f"counts reduced by {loss:.0%} from: {_mv(v)}")
+        for line in _loss_lines(result):
+            report.note(line)
 
         report.section("drift and hysteresis")
         report.table([(f"repeat {f['repeat']} {f['direction']}",

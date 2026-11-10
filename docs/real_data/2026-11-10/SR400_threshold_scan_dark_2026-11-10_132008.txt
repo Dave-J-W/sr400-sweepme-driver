@@ -1,0 +1,103 @@
+SR400 threshold scan dark
+========================================================================
+when            : 2026-11-10 13:20:08
+port            : GPIB0::23::INSTR
+interface       : GPIB
+driver          : Logger-Stanford_SR400
+
+No instrument storage slot was used: the settings this test changes were saved by
+querying them and restored individually. ST would have clobbered a user setup slot
+and RC 0 would have been destructive, so neither was sent. SE was never sent either
+-- reprogramming the RS-232 terminator mid-test can break communication with no way
+back.
+
+== conditions -- covered R8486
+        Counter A on SIGNAL INPUT 1 through discriminator A, slope FALL, gates CW, one count period at a time (NP 1, EXTERNAL dwell). Count time adapts per threshold. Every count time is rounded up to a settable value and read back, so 'live' is what the SR400 counted.
+        Target 200 counts per threshold (~7 % Poisson), at most 30 s each. Stops after 3 thresholds in a row read zero at the maximum time.
+
+== scan, low to high |level|
+        stopped at 36.0 mV: 3 zero-count thresholds in a row, so the scan is past the dark distribution.
+        |level|    raw counts, live time, rate
+        ---------  ----------------------------------------
+           0.4 mV        389 counts in    0.010 s   3.89e+04 +- 2e+03 cps   log-slope -1.57/mV
+           0.6 mV        623 counts in    0.010 s   6.23e+04 +- 2.5e+03 cps   log-slope -0.73/mV
+           0.8 mV       1204 counts in    0.010 s   1.204e+05 +- 3.5e+03 cps   log-slope 0.48/mV
+           1.0 mV       2129 counts in    0.010 s   2.129e+05 +- 4.6e+03 cps   log-slope 1.60/mV
+           1.2 mV       2322 counts in    0.010 s   2.322e+05 +- 4.8e+03 cps   log-slope 2.06/mV
+           1.4 mV       1873 counts in    0.010 s   1.873e+05 +- 4.3e+03 cps   log-slope 2.22/mV
+           1.6 mV       1297 counts in    0.010 s   1.297e+05 +- 3.6e+03 cps   log-slope 2.35/mV
+           1.8 mV        744 counts in    0.010 s   7.44e+04 +- 2.7e+03 cps   log-slope 2.98/mV
+           2.0 mV        430 counts in    0.010 s   4.3e+04 +- 2.1e+03 cps   log-slope 4.06/mV
+           2.2 mV        295 counts in    0.010 s   2.95e+04 +- 1.7e+03 cps   log-slope 4.59/mV
+           2.4 mV        203 counts in    0.010 s   2.03e+04 +- 1.4e+03 cps   log-slope 4.71/mV
+           2.6 mV        247 counts in    0.020 s   1.235e+04 +- 7.9e+02 cps   log-slope 4.75/mV
+           2.8 mV        227 counts in    0.060 s   3783 +- 2.5e+02 cps   log-slope 3.86/mV
+           3.0 mV        200 counts in    0.270 s   740.7 +- 52 cps   log-slope 2.58/mV
+           3.2 mV        242 counts in    0.810 s   298.8 +- 19 cps   log-slope 2.20/mV
+           3.4 mV        402 counts in    2.210 s   181.9 +- 9.1 cps   log-slope 2.13/mV
+           3.6 mV        235 counts in    2.210 s   106.3 +- 6.9 cps   log-slope 1.96/mV
+           3.8 mV        223 counts in    2.810 s   79.36 +- 5.3 cps   log-slope 2.01/mV
+           4.0 mV        237 counts in    4.210 s   56.29 +- 3.7 cps   log-slope 1.96/mV
+           4.2 mV        265 counts in    8.010 s   33.08 +- 2 cps   log-slope 1.71/mV
+           4.4 mV        221 counts in   10.210 s   21.65 +- 1.5 cps   log-slope 1.64/mV
+           4.6 mV        212 counts in   14.210 s   14.92 +- 1 cps   log-slope 1.42/mV
+           4.8 mV        204 counts in   19.210 s   10.62 +- 0.74 cps   log-slope 1.38/mV
+           5.0 mV        200 counts in   25.210 s   7.933 +- 0.56 cps   log-slope 1.22/mV
+           5.2 mV        180 counts in   30.210 s   5.958 +- 0.44 cps   log-slope 0.71/mV
+           5.4 mV        127 counts in   30.210 s   4.204 +- 0.37 cps   log-slope 0.50/mV
+           5.6 mV        109 counts in   30.210 s   3.608 +- 0.35 cps   log-slope 1.10/mV
+           5.8 mV         81 counts in   30.210 s   2.681 +- 0.3 cps   log-slope 1.03/mV
+           6.0 mV         71 counts in   30.210 s   2.35 +- 0.28 cps   log-slope 0.31/mV
+           6.4 mV         77 counts in   30.210 s   2.549 +- 0.29 cps   log-slope 0.71/mV
+           6.8 mV         29 counts in   30.210 s   0.9599 +- 0.18 cps   log-slope -0.44/mV
+           7.2 mV         49 counts in   30.210 s   1.622 +- 0.23 cps   log-slope 0.28/mV
+           7.6 mV         33 counts in   30.210 s   1.092 +- 0.19 cps   log-slope 0.05/mV
+           8.0 mV         49 counts in   30.210 s   1.622 +- 0.23 cps   log-slope 0.21/mV
+           8.4 mV         35 counts in   30.210 s   1.159 +- 0.2 cps   log-slope 0.25/mV
+           8.8 mV         31 counts in   30.210 s   1.026 +- 0.18 cps   log-slope 0.86/mV
+           9.2 mV         38 counts in   30.210 s   1.258 +- 0.2 cps   log-slope 0.72/mV
+           9.6 mV         26 counts in   30.210 s   0.8606 +- 0.17 cps   log-slope 0.58/mV
+          10.0 mV         11 counts in   30.210 s   0.3641 +- 0.11 cps   log-slope -0.58/mV
+          10.4 mV         16 counts in   30.210 s   0.5296 +- 0.13 cps   log-slope 0.00/mV
+          10.8 mV         13 counts in   30.210 s   0.4303 +- 0.12 cps   log-slope 0.40/mV
+          11.2 mV         22 counts in   30.210 s   0.7282 +- 0.16 cps   log-slope 0.95/mV
+          11.6 mV         16 counts in   30.210 s   0.5296 +- 0.13 cps   log-slope 1.73/mV
+          12.0 mV          8 counts in   30.210 s   0.2648 +- 0.094 cps   log-slope -0.63/mV
+          12.4 mV          7 counts in   30.210 s   0.2317 +- 0.088 cps   log-slope -0.30/mV
+          12.8 mV          2 counts in   30.210 s   0.0662 +- 0.047 cps   log-slope -0.34/mV
+          13.2 mV         17 counts in   30.210 s   0.5627 +- 0.14 cps   log-slope 1.78/mV
+          13.6 mV         10 counts in   30.210 s   0.331 +- 0.1 cps   log-slope 0.58/mV
+          14.0 mV          3 counts in   30.210 s   0.0993 +- 0.057 cps   log-slope -0.58/mV
+          14.4 mV          2 counts in   30.210 s   0.0662 +- 0.047 cps   log-slope -0.25/mV
+          14.8 mV          5 counts in   30.210 s   0.1655 +- 0.074 cps   log-slope 0.43/mV
+          15.2 mV          6 counts in   30.210 s   0.1986 +- 0.081 cps   log-slope 0.64/mV
+          16.0 mV          3 counts in   30.210 s   0.0993 +- 0.057 cps   log-slope 0.55/mV
+          18.0 mV          1 counts in   30.210 s   0.0331 +- 0.033 cps   log-slope -0.35/mV
+          20.0 mV          2 counts in   30.210 s   0.0662 +- 0.047 cps   log-slope 0.35/mV
+          22.0 mV          1 counts in   30.210 s   0.0331 +- 0.033 cps   log-slope 0.00/mV
+          24.0 mV          1 counts in   30.210 s   0.0331 +- 0.033 cps   log-slope -0.27/mV
+          26.0 mV          0 counts in   30.210 s   < 0.0993 cps (95 %)
+          28.0 mV          3 counts in   30.210 s   0.0993 +- 0.057 cps   log-slope 0.55/mV
+          30.0 mV          1 counts in   30.210 s   0.0331 +- 0.033 cps
+          32.0 mV          0 counts in   30.210 s   < 0.0993 cps (95 %)
+          34.0 mV          0 counts in   30.210 s   < 0.0993 cps (95 %)
+          36.0 mV          0 counts in   30.210 s   < 0.0993 cps (95 %)
+
+== findings
+  ok    the scan is a valid covered-PMT measurement
+        noise edge (heuristic, log-slope < 0.5/mV over 1 mV): 0.4 mV
+        dark counts vanish (zero at 30 s) from: 32.0 mV
+        LOWER BOUND for the operating threshold: 1.0 mV (noise edge + 0.5 mV).
+        That is below 10 mV, where the manual warns of DISC pickup. This scan shows whether it happened in THIS cabling; keep the cables where they are.
+        Do NOT choose the level where dark counts vanish. It is above most single-PE pulses too, so it throws signal away. Run run_threshold_scan_light to measure how much: its report gives the loss at that level, and the upper bound.
+
+== restore
+  ok    every changed setting was restored (unrestored: none)
+        No storage slot was used; ST, RC and SE were never sent.
+
+========================================================================
+2/2 checks passed
+
+Companion files, same folder:
+  SR400_threshold_scan_dark_2026-11-10_132008.csv   raw data, one row per measurement
+  SR400_threshold_scan_dark_2026-11-10_132008.svg   plot -- opens in any web browser

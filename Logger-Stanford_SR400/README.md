@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "515/515 checks passed"
+python tests/test_sr400_virtual.py   # expect "558/558 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -989,13 +989,21 @@ multiple of the discriminator's 0.2 mV resolution, so every level in the report 
 actually applied.
 
 **Dark (covered tube) — the lower bound.** Sweeps upward with **adaptive count times**: each
-threshold counts until 200 counts (~7 % Poisson) or 30 s, whichever first, the next period sized
-from the rate so far and every period rounded *up* to a settable count time and read back. At the
-measured ~8 cps the plateau thresholds take the full 30 s, so the scan runs about 15–20 minutes. It
-stops after three consecutive zero-count thresholds. It reports:
+threshold counts to 500 counts (~4.5 % Poisson) where that takes under 10 s, and otherwise to 200
+counts (~7 %) or 30 s, whichever first. The next period is sized from the rate so far, and every
+period is rounded *up* to a settable count time and read back. Once the rate is below 1 cps at two
+thresholds in a row, the scan steps 2 mV at a time. It stops after three consecutive zero-count
+thresholds. The first real scan (2026-11-10) took 21 minutes on the earlier, finer rules; the
+current rules take about 16 minutes on its rates. The 500-count, 10 s and 1 cps values are
+**provisional**, from that one scan. It reports:
 
-- the **noise edge** — where the log-slope of the curve drops below 0.5 /mV over a 1 mV baseline
-  (heuristic, and labelled so). The lower bound is the noise edge + 0.5 mV.
+- the **noise edge** — searched from the **rate maximum** upward, where the log-slope of the curve
+  drops below 1.0 /mV over a 1 mV baseline (heuristic, and labelled so). The lower bound is the
+  noise edge + 0.5 mV. The search starts at the maximum because a real tube's rate *rises* with
+  the threshold below about 1.2 mV, a noise hump. The first version started at the lowest level,
+  read that rise as flat, and reported 1.0 mV for the real scan. The current code gives 5.2 mV,
+  lower bound 5.8 mV. The 1.0 /mV limit separates that scan's noise roll-off (1.2–4.8 /mV) from
+  its dark tail (0.3–0.7 /mV), and is provisional until more scans confirm it.
 - where **dark counts vanish**. *That is not the operating point*: a level that kills every dark
   count is above most single-PE pulses too. The light scan measures what it costs.
 - anything above 1 Mcps as electronic noise, DISC pickup or oscillation, not dark counts.
@@ -1007,8 +1015,18 @@ reaching the tube) or the lowest threshold reads nothing at all (cable or HV).
 below 2000 cps (or 20× the dark rate) there is no usable light; above 1 Mcps dead-time loss would
 bend the curve, and both stop before sweeping. Then **three repeats of an up pass and a down
 pass**, 10 000 counts (~1 %) per threshold per pass. It reports the valley of the pulse-height
-density, the levels where counts fall 1/2/5/10 % below the valley rate, and — with this session's
-dark scan — the photon loss at the level where dark counts vanished.
+density, and the levels where counts fall 0.1/1/2/5/10 % below the valley rate. Each level comes
+with its uncertainty in mV, from the Poisson uncertainty of the two rates it compares, and with
+the settable GUI value. A loss that sits within its own uncertainty of the reference is reported
+**NOT SEPARABLE**, with the counts per level it would need, instead of as a level. On the real scan
+that is 0.1 %, at ~7e4 counts per level, where ~8e6 would be needed. With a dark scan it also
+gives the photon loss at the level where dark counts vanished.
+
+**Which dark scan.** The one from this SweepMe! session if there is one. Otherwise the newest
+valid dark-scan CSV for the same port in the results folder, read back and re-analysed by the
+current code. The report names the file and its age, and flags it if it is over 24 h old.
+`selftest.py plot` does the same for a light CSV whose header names no dark scan: it uses the
+newest same-port dark CSV beside it that is not later than the light scan.
 
 *Drift and hysteresis are separated by signature, not lumped.* Each pass's light level, measured on
 the near-flat region, is fitted as `c + a·(time) + η·(direction)`. Drift is the time term over the
@@ -1026,8 +1044,10 @@ together and S/√B only drops. Levels with fewer than 20 dark counts are not sc
 background estimate would make any SNR look enormous. It assumes a weak signal; for S ≫ B the
 optimum moves down. Without a dark scan it falls back to the valley, and says so.
 
-On the simulated tube (noise edge 5.6 mV, valley 4.8 mV) the optimum is **−6.4 mV, counting ~90 %
-of photons**, with S/√B within 5 % of best from about 6.0 to 7.6 mV. At 15.2 mV it has fallen to ~0.34
+On the simulated tube (noise edge 5.2 mV, valley 4.8 mV) the optimum is **−6.4 mV, counting ~90 %
+of photons**, with S/√B within 5 % of best from about 6.0 to 7.6 mV. On the real tube (2026-11-10)
+it is **−6.8 mV, counting 76 %**, and the curve is jagged because the real dark tail is thin. See
+[`docs/SIMULATED_VS_REAL.md`](../docs/SIMULATED_VS_REAL.md). At 15.2 mV it has fallen to ~0.34
 of best. The strict window — noise edge to 1 % loss — is *empty* there, which the report states
 rather than treating as a failure. For the R8486 at 1000 V that is expected and is the evidence for
 the Stage 2 preamp. Below 10 mV any recommendation is valid only with the cables exactly as they

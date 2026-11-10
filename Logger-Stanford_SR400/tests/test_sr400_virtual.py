@@ -2953,6 +2953,55 @@ def test_real_dark_scan(driver):
     check(st._gui_volts(bound) == -0.0058, "and its GUI value is -0.0058 V")
 
 
+def test_real_scans_in_repo(driver):
+    print("\n[23e] the real 2026-11-10 scans in docs/real_data: figures, loss levels, dark found beside")
+
+    import shutil
+    import tempfile
+
+    st = driver.selftest
+    real = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "docs", "real_data", "2026-11-10")
+    dark_name = "SR400_threshold_scan_dark_2026-11-10_132008"
+    light_name = "SR400_threshold_scan_light_2026-11-10_135935"
+    for name in (dark_name, light_name):
+        for suffix in (".csv", ".txt", ".svg"):
+            check(os.path.exists(os.path.join(real, name + suffix)), f"docs/real_data/2026-11-10/{name}{suffix} is committed")
+    if not os.path.exists(os.path.join(real, light_name + ".csv")):
+        return
+
+    # The figures are regenerated from the raw CSVs, in a scratch folder, and must match.
+    work = tempfile.mkdtemp(prefix="sr400_real_")
+    for name in (dark_name, light_name):
+        shutil.copy(os.path.join(real, name + ".csv"), work)
+    for name in (dark_name, light_name):
+        fresh = open(st.plot_csv(os.path.join(work, name + ".csv")), encoding="utf-8").read()
+        published = open(os.path.join(real, name + ".svg"), encoding="utf-8").read()
+        check(fresh == published, f"{name}.svg is exactly what selftest.py plot makes from its CSV -- "
+                                  f"if not, regenerate it")
+    light_svg = open(os.path.join(real, light_name + ".svg"), encoding="utf-8").read()
+    check("found beside this file" in light_svg,
+          "the light CSV names no dark scan, so plot finds the dark CSV beside it, and says so")
+    check("dark scan, covered tube" in light_svg, "panel (c) draws the dark density alongside the light")
+    check("NOT SEPARABLE" in light_svg, "and its readout refuses the 0.1 % level rather than print it")
+
+    # The real light scan, analysed with the real dark scan.
+    _, dark_points = st.read_scan_csv(os.path.join(real, dark_name + ".csv"))
+    _, passes = st.read_scan_csv(os.path.join(real, light_name + ".csv"))
+    dark = st.analyse_dark(dark_points)
+    result = st.analyse_light(passes, dark)
+    check(abs(result["valley_v"] - 0.004) < 1e-9 and abs(result["peak_v"] - 0.008) < 1e-9,
+          f"the real tube's valley is 4.0 mV and its single-PE peak 8.0 mV "
+          f"(got {result['valley_v']}, {result['peak_v']})")
+    tenth, one = result["loss_detail"][0.001], result["loss_detail"][0.01]
+    check(tenth is not None and not tenth["separable"],
+          f"0.1 % loss is not separable from the reference at ~7e4 counts per level (got {tenth})")
+    check(one is not None and one["separable"] and abs(one["settable_v"] - 0.0042) < 1e-9
+          and st._gui_volts(one["settable_v"]) == -0.0042,
+          f"1 % loss is at the settable 4.2 mV, GUI -0.0042 (got {one})")
+    check(0.05 < one["sigma_mv"] < 0.2, f"with an honest uncertainty of about 0.1 mV (got {one['sigma_mv']:.3f})")
+
+
 def test_threshold_scans(driver):
     print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")
 
@@ -3441,6 +3490,7 @@ def main() -> int:
         test_end_of_run_tests,
         test_gpib_drain,
         test_real_dark_scan,
+        test_real_scans_in_repo,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,

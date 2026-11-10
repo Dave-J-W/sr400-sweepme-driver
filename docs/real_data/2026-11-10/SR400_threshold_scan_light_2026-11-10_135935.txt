@@ -1,0 +1,130 @@
+SR400 threshold scan light
+========================================================================
+when            : 2026-11-10 13:59:35
+port            : GPIB0::23::INSTR
+interface       : GPIB
+driver          : Logger-Stanford_SR400
+
+No instrument storage slot was used: the settings this test changes were saved by
+querying them and restored individually. ST would have clobbered a user setup slot
+and RC 0 would have been destructive, so neither was sent. SE was never sent either
+-- reprogramming the RS-232 terminator mid-test can break communication with no way
+back.
+
+== conditions -- gentle, steady light on the R8486
+        Counter A on SIGNAL INPUT 1 through discriminator A, slope FALL, gates CW, one count period at a time (NP 1, EXTERNAL dwell). Count time adapts per threshold. Every count time is rounded up to a settable value and read back, so 'live' is what the SR400 counted.
+        3 repeats of an up pass then a down pass, target 10000 counts per threshold per pass (~1 % Poisson). Up versus down measures hysteresis; pass to pass measures drift.
+
+== probe
+        13286 counts in 0.040 s at 6.0 mV = 3.322e+05 cps
+  ok    there is light, and it is gentle enough (3.322e+05 cps)
+        Above 2e+05 cps: dead-time loss is no longer negligible at the 1 % level this scan resolves. Dimmer is better.
+
+== repeat 1, up
+
+== repeat 1, down
+
+== repeat 2, up
+
+== repeat 2, down
+
+== repeat 3, up
+
+== repeat 3, down
+        |level|    raw counts, live time, rate
+        ---------  ----------------------------------------
+           0.4 mV      78674 counts in    1.760 s   4.47e+04 +- 1.6e+02 cps   density -2.019e+05 cps/mV
+           0.6 mV      95996 counts in    1.260 s   7.619e+04 +- 2.5e+02 cps   density -2.473e+05 cps/mV
+           0.8 mV      66505 counts in    0.530 s   1.255e+05 +- 4.9e+02 cps   density -3.099e+05 cps/mV
+           1.0 mV      69499 counts in    0.360 s   1.931e+05 +- 7.3e+02 cps   density -4.271e+05 cps/mV
+           1.2 mV      70230 counts in    0.240 s   2.926e+05 +- 1.1e+03 cps   density -4.354e+05 cps/mV
+           1.4 mV      75210 counts in    0.180 s   4.178e+05 +- 1.5e+03 cps   density -4.478e+05 cps/mV
+           1.6 mV      81851 counts in    0.160 s   5.116e+05 +- 1.8e+03 cps   density -2.673e+05 cps/mV
+           1.8 mV      68789 counts in    0.120 s   5.732e+05 +- 2.2e+03 cps   density -2.673e+05 cps/mV
+           2.0 mV      70491 counts in    0.120 s   5.874e+05 +- 2.2e+03 cps   density -5366 cps/mV
+           2.2 mV      67196 counts in    0.120 s   5.6e+05 +- 2.2e+03 cps   density 1.689e+05 cps/mV
+           2.4 mV      87176 counts in    0.180 s   4.843e+05 +- 1.6e+03 cps   density 1.689e+05 cps/mV
+           2.6 mV      76369 counts in    0.180 s   4.243e+05 +- 1.5e+03 cps   density 1.861e+05 cps/mV
+           2.8 mV      72776 counts in    0.180 s   4.043e+05 +- 1.5e+03 cps   density 1.646e+05 cps/mV
+           3.0 mV      72241 counts in    0.180 s   4.013e+05 +- 1.5e+03 cps   density 3.975e+04 cps/mV
+           3.2 mV      71171 counts in    0.180 s   3.954e+05 +- 1.5e+03 cps   density 2.532e+04 cps/mV
+           3.4 mV      69569 counts in    0.180 s   3.865e+05 +- 1.5e+03 cps   density 2.532e+04 cps/mV
+           3.6 mV      69214 counts in    0.180 s   3.845e+05 +- 1.5e+03 cps   density 2.433e+04 cps/mV
+           3.8 mV      68218 counts in    0.180 s   3.79e+05 +- 1.5e+03 cps   density 2.236e+04 cps/mV
+           4.0 mV      67862 counts in    0.180 s   3.77e+05 +- 1.4e+03 cps   density 1.638e+04 cps/mV
+           4.2 mV      67147 counts in    0.180 s   3.73e+05 +- 1.4e+03 cps   density 1.638e+04 cps/mV
+           4.4 mV      70559 counts in    0.190 s   3.714e+05 +- 1.4e+03 cps   density 1.689e+04 cps/mV
+           4.6 mV      66266 counts in    0.180 s   3.681e+05 +- 1.4e+03 cps   density 2.344e+04 cps/mV
+           4.8 mV      65430 counts in    0.180 s   3.635e+05 +- 1.4e+03 cps   density 2.416e+04 cps/mV
+           5.0 mV      68025 counts in    0.190 s   3.58e+05 +- 1.4e+03 cps   density 3.041e+04 cps/mV
+           5.2 mV      80242 counts in    0.230 s   3.489e+05 +- 1.2e+03 cps   density 2.863e+04 cps/mV
+           5.4 mV      82516 counts in    0.240 s   3.438e+05 +- 1.2e+03 cps   density 3.221e+04 cps/mV
+           5.6 mV      81721 counts in    0.240 s   3.405e+05 +- 1.2e+03 cps   density 3.004e+04 cps/mV
+           5.8 mV      80109 counts in    0.240 s   3.338e+05 +- 1.2e+03 cps   density 3.499e+04 cps/mV
+           6.0 mV      77963 counts in    0.240 s   3.248e+05 +- 1.2e+03 cps   density 3.692e+04 cps/mV
+           6.4 mV      73655 counts in    0.240 s   3.069e+05 +- 1.1e+03 cps   density 4.967e+04 cps/mV
+           6.8 mV      68426 counts in    0.240 s   2.851e+05 +- 1.1e+03 cps   density 5.529e+04 cps/mV
+           7.2 mV      73545 counts in    0.280 s   2.627e+05 +- 9.7e+02 cps   density 5.376e+04 cps/mV
+           7.6 mV      72631 counts in    0.300 s   2.421e+05 +- 9e+02 cps   density 5.353e+04 cps/mV
+           8.0 mV      70348 counts in    0.320 s   2.198e+05 +- 8.3e+02 cps   density 5.65e+04 cps/mV
+           8.4 mV      70886 counts in    0.360 s   1.969e+05 +- 7.4e+02 cps   density 5.37e+04 cps/mV
+           8.8 mV      68983 counts in    0.390 s   1.769e+05 +- 6.7e+02 cps   density 5.045e+04 cps/mV
+           9.2 mV      67316 counts in    0.430 s   1.565e+05 +- 6e+02 cps   density 5.105e+04 cps/mV
+           9.6 mV      69380 counts in    0.510 s   1.36e+05 +- 5.2e+02 cps   density 4.577e+04 cps/mV
+          10.0 mV      69561 counts in    0.580 s   1.199e+05 +- 4.5e+02 cps   density 4.035e+04 cps/mV
+          10.4 mV      89230 counts in    0.860 s   1.038e+05 +- 3.5e+02 cps   density 3.672e+04 cps/mV
+          10.8 mV     114101 counts in    1.260 s   9.056e+04 +- 2.7e+02 cps   density 3.325e+04 cps/mV
+          11.2 mV      97214 counts in    1.260 s   7.715e+04 +- 2.5e+02 cps   density 2.964e+04 cps/mV
+          11.6 mV      84221 counts in    1.260 s   6.684e+04 +- 2.3e+02 cps   density 2.47e+04 cps/mV
+          12.0 mV      72316 counts in    1.260 s   5.739e+04 +- 2.1e+02 cps   density 2.183e+04 cps/mV
+          12.4 mV      86900 counts in    1.760 s   4.937e+04 +- 1.7e+02 cps   density 1.887e+04 cps/mV
+          12.8 mV      78675 counts in    1.860 s   4.23e+04 +- 1.5e+02 cps   density 1.695e+04 cps/mV
+          13.2 mV      77362 counts in    2.160 s   3.582e+04 +- 1.3e+02 cps   density 1.484e+04 cps/mV
+          13.6 mV      72113 counts in    2.370 s   3.043e+04 +- 1.1e+02 cps   density 1.311e+04 cps/mV
+          14.0 mV      69915 counts in    2.760 s   2.533e+04 +- 96 cps   density 1.114e+04 cps/mV
+          14.4 mV      74451 counts in    3.460 s   2.152e+04 +- 79 cps   density 9171 cps/mV
+          14.8 mV      67661 counts in    3.760 s   1.799e+04 +- 69 cps   density 8204 cps/mV
+          15.2 mV      71184 counts in    4.760 s   1.495e+04 +- 56 cps   density 6462 cps/mV
+          16.0 mV     103024 counts in   10.060 s   1.024e+04 +- 32 cps   density 5892 cps/mV
+          18.0 mV      88427 counts in   23.060 s   3835 +- 13 cps   density nan cps/mV
+
+== findings
+  ok    the scan is a valid light measurement
+        noise edge: 0.4 mV (from this scan; run the dark scan for a better one)
+        valley: 4.0 mV, single-PE peak 8.0 mV, peak/valley 3.45
+        plateau rate at the reference level 4.0 mV: 3.77e+05 cps
+        counts reduced by 1% from: 4.2 mV
+        counts reduced by 2% from: 4.5 mV
+        counts reduced by 5% from: 5.0 mV
+        counts reduced by 10% from: 5.6 mV
+
+== drift and hysteresis
+        pass, in time order  light level relative to the mean
+        -------------------  ----------------------------------------
+        repeat 1 up          x0.9963 +- 0.0052
+        repeat 1 down        x1.0038 +- 0.0054
+        repeat 2 up          x1.0083 +- 0.0054
+        repeat 2 down        x1.0041 +- 0.0054
+        repeat 3 up          x0.9927 +- 0.0055
+        repeat 3 down        x0.9953 +- 0.0055
+  ok    the light stayed steady: 0.90% trend over the scan, 0.90% left after removing it
+        up-versus-down light-level offset on the flat region: -0.23% -- hysteresis leaking onto a region that is not quite flat; it is kept out of the drift figure.
+  ok    no discriminator hysteresis: up-minus-down shift +0.031 +- 0.011 mV on the shoulder
+
+== recommendation
+        RECOMMENDED A DISC LVL: -4.0 mV, FALL.
+        Basis: valley of the pulse-height density. No dark scan this session, so noise was judged only against this light level -- run the dark scan for the optimum.
+        It counts 100.0% of the photons counted at the reference level 4.0 mV.
+        Strict window, noise edge to 1 % loss: 0.4 mV to 4.2 mV.
+        Below 10 mV: valid only with the cables exactly as they were for this scan (manual p. 22, DISC pickup).
+
+== restore
+  ok    every changed setting was restored (unrestored: none)
+        No storage slot was used; ST, RC and SE were never sent.
+
+========================================================================
+5/5 checks passed
+
+Companion files, same folder:
+  SR400_threshold_scan_light_2026-11-10_135935.csv   raw data, one row per measurement
+  SR400_threshold_scan_light_2026-11-10_135935.svg   plot -- opens in any web browser
