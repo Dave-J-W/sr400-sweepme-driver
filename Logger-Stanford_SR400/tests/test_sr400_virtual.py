@@ -2678,6 +2678,28 @@ def test_end_of_run_tests(driver):
             f"tier 1 runs in deinitialize() over GPIB and passes 22/22 (got {boxes})",
         )
 
+        # --- every test leaves a row in the running log beside its report --------------
+        import csv
+
+        log_path = os.path.join(tmpdir, "Logger-Stanford_SR400", st.Report.LOG_NAME)
+        check(os.path.exists(log_path), f"a test log is written beside the reports ({log_path})")
+        check(any("Test log" in m for m, _ in boxes), "and the summary names it")
+        with open(log_path, newline="", encoding="utf-8") as handle:
+            rows_before = list(csv.DictReader(handle))
+        last = rows_before[-1] if rows_before else {}
+        check(
+            last.get("test") == "self-test tier 1" and last.get("result") == "PASS"
+            and last.get("passed") == "22" and last.get("port") == "GPIB0::23::INSTR"
+            and os.path.exists(last.get("report", "")),
+            f"its last row records this tier-1 run and points at the report (got {last})",
+        )
+        sr400, device, boxes = run_device(**{labels[0]: True})
+        device.deinitialize()
+        with open(log_path, newline="", encoding="utf-8") as handle:
+            rows_after = list(csv.DictReader(handle))
+        check(len(rows_after) == len(rows_before) + 1,
+              f"a second test appends one row, not a new file ({len(rows_before)} -> {len(rows_after)})")
+
         # --- a failing test is reported, not raised -----------------------------------
         st.run_tier1 = lambda device: (FakeReport(failures=["known-answer count wrong"]), None)
         sr400, device, boxes = run_device(**{labels[0]: True})
@@ -2865,6 +2887,33 @@ def test_threshold_scans(driver):
     after = _instrument_snapshot(sr400)
     differing = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
     check(not differing, f"the light scan restored every setting (differing: {differing})")
+
+    # --- the test log carries the thresholds as numbers, signed as typed into the GUI ---
+    import csv
+
+    with open(os.path.join(_report_dir(tmpdir), st.Report.LOG_NAME), newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    dark_rows = [r for r in rows if r["test"] == "threshold scan dark"]
+    light_rows = [r for r in rows if r["test"] == "threshold scan light"]
+    dark_row = dark_rows[-1] if dark_rows else {}
+    light_row = light_rows[-1] if light_rows else {}
+    if dark:
+        check(
+            dark_row.get("lower_bound_V") == str(round(-dark["lower_bound_v"], 4))
+            and dark_row.get("dark_counts_vanish_V") == str(round(-dark["vanish_v"], 4)),
+            f"the dark row logs its lower bound and vanish level in GUI volts (got {dark_row})",
+        )
+    if rec is not None:
+        check(
+            light_row.get("recommended_disc_A_level_V") == str(round(-rec, 4)),
+            f"the light row logs the recommended level, ready to type in (got "
+            f"{light_row.get('recommended_disc_A_level_V')!r}, report says -{rec * 1e3:.1f} mV)",
+        )
+    fraction = light_row.get("photons_counted_at_recommended", "")
+    check(fraction != "" and 0.0 < float(fraction) <= 1.0,
+          f"and the fraction of photons counted there (got {fraction!r})")
+    check(light_row.get("upper_bound_1pct_loss_V", "") != "",
+          f"and the 1 %-loss upper bound (got {light_row.get('upper_bound_1pct_loss_V')!r})")
 
     # --- light with no dark scan: still recommends, says why it is weaker --------
     sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)

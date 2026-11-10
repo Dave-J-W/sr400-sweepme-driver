@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "497/497 checks passed"
+python tests/test_sr400_virtual.py   # expect "505/505 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -904,7 +904,24 @@ C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
     SR400_self_test_tier_2_loopback_<timestamp>.txt
     SR400_threshold_scan_dark_<timestamp>.txt    .csv    .svg
     SR400_threshold_scan_light_<timestamp>.txt   .csv    .svg
+    SR400_test_log.csv                           one row per test, appended
 ```
+
+**`SR400_test_log.csv` is the running log across all of them.** Each test appends one row: when,
+which test, PASS/FAIL/ABORTED, the headline, the pass count, the port, the first failure and the
+path of the full report. The threshold scans also fill their numbers in, in volts and signed as
+typed into *Discriminator A level in V* (−6.4 mV is `-0.0064`):
+
+| Column | Filled by | Meaning |
+|---|---|---|
+| `recommended_disc_A_level_V` | light scan | the recommended operating threshold |
+| `photons_counted_at_recommended` | light scan | fraction of photons counted there, against the reference level |
+| `upper_bound_1pct_loss_V` | light scan | the level at which 1 % of photons are lost |
+| `lower_bound_V` | dark scan | noise edge + 0.5 mV: go no lower than this |
+| `dark_counts_vanish_V` | dark scan | where dark counts stop. Not a good operating point (§9.7) |
+
+A column is blank when that test does not produce the number, or refused to. A log that cannot
+be written never costs the report, and the final message says so.
 
 That is `get_folder("DATADEVICES")`: public, persistent, and findable on a remote machine without
 knowing which user ran SweepMe!. It is deliberately not `get_folder("TEMP")`, which SweepMe! uses

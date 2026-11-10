@@ -54,6 +54,13 @@ Newest first. Gotcha and section numbers refer to
 
 ### Added
 
+- **A running test log, `SR400_test_log.csv`**, beside the reports in DataDevices. Every self-test
+  and threshold scan appends one row: when, which test, PASS/FAIL/ABORTED, the headline, the pass
+  count, the port and the report's path. The scans also fill in their thresholds as numbers, in
+  GUI volts: the recommended level, the fraction of photons counted there and the 1 %-loss upper
+  bound from the light scan, and the lower bound and dark-vanish level from the dark scan. Each
+  summary message names the log. Driver README **§9.6**.
+
 - **[`THRESHOLD_SCAN_GUIDE.md`](Logger-Stanford_SR400/THRESHOLD_SCAN_GUIDE.md)**, a step-by-step
   operator's guide to the threshold scans, written for someone who has just learned what the
   discriminator threshold is. It covers what the scans are looking for and why "zero dark counts"

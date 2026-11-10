@@ -240,6 +240,11 @@ C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
 
 and the same three for the light scan. The final message of each scan gives the exact paths.
 
+The same folder also holds **`SR400_test_log.csv`**, with one row per scan or self-test, ever.
+It is the quickest place to find a past result: the light scan's row has the recommended level in
+`recommended_disc_A_level_V`, already in volts and signed, ready to type in. The dark scan's row has
+the lower bound and where dark counts vanish.
+
 **To get help with a result, send all six files.** The CSV files hold the raw data, so anyone can
 redraw the figures from them. On a machine with Python, put both CSV files in one folder and run:
 

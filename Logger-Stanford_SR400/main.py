@@ -1975,6 +1975,10 @@ class Device(EmptyDevice):
         for suffix, label in ((".svg", "Plot (opens in any web browser)"), (".csv", "Raw data")):
             if suffix in getattr(report, "extra_paths", {}):
                 summary += f"\n{label}:\n  {report.extra_paths[suffix]}"
+        if getattr(report, "log_error", ""):
+            summary += f"\n\nThe test log could not be updated ({report.log_error})."
+        elif getattr(report, "log_path", ""):
+            summary += f"\nTest log (one row per test):\n  {report.log_path}"
         return summary
 
     def _run_self_test(self, tier: str, runner_name: str, prompt: str = "") -> None:

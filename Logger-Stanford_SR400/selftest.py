@@ -18,6 +18,11 @@ import os
 import time
 
 
+def _gui_volts(magnitude_v):
+    """A threshold magnitude as typed into the GUI: negative volts, 0.1 mV resolution; '' if None."""
+    return "" if magnitude_v is None else round(-abs(magnitude_v), 4)
+
+
 class Report:
     """A check accumulator that also builds the report file.
 
@@ -36,6 +41,10 @@ class Report:
         self.write_error = ""
         self.headline = ""  # one-line result for the end-of-run message
         self.extra_paths: dict = {}  # suffix -> path of each companion file written
+        self.log_path = ""  # the running test log this report was appended to
+        # Results worth a column of their own in the test log, keyed by LOG_COLUMNS name.
+        self.values: dict = {}
+        self.log_error = ""
 
     # -- accumulating -------------------------------------------------------
     def check(self, condition: bool, description: str) -> bool:
@@ -129,12 +138,62 @@ class Report:
                     with open(extra, "w", encoding="utf-8") as handle:
                         handle.write(content)
                     self.extra_paths[suffix] = extra
+                self._append_to_log(folder, timestamp, path)
                 return path
             except Exception as exc:  # noqa: BLE001 -- try the next location
                 errors.append(f"{identifier}: {type(exc).__name__}: {exc}")
 
         self.write_error = "; ".join(errors)
         return ""
+
+    LOG_NAME = "SR400_test_log.csv"
+    # The threshold columns are in volts, signed as typed into 'Discriminator A level in V'
+    # (the R8486's pulses are negative, slope FALL): -6.4 mV is -0.0064. Blank when a test does
+    # not produce that number, or refused to.
+    LOG_COLUMNS = ("when", "test", "result",
+                   "recommended_disc_A_level_V", "photons_counted_at_recommended",
+                   "lower_bound_V", "upper_bound_1pct_loss_V", "dark_counts_vanish_V",
+                   "headline", "passed", "checks", "port", "interface", "first_failure", "report")
+
+    def _append_to_log(self, folder: str, timestamp: str, report_path: str) -> None:
+        """Append one row for this test to the running test log beside the reports.
+
+        The reports are one file per test; the log is the index across them, so the history of
+        an instrument is one file to open. A log that cannot be written never costs the report,
+        which is already on disk: the reason is kept in log_error instead.
+        """
+        import csv  # noqa: PLC0415
+
+        self.log_path = os.path.join(folder, self.LOG_NAME)
+        self.log_error = ""
+        if self.aborted:
+            result = "ABORTED"
+        elif self.failures:
+            result = "FAIL"
+        else:
+            result = "PASS"
+        row = {
+            "when": timestamp,
+            "test": self.title,
+            "port": self.device.port_string or "(none)",
+            "interface": "RS-232" if self.device.is_rs232 else "GPIB",
+            "result": result,
+            "passed": self.passed,
+            "checks": self.checks,
+            "headline": self.headline,
+            "first_failure": self.failures[0] if self.failures else "",
+            "report": report_path,
+        }
+        row.update({key: value for key, value in self.values.items() if key in self.LOG_COLUMNS})
+        try:
+            new = not os.path.exists(self.log_path)
+            with open(self.log_path, "a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=self.LOG_COLUMNS)
+                if new:
+                    writer.writeheader()
+                writer.writerow(row)
+        except Exception as exc:  # noqa: BLE001
+            self.log_error = f"{type(exc).__name__}: {exc}"
 
 
 # ==========================================================================
@@ -2370,6 +2429,9 @@ def run_threshold_scan_dark(device) -> tuple:
             "how much: its report gives the loss at that level, and the upper bound.",
         )
 
+        if result["valid"] and result["lower_bound_v"] is not None:
+            report.values["lower_bound_V"] = _gui_volts(result["lower_bound_v"])
+            report.values["dark_counts_vanish_V"] = _gui_volts(result["vanish_v"])
         report.headline = (
             f"lower bound {_mv(result['lower_bound_v'])}, dark counts vanish from "
             f"{_mv(result['vanish_v'])}" if result["valid"] and result["lower_bound_v"] is not None
@@ -2548,6 +2610,13 @@ def run_threshold_scan_light(device) -> tuple:
             if result["recommended_v"] < PICKUP_SAFE_V:
                 report.note("Below 10 mV: valid only with the cables exactly as they were for "
                             "this scan (manual p. 22, DISC pickup).")
+            report.values.update({
+                "recommended_disc_A_level_V": _gui_volts(result["recommended_v"]),
+                "photons_counted_at_recommended": round(1.0 - result["recommended_loss"], 4),
+                # lower_bound_V stays the dark scan's column (noise edge + 0.5 mV); the light
+                # scan's own noise edge is in its report, under the strict window.
+                "upper_bound_1pct_loss_V": _gui_volts(high),
+            })
             report.headline = (
                 f"recommended A DISC LVL -{result['recommended_v'] * 1e3:.1f} mV, counting "
                 f"{1.0 - result['recommended_loss']:.0%} of photons"
