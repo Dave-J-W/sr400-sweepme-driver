@@ -79,14 +79,15 @@ The recommended level is **advice for you to enter**, not something the scan app
    End-of-run tests), then start a short run. The scan starts after the run's last point.
 3. A message appears: *"Cover the R8486 and make sure NO light can reach it…"*. Check, then
    press **OK**.
-4. Wait. The first real scan took **21 minutes**; with the current sampling the same tube takes
-   about **16**. A covered R8486 gives only a few counts per second, so each threshold above the
-   noise needs up to 30 s to collect enough counts to be meaningful. Once the rate stays below
-   1 count per second, the scan steps 2 mV at a time. **SweepMe!'s debug log shows one line per
+4. Wait. The first real scan took **21 minutes**; with the current rules the same tube takes
+   about **10**, ending near 14 mV. A covered R8486 gives only a few counts per second, so each
+   threshold above the noise needs up to 30 s to collect enough counts to be meaningful. Once the
+   rate stays below 1 count per second, the scan steps 2 mV at a time. It stops once three
+   thresholds in a row are below 0.5 counts per second, because the tail beyond sets no bound. **SweepMe!'s debug log shows one line per
    threshold**, with the time elapsed and an upper bound on the time left. **Don't touch the bench
    or uncover the PMT.**
-5. A final message gives a one-line result, for example *"lower bound 6.2 mV, dark counts vanish
-   from 20.0 mV"*, and the paths of three files.
+5. A final message gives a one-line result, for example *"lower bound 5.8 mV (GUI -0.0058)"*,
+   and the paths of three files.
 
 ### Reading the dark result
 
@@ -112,8 +113,10 @@ gridline is ten times the one below. Reading from left to right:
 4. **Red hollow triangles** at the right: thresholds where nothing was counted in 30 s. These
    are drawn as "less than" limits, not as zero, because a short wait can't prove zero.
 
-The green line, **lower bound**, sits just above the noise edge. **Don't go below it.** The red
-dashed line, **dark counts vanish**, is labelled *NOT the optimum* — that's the trap from §1.
+The green line, **lower bound**, sits just above the noise edge. **Don't go below it.** A scan
+that runs until the dark counts stop entirely also shows a red dashed line, **dark counts
+vanish**, labelled *NOT the optimum* — that's the trap from §1. The example above ran that far.
+Today's scan stops earlier, in the tail, so your figure will usually not have this line.
 
 **Panel (b)** shows how long each threshold took. Green dots reached their count target. Hollow
 red ones hit the 30 s limit, so they have fewer counts and wider error bars. Seeing lots of red
@@ -197,8 +200,9 @@ threshold. It rises as the noise is cut away, peaks, then falls slowly as photon
 
 - The **shaded band** is every level within 5 % of the best. Anything in it is a good choice.
 - The **green line** is the best one: the recommendation.
-- The **red dashed line** far to the right is where the dark counts vanished. The curve there is
-  well below its peak, which is the proof that zero dark counts is not the optimum.
+- A **red dashed line** far to the right, when the dark scan went far enough to find it, is
+  where the dark counts vanished. The curve there is well below its peak, which is the proof that
+  zero dark counts is not the optimum.
 
 If panel (d) says **NOT SHOWN**, the light scan couldn't find a dark scan for that port, either
 in memory or in the results folder. Its recommendation then comes from panel (c) alone. Run the
@@ -276,7 +280,7 @@ and the same three for the light scan. The final message of each scan gives the 
 The same folder also holds **`SR400_test_log.csv`**, with one row per scan or self-test, ever.
 It is the quickest place to find a past result: the light scan's row has the recommended level in
 `recommended_disc_A_level_V`, already in volts and signed, ready to type in. The dark scan's row has
-the lower bound and where dark counts vanish.
+the lower bound, and where dark counts vanish if the scan went that far.
 
 **To get help with a result, send all six files.** The CSV files hold the raw data, so anyone can
 redraw the figures from them. On a machine with Python, put both CSV files in one folder and run:

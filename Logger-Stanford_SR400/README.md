@@ -413,7 +413,7 @@ wrapper round-trips, the GPIB path, and `CL`.
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "558/558 checks passed"
+python tests/test_sr400_virtual.py   # expect "561/561 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -992,10 +992,11 @@ actually applied.
 threshold counts to 500 counts (~4.5 % Poisson) where that takes under 10 s, and otherwise to 200
 counts (~7 %) or 30 s, whichever first. The next period is sized from the rate so far, and every
 period is rounded *up* to a settable count time and read back. Once the rate is below 1 cps at two
-thresholds in a row, the scan steps 2 mV at a time. It stops after three consecutive zero-count
-thresholds. The first real scan (2026-11-10) took 21 minutes on the earlier, finer rules; the
-current rules take about 16 minutes on its rates. The 500-count, 10 s and 1 cps values are
-**provisional**, from that one scan. It reports:
+thresholds in a row, the scan steps 2 mV at a time. It stops once three thresholds in a row are
+below 0.5 cps, because the tail beyond sets no bound. The first real scan (2026-11-10) ran to
+36 mV in 21 minutes on the earlier rules; replayed on its rates, the current rules stop at 14.0 mV
+after 10.1 minutes. The 500-count, 10 s, 1 cps and 0.5 cps values are **provisional**, from that one
+scan. It reports:
 
 - the **noise edge** — searched from the **rate maximum** upward, where the log-slope of the curve
   drops below 1.0 /mV over a 1 mV baseline (heuristic, and labelled so). The lower bound is the
@@ -1004,7 +1005,8 @@ current rules take about 16 minutes on its rates. The 500-count, 10 s and 1 cps 
   read that rise as flat, and reported 1.0 mV for the real scan. The current code gives 5.2 mV,
   lower bound 5.8 mV. The 1.0 /mV limit separates that scan's noise roll-off (1.2–4.8 /mV) from
   its dark tail (0.3–0.7 /mV), and is provisional until more scans confirm it.
-- where **dark counts vanish**. *That is not the operating point*: a level that kills every dark
+- where **dark counts vanish**, if the scan got that far; with the 0.5 cps stop it usually does
+  not, and the report says so. *That is not the operating point*: a level that kills every dark
   count is above most single-PE pulses too. The light scan measures what it costs.
 - anything above 1 Mcps as electronic noise, DISC pickup or oscillation, not dark counts.
 

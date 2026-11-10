@@ -67,7 +67,9 @@ switched to 2 mV steps below 1 counts/s. The analysis drawn on them is current.
 
 The real scan spent most of its time on a tail of 0–3 counts per threshold, which sets no bound.
 That is why the dark scan now steps 2 mV once the rate is below 1 counts/s at two thresholds in
-a row. Replayed on these rates, the current rules take 15.6 min.
+a row, and stops once three in a row are below 0.5 counts/s. Replayed on these rates, the current
+rules stop at 14.0 mV after 10.1 min, against 36 mV after 21.1. The cost is the "dark counts
+vanish" level, which is no longer measured. The report already said not to operate there.
 
 ---
 

@@ -1257,7 +1257,13 @@ DARK_FAST_SECONDS = 10.0
 # PROVISIONAL, from that one scan of one tube setup.
 DARK_COARSE_BELOW_CPS = 1.0
 DARK_COARSE_STEP_V = 0.002
-DARK_STOP_AFTER_ZEROS = 3     # consecutive zero-count thresholds: past the distribution, stop
+# The scan stops once the rate is below 0.5 cps at three thresholds in a row: the tail beyond
+# sets no bound, and on the first real scan (2026-11-10) it cost half the scan's time. On that
+# scan's rates, with the 2 mV tail steps, this stops at 14.0 mV after about 10 minutes, instead of
+# 36 mV after 21. A zero-count threshold is below 0.5 cps too. The level where dark counts
+# vanish is therefore no longer measured, and the report says so. PROVISIONAL, from that one scan.
+DARK_STOP_BELOW_CPS = 0.5
+DARK_STOP_AFTER = 3
 LIGHT_TARGET_COUNTS = 10_000  # 1 % Poisson per threshold per pass
 LIGHT_MAX_SECONDS = 5.0
 LIGHT_REPEATS = 3             # each repeat is one up pass and one down pass
@@ -2531,18 +2537,18 @@ def run_threshold_scan_dark(device) -> tuple:
         report.note(
             f"Target {DARK_TARGET_COUNTS} counts per threshold (~"
             f"{100 / _math.sqrt(DARK_TARGET_COUNTS):.0f} % Poisson), at most "
-            f"{DARK_MAX_SECONDS:g} s each. Stops after {DARK_STOP_AFTER_ZEROS} thresholds in a "
-            f"row read zero at the maximum time.",
+            f"{DARK_MAX_SECONDS:g} s each. Stops after {DARK_STOP_AFTER} thresholds in a "
+            f"row below {DARK_STOP_BELOW_CPS:g} cps.",
         )
         _scan_setup(device)
 
         report.section("scan, low to high |level|")
-        zeros = 0
+        low_in_a_row = 0
         started = time.monotonic()
         _progress(
             f"dark scan: {len(threshold_grid())} thresholds, up to {DARK_MAX_SECONDS:g} s each, "
             f"so at most {_minutes(len(threshold_grid()) * DARK_MAX_SECONDS)}. It usually stops "
-            f"sooner, after {DARK_STOP_AFTER_ZEROS} zero-count thresholds in a row.",
+            f"sooner, after {DARK_STOP_AFTER} thresholds in a row below {DARK_STOP_BELOW_CPS:g} cps.",
         )
         leak_checked = False
         grid = threshold_grid()
@@ -2585,11 +2591,14 @@ def run_threshold_scan_dark(device) -> tuple:
                     report.note("STOPPED at 10 mV: far too many counts for a covered tube.")
                     break
 
-            zero_at_max = point["counts"] == 0 and point["live_s"] >= DARK_MAX_SECONDS * 0.999
-            zeros = zeros + 1 if zero_at_max else 0
-            if zeros >= DARK_STOP_AFTER_ZEROS:
-                report.note(f"stopped at {abs_v * 1e3:.1f} mV: {zeros} zero-count thresholds "
-                            f"in a row, so the scan is past the dark distribution.")
+            # Past the noise peak only: the rate there is far above the limit in any case.
+            low_in_a_row = low_in_a_row + 1 if rate < DARK_STOP_BELOW_CPS < peak_rate else 0
+            if low_in_a_row >= DARK_STOP_AFTER:
+                line = (f"stopped at {abs_v * 1e3:.1f} mV: {low_in_a_row} thresholds in a row below "
+                        f"{DARK_STOP_BELOW_CPS:g} cps, so the scan is in the dark tail, which sets "
+                        f"no bound. Where dark counts vanish entirely is not measured.")
+                report.note(line)
+                _progress(f"dark scan: {line}")
                 break
             if index % 10 == 9:
                 device.message_info(f"SR400 dark scan: {index + 1}/{len(grid)} thresholds, "

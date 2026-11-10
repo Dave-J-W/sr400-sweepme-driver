@@ -3110,6 +3110,19 @@ def test_threshold_scans(driver):
         check(slow_from is not None and all(step >= 0.002 - 1e-9 for step in steps[slow_from:]),
               f"after two thresholds below 1 cps, the scan steps 2 mV at a time "
               f"(steps from there: {[round(x * 1e3, 1) for x in steps[slow_from or 0:]]})")
+        last = rows_h[-st.DARK_STOP_AFTER:]
+        earlier = rows_h[:-st.DARK_STOP_AFTER]
+        check(all(r["rate"] < st.DARK_STOP_BELOW_CPS for r in last)
+              and not (earlier and earlier[-1]["rate"] < st.DARK_STOP_BELOW_CPS
+                       and all(r["rate"] < st.DARK_STOP_BELOW_CPS for r in rows_h[-st.DARK_STOP_AFTER - 1:-1])),
+              f"it stops at the third threshold in a row below 0.5 cps, not later "
+              f"(last rates {[round(r['rate'], 3) for r in rows_h[-4:]]})")
+        check(rows_h[-1]["abs_v"] < 0.040 - 1e-9, f"so short of the grid's 40 mV end "
+                                                  f"(stopped at {rows_h[-1]['abs_v'] * 1e3:.1f} mV)")
+        texts = [f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_dark") and f.endswith(".txt")]
+        newest = open(os.path.join(_report_dir(tmpdir), sorted(texts)[-1])).read() if texts else ""
+        check("thresholds in a row below 0.5 cps" in newest and "is not measured" in newest,
+              "and the report says why it stopped, and that the vanish level is not measured")
 
     # --- light, with the dark scan in hand --------------------------------------
     sr400.pmt["light_rate"] = 5.0e4
