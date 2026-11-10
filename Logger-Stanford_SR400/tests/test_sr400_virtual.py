@@ -2963,6 +2963,28 @@ def test_threshold_scans(driver):
         offenders = [c for c in sr400.log if c.split()[0].upper() == command]
         check(not offenders, f"the dark scan never sent {command}")
 
+    # --- progress in the debug log: one line per threshold ----------------------
+    # Reported 2026-11-10: a 20-minute dark scan gave no visible sign of life.
+    import contextlib
+    import io
+
+    sr400_p = VirtualSR400(pmt={}, time_scale=1e5)
+    device_p, _ = _scan_device(driver, sr400_p, tmpdir)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        device_p.run_threshold_scan_dark()
+    lines = [line for line in buffer.getvalue().splitlines() if "SR400 dark scan:" in line]
+    measured = [line for line in lines if " at -" in line and "counts in" in line]
+    dark_p = getattr(device_p, "_dark_threshold_scan", None) or {"rows": []}
+    check(lines and "at most" in lines[0] and "min" in lines[0],
+          f"the dark scan prints its worst-case duration first (got {lines[:1]})")
+    check(len(measured) >= len(dark_p["rows"]) > 0,
+          f"and one debug-log line per threshold ({len(measured)} lines, {len(dark_p['rows'])} thresholds)")
+    check(measured and "Elapsed" in measured[-1] and "left" in measured[-1],
+          f"each with elapsed and remaining time (last: {measured[-1] if measured else None})")
+    check(any("threshold scan dark: findings" in line for line in buffer.getvalue().splitlines()),
+          "and every report section is echoed to the debug log too")
+
     # --- light, with the dark scan in hand --------------------------------------
     sr400.pmt["light_rate"] = 5.0e4
     log["boxes"].clear(); log["blocking"].clear()

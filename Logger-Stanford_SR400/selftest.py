@@ -18,6 +18,20 @@ import os
 import time
 
 
+def _progress(text: str) -> None:
+    """One progress line in the SweepMe! debug log, where a driver's print() lands.
+
+    message_info() is easy to miss in SweepMe! 1.5.7.9, and a 15-35 minute scan with no visible
+    progress looks exactly like a hung one (reported 2026-11-10). So every step is printed,
+    with the wall-clock time, and flushed so it appears as it happens.
+    """
+    print(f"{time.strftime('%H:%M:%S')}  SR400 {text}", flush=True)
+
+
+def _minutes(seconds: float) -> str:
+    return f"{seconds / 60.0:.1f} min"
+
+
 def _gui_volts(magnitude_v):
     """A threshold magnitude as typed into the GUI: negative volts, 0.1 mV resolution; '' if None."""
     return "" if magnitude_v is None else round(-abs(magnitude_v), 4)
@@ -58,6 +72,7 @@ class Report:
         self.lines.append("")
         self.lines.append(f"== {name}")
         self.device.message_info(f"SR400 self-test: {name}")
+        _progress(f"{self.title}: {name}")
 
     def note(self, text: str) -> None:
         self.lines.append(f"        {text}")
@@ -2384,11 +2399,25 @@ def run_threshold_scan_dark(device) -> tuple:
 
         report.section("scan, low to high |level|")
         zeros = 0
+        started = time.monotonic()
+        _progress(
+            f"dark scan: {len(threshold_grid())} thresholds, up to {DARK_MAX_SECONDS:g} s each, "
+            f"so at most {_minutes(len(threshold_grid()) * DARK_MAX_SECONDS)}. It usually stops "
+            f"sooner, after {DARK_STOP_AFTER_ZEROS} zero-count thresholds in a row.",
+        )
         leak_checked = False
         grid = threshold_grid()
         for index, abs_v in enumerate(grid):
             point = _measure_point(device, abs_v, DARK_TARGET_COUNTS, DARK_MAX_SECONDS)
             points.append(point)
+            elapsed = time.monotonic() - started
+            left = (len(grid) - index - 1) * DARK_MAX_SECONDS
+            _progress(
+                f"dark scan: {index + 1}/{len(grid)} at -{abs_v * 1e3:.1f} mV: "
+                f"{point['counts']} counts in {point['live_s']:.1f} s "
+                f"({point['counts'] / point['live_s']:.4g} cps). Elapsed {_minutes(elapsed)}, "
+                f"at most {_minutes(left)} left.",
+            )
 
             if index == 0 and point["counts"] == 0:
                 break  # nothing on the input at all; analyse_dark says so
@@ -2510,14 +2539,31 @@ def run_threshold_scan_light(device) -> tuple:
                         f"at the 1 % level this scan resolves. Dimmer is better.")
 
         grid = threshold_grid()
+        started = time.monotonic()
+        total_passes = 2 * LIGHT_REPEATS
+        _progress(
+            f"light scan: {total_passes} passes over up to {len(grid)} thresholds, up to "
+            f"{LIGHT_MAX_SECONDS:g} s each. The first pass usually shortens the grid.",
+        )
         for repeat in range(1, LIGHT_REPEATS + 1):
             for direction in ("up", "down"):
                 report.section(f"repeat {repeat}, {direction}")
                 levels = grid if direction == "up" else list(reversed(grid))
                 points = []
-                for abs_v in levels:
+                pass_number = 2 * (repeat - 1) + (1 if direction == "up" else 2)
+                for step, abs_v in enumerate(levels):
                     point = _measure_point(device, abs_v, LIGHT_TARGET_COUNTS, LIGHT_MAX_SECONDS)
                     points.append(point)
+                    elapsed = time.monotonic() - started
+                    left = ((len(levels) - step - 1) + (total_passes - pass_number) * len(grid)) \
+                        * LIGHT_MAX_SECONDS
+                    _progress(
+                        f"light scan: pass {pass_number}/{total_passes} ({direction}), "
+                        f"{step + 1}/{len(levels)} at -{abs_v * 1e3:.1f} mV: "
+                        f"{point['counts']} counts in {point['live_s']:.2f} s "
+                        f"({point['counts'] / point['live_s']:.4g} cps). Elapsed "
+                        f"{_minutes(elapsed)}, at most {_minutes(left)} left.",
+                    )
                     # The first pass also sets the grid: past 2 % of the probe there is nothing
                     # left that bears on the operating point, and every further pass would pay
                     # the full per-threshold maximum for it.
