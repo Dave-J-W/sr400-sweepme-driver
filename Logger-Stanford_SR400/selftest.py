@@ -2544,6 +2544,62 @@ def run_threshold_scan_dark(device) -> tuple:
 
 # ----------------------------------------------------------------- light action
 
+DARK_FILE_WARN_HOURS = 24.0  # an older dark scan is used, but flagged: HV, cabling or temperature may differ
+
+
+def _latest_dark_scan_on_disk(device, report):
+    """The newest valid dark scan on disk for this port, re-analysed by this code; None if there is none.
+
+    Reported 2026-11-10: the light scan ran without its dark scan, so panel (d) was empty,
+    because the dark result lived only in memory and a SweepMe! restart (as after updating the
+    driver) loses it. The dark scan's CSV holds every raw count, so it is read back and
+    re-analysed with the current analysis, never trusted from an older driver's report. Only a
+    scan from the same port is used, the newest first, and the report says which file it was
+    and how old.
+    """
+    driver = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+    candidates = []
+    for identifier in ("DATADEVICES", "TEMP"):
+        try:
+            folder = device.get_folder(identifier)
+        except Exception:  # noqa: BLE001 -- not every location exists everywhere
+            continue
+        if identifier == "DATADEVICES":
+            folder = os.path.join(folder, driver)
+        if not os.path.isdir(folder):
+            continue
+        candidates.extend(os.path.join(folder, name) for name in os.listdir(folder)
+                          if name.startswith("SR400_threshold_scan_dark_") and name.endswith(".csv"))
+
+    # The file name carries the timestamp (YYYY-MM-DD_HHMMSS), so name order is time order;
+    # modification times change when files are copied, the names do not.
+    for candidate in sorted(candidates, key=os.path.basename, reverse=True):
+        try:
+            meta, points = read_scan_csv(candidate)
+        except Exception:  # noqa: BLE001 -- an unreadable file is skipped, not fatal
+            continue
+        if meta.get("kind") != "dark" or meta.get("port") != device.port_string:
+            continue
+        result = analyse_dark(points)
+        if not result["valid"]:
+            continue
+        result["csv"] = candidate
+        age = None
+        try:
+            age = (time.time() - time.mktime(time.strptime(meta.get("when", ""), "%Y-%m-%d %H:%M:%S"))) / 3600.0
+        except (ValueError, OverflowError):
+            pass
+        line = (f"Dark scan: none in memory, so loaded {os.path.basename(candidate)} from disk "
+                f"(taken {meta.get('when', 'at an unknown time')}"
+                + (f", {age:.1f} h ago" if age is not None else "") + ") and re-analysed.")
+        report.note(line)
+        _progress(f"light scan: {line}")
+        if age is not None and age > DARK_FILE_WARN_HOURS:
+            report.note(f"That dark scan is over {DARK_FILE_WARN_HOURS:g} h old. If the HV, the "
+                        f"cabling or the temperature changed since, run the dark scan again.")
+        return result
+    return None
+
 def run_threshold_scan_light(device) -> tuple:
     report = Report(device, "threshold scan light")
     saved = _save_settings(device, SAVED_SETTINGS)
@@ -2565,6 +2621,8 @@ def run_threshold_scan_light(device) -> tuple:
         probe = _measure_point(device, 0.006, LIGHT_TARGET_COUNTS, LIGHT_MAX_SECONDS)
         probe_rate = probe["counts"] / probe["live_s"]
         dark = getattr(device, "_dark_threshold_scan", None)
+        if dark is None:
+            dark = _latest_dark_scan_on_disk(device, report)
         dark_at = _value_at(dark["rows"], 0.006)["rate"] if dark else None
         report.note(f"{probe['counts']} counts in {probe['live_s']:.3f} s at 6.0 mV = "
                     f"{probe_rate:.4g} cps" + (f" (dark scan: {dark_at:.4g} cps)" if dark_at else ""))

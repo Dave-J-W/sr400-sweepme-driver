@@ -3118,14 +3118,42 @@ def test_threshold_scans(driver):
     check(light_row.get("upper_bound_1pct_loss_V", "") != "",
           f"and the 1 %-loss upper bound (got {light_row.get('upper_bound_1pct_loss_V')!r})")
 
-    # --- light with no dark scan: still recommends, says why it is weaker --------
+    # --- light in a later session: the dark scan is loaded from its CSV on disk ----
+    # Reported 2026-11-10: after a SweepMe! restart the light scan had no dark scan, so panel
+    # (d) was empty, although the dark scan's CSV was in the same folder.
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)  # a fresh instance: nothing in memory
+    check(getattr(device, "_dark_threshold_scan", None) is None, "a fresh instance holds no dark scan")
+    device.run_threshold_scan_light()
+    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    check("loaded SR400_threshold_scan_dark_" in text and "from disk" in text,
+          "with no dark scan in memory, the newest same-port dark CSV is loaded from disk, and the report says so")
+    check("S/sqrt(B)" in text and "run the dark scan for the optimum" not in text,
+          "so the S/sqrt(B) optimum, panel (d), is computed after all")
+    light_csvs = sorted(f for f in os.listdir(_report_dir(tmpdir))
+                        if f.startswith("SR400_threshold_scan_light") and f.endswith(".csv"))
+    head = open(os.path.join(_report_dir(tmpdir), light_csvs[-1]), encoding="utf-8").read(600) if light_csvs else ""
+    check("# dark_csv: SR400_threshold_scan_dark_" in head,
+          "and the light CSV names that dark file, so a regenerated plot finds it too")
+
     sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
     device, log = _scan_device(driver, sr400, tmpdir)
+    device.port_string = "GPIB0::5::INSTR"  # another instrument: its dark scan does not apply
+    device.run_threshold_scan_light()
+    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    check("from disk" not in text, "a dark scan from a different port is never loaded")
+
+    # --- light with no dark scan anywhere: still recommends, says why it is weaker --------
+    lonely = tempfile.mkdtemp(prefix="sr400_scan_nodark_")
+    sr400 = VirtualSR400(pmt={"light_rate": 5.0e4}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, lonely)
     device.run_threshold_scan_light()
     summary = log["boxes"][-1] if log["boxes"] else ""
     check("recommended A DISC LVL" in summary, f"without a dark scan it still recommends: {summary[:100]}")
-    reports = sorted(f for f in os.listdir(_report_dir(tmpdir)) if f.startswith("SR400_threshold_scan_light"))
-    text = open(os.path.join(_report_dir(tmpdir), reports[-1])).read() if reports else ""
+    reports = sorted(f for f in os.listdir(_report_dir(lonely)) if f.startswith("SR400_threshold_scan_light"))
+    text = open(os.path.join(_report_dir(lonely), reports[-1])).read() if reports else ""
     check("run the dark scan for the optimum" in text, "and says the dark scan would give the optimum")
 
     # --- light refused at the probe ----------------------------------------------
