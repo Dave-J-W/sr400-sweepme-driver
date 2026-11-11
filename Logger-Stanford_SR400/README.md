@@ -191,7 +191,7 @@ it. It covers:
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "605/605 checks passed"
+python tests/test_sr400_virtual.py   # expect "627/627 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -343,7 +343,8 @@ test is reported in that message and does not raise.
 - The dark scan's result is kept for the rest of the SweepMe! session, for the same port, so the
   light scan finds it even though it runs in a separate run.
 - **Untick the test afterwards.** The checkboxes are saved with the sequence, so a test left
-  ticked runs again at the end of the next run. A scan takes 15–20 minutes.
+  ticked runs again at the end of the next run. On the real tube the dark scan takes 10–11
+  minutes, and the light scan about 5 at ~40,000 counts/s.
 
 This is the route that works on every SweepMe! version, because the test runs on the run's own
 port. On SweepMe! 1.5.7.9 it is the only route: see §8 for why the action buttons fail there.
@@ -460,7 +461,8 @@ target and which hit the time cap. **Light:** (a) every pass, so drift and hyste
 rather than averaged away. (b) The same data normalised and zoomed, because a 1–5 % knee is
 invisible on a log axis, with the loss levels and the recommended level. (c) The pulse-height
 density with the valley and single-PE peak. (d) S/√B relative to its best, with the
-within-5 % band, or **NOT SHOWN** with the reason when there is no dark scan.
+within-5 % band and the levels below the valley shaded "not scored", or **NOT SHOWN** with the
+reason when there is no dark scan.
 
 The figures refuse what the data cannot support. An invalid dark scan is plotted, labelled
 INVALID, and offers **no lower bound**; its noise edge is marked as a diagnostic only. Under drift
@@ -478,8 +480,10 @@ FALL, gates CW). The **dark scan** (`Dark threshold scan (PMT covered)`) finds t
 and the lowest usable level. The **light scan** (`Light threshold scan (steady light)`), three
 up and down passes under gentle steady light, finds where photons start to be lost, and, scored
 against the dark scan, recommends the level maximising S/√B. Each shows a blocking prompt
-first, checks its condition in the data, and writes a report, CSV and figure (§9.6). The grid,
-the sampling rules, the analysis and its provisional constants are §9.7 of [`docs/REFERENCE.md`](../docs/REFERENCE.md).
+first, checks its condition in the data, and writes a report, CSV and figure (§9.6). The dark
+scan keeps its fine grid up to 10 mV, then coarsens and stops in the quiet tail: 10–11 minutes on
+the real tube. The light scan's S/√B uses a fitted dark background and scores only from the valley
+up. The grid, the sampling rules, the analysis and its provisional constants are §9.7 of [`docs/REFERENCE.md`](../docs/REFERENCE.md).
 
 ### 9.8 Dark settling, and comparing PMT high voltages
 

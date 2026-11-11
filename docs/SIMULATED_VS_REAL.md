@@ -15,9 +15,10 @@ GPIB (NI GPIB-USB-HS); SweepMe! 1.5.7.9. Dark: tube covered. Light: room light, 
 6 mV. PMT high voltage **1000 V** for both scans. That comes from the operator's account; the scan
 files do not record it.
 
-**The simulated examples predate two driver changes**, so their sampling differs from a scan
-made today. They were recorded before fast thresholds counted to 500 and before the dark scan
-switched to 2 mV steps below 1 counts/s. The analysis drawn on them is current.
+**The simulated examples predate the dark scan's current sampling rules**, so their sampling
+differs from a scan made today. They were recorded before fast thresholds counted to 500, and
+before the dark scan stepped 2 mV in its tail and stopped there. The analysis drawn on them is
+current.
 
 ---
 
@@ -68,9 +69,11 @@ switched to 2 mV steps below 1 counts/s. The analysis drawn on them is current.
 
 The real scan spent most of its time on a tail of 0–3 counts per threshold, which sets no bound.
 That is why the dark scan now steps 2 mV once the rate is below 1 counts/s at two thresholds in
-a row, and stops once three in a row are below 0.5 counts/s. Replayed on these rates, the current
-rules stop at 14.0 mV after 10.1 min, against 36 mV after 21.1. The cost is the "dark counts
-vanish" level, which is no longer measured. The report already said not to operate there.
+a row, and stops once three in a row are below 0.5 counts/s. Neither may start below 10 mV, so
+the region where the best level lies keeps its 0.2 and 0.4 mV steps. Replayed on these rates, the
+current rules stop at 14.0 mV after 10.1 min, against 36 mV after 21.1; the 10 mV floor does not
+change this scan. The cost is the "dark counts vanish" level, which is no longer measured. The
+report already said not to operate there.
 
 ---
 
@@ -142,19 +145,28 @@ count-loss levels, with their uncertainties and GUI values, are in the box under
 | | Simulated | Real |
 |---|---|---|
 | Optimum | 6.4 mV | 6.8 mV (GUI `-0.0068`) |
-| Within 5 % of the best | 6.0–7.6 mV | 6.8 mV only |
+| Within 5 % of the best | 6.0–7.6 mV | 6.4–7.6 mV |
 | Photons counted at the optimum, vs the reference | 90 % | 76 % |
 
-The real curve is jagged where the simulated one is smooth, so its "within 5 %" band shrinks to a
-single level. The cause is the dark scan's statistics: above about 6 mV the real dark rate is
-1–2 counts/s, so a 30 s threshold holds only 30–60 dark counts, and √B is uncertain by 13–18 %
-at each level. A longer dark count at 5–8 mV would smooth this. Until then, treat 6–7 mV as the
-optimum region rather than 6.8 mV exactly.
+**B is a fitted dark background, not each threshold's own count.** Above about 6 mV the real
+dark rate is 1–2 counts/s, so a 30 s threshold holds only 30–60 dark counts, and √B taken level by
+level would be uncertain by 13–18 %, far more than the 5 % band. Scored that way, the band
+shrank to the single level 6.8 mV. B is now a local Poisson fit to the dark scan around each level:
+a straight line in log(rate) over ±1 mV in the thin tail, and a narrower quadratic where the
+curve bends and the counts allow it. With it the real band is 6.4–7.6 mV around the same 6.8 mV
+optimum. The fit's settings are provisional, chosen on the two real dark scans of 2026-11-10.
 
-**This optimum assumes a weak, background-limited signal.** At the real light level the dark rate
-is negligible at any threshold above the valley: 7.9 counts/s at 5 mV against 3.6e5. For a
-bright signal like that, a lower level such as 5.2 mV keeps more photons. That is about 92 % of
-the reference rate, against 76 % at 6.8 mV.
+**The grey "not scored" region** in both figures is every level below the reference, 4.8 mV
+simulated and 4.0 mV real. Below it the real light scan counts more than the dark scan by up to
+41 % of the reference rate, at 2.2 mV. That excess falls with the level like the electronic noise,
+not like photon pulses, so it is not scored as signal.
+
+**This optimum assumes a weak, background-limited signal.** A stronger signal moves the best level
+down, towards the valley. With a background run as long as the signal run, the real band reaches
+the valley from a signal of about 630 counts/s at the valley, and the best level from about 5000
+counts/s (simulated: about 250 and 2000). Above those rates the scan cannot say whether a level
+below the valley would be better, and the figure says so. The room light of this scan, 3.8e5
+counts/s at the valley, is far above both.
 
 ---
 

@@ -635,7 +635,9 @@ For the **R8486 bare tube on SIGNAL INPUT 1**: counter A, discriminator A, slope
 A threshold scan measures the *integral* pulse-height distribution — the count rate above each
 discriminator level — and the operating threshold belongs between its noise edge and its
 single-photoelectron shoulder. The two halves of that answer need different light, hence two
-actions. Each first shows a **blocking** message stating the condition ("Cover the R8486 and make
+scans, run as the end-of-run tests `Dark threshold scan (PMT covered)` and `Light threshold scan
+(steady light)` (also exposed as the actions `run_threshold_scan_dark` and
+`run_threshold_scan_light`). Each first shows a **blocking** message stating the condition ("Cover the R8486 and make
 sure NO light can reach it", "Ensure gentle, STEADY light on the R8486"). That is an
 acknowledgement gate, not a question (§9.1 still holds): an OK proves nothing about the bench, so
 each scan also checks its condition in the data and stops if it was not met.
@@ -649,10 +651,16 @@ threshold counts to 500 counts (~4.5 % Poisson) where that takes under 10 s, and
 counts (~7 %) or 30 s, whichever first. The next period is sized from the rate so far, and every
 period is rounded *up* to a settable count time and read back. Once the rate is below 1 cps at two
 thresholds in a row, the scan steps 2 mV at a time. It stops once three thresholds in a row are
-below 0.5 cps, because the tail beyond sets no bound. The first real scan (2026-11-10) ran to
-36 mV in 21 minutes on the earlier rules; replayed on its rates, the current rules stop at 14.0 mV
-after 10.1 minutes. The 500-count, 10 s, 1 cps and 0.5 cps values are **provisional**, from that one
-scan. It reports:
+below 0.5 cps, because the tail beyond sets no bound. **Neither the 2 mV steps nor the stop may
+start below 10 mV** (`DARK_TAIL_FROM_V`), however quiet the tube. The second real dark scan
+(2026-11-10 16:36) fell below 1 cps at 7.2 mV and went coarse there, in the middle of the
+optimum region, leaving 5 thresholds in 6–10 mV where the background fit (below) wants many; the
+optimum region plus the fit's ±1 mV ends near 9 mV, and 10 mV is also the manual's pickup
+boundary. Replayed on the real rates, the first real scan (13:20), which ran to 36 mV in 21
+minutes on the earlier rules, stops at 14.0 mV after 10.1 minutes, unchanged by the floor; the
+16:36 scan gets 11 thresholds in 6–10 mV instead of 5, for 10.8 minutes instead of 7.8. The
+500-count, 10 s, 1 cps, 0.5 cps and 10 mV values are **provisional**, from those two scans. It
+reports:
 
 - the **noise edge** — searched from the **rate maximum** upward, where the log-slope of the curve
   drops below 1.0 /mV over a 1 mV baseline (heuristic, and labelled so). The lower bound is the
@@ -693,20 +701,57 @@ in mV** between up and down curves on the steep shoulder, with only the time ter
 Fitting the direction term is what keeps a not-quite-flat region from cancelling half the
 hysteresis, or passing it off as drift.
 
-**The recommendation** is the level maximising **S/√B**, from both scans together, when this
-session has a dark scan: S is the photon fraction from the light scan, B the dark rate. This is the
-background-limited optimum, and it is what proves the zero-dark level is wrong rather than merely
-asserting it. Raising the threshold strips electronic noise faster than it removes photons. That
-lasts until the remaining dark counts are themselves single-PE pulses. From there S and B fall
-together and S/√B only drops. Levels with fewer than 20 dark counts are not scored: a near-zero
-background estimate would make any SNR look enormous. It assumes a weak signal; for S ≫ B the
-optimum moves down. Without a dark scan it falls back to the valley, and says so.
+**The recommendation** is the level maximising **S/√B**, from both scans together, when a dark
+scan is found: S is the photon fraction from the light scan (light minus dark, relative to the
+reference level), B the fitted dark background. This is the background-limited optimum, and it is
+what proves the zero-dark level is wrong rather than merely asserting it. Raising the threshold
+strips electronic noise faster than it removes photons. That lasts until the remaining dark
+counts are themselves single-PE pulses. From there S and B fall together and S/√B only drops.
+Without a dark scan it falls back to the valley, and says so.
+
+*B is a local fit to the dark scan, not each threshold's own rate* (`_smooth_dark_rate`). Above
+about 6 mV a real dark threshold holds 16–60 counts, so B taken level by level is ±13–25 %, five
+times the 5 % band, and the band collapsed to one level in both real light scans. The fit is by
+Poisson maximum likelihood, so zero-count thresholds count correctly:
+
+- **In the thin tail**, a straight line in log(rate) over ±1 mV
+  (`DARK_SMOOTH_HALF_WIDTH_V`), widened up to ±4 mV until it holds 3 thresholds and 20 dark counts
+  (`FOM_MIN_DARK_COUNTS`). A level whose window cannot reach that is not scored: a near-zero
+  background estimate would make any SNR look enormous. Nor is any level beyond the dark scan's
+  last threshold, where the fit would be an extrapolation.
+- **Where the curve bends** (the noise roll-off turning into the dark tail, 2–6 mV on the real
+  tube) a straight line overshoots. Where the ±1 mV window holds at least 800 counts
+  (`DARK_CURVE_MIN_COUNTS`) and a quadratic in log(rate) beats the line by a likelihood-ratio
+  statistic above 4 (`DARK_CURVE_LR`), the window narrows in 0.2 mV steps, keeping at least 800
+  counts and 4 thresholds, and the quadratic is fitted there. Chosen on held-out data: each real
+  dark threshold left out in turn and predicted from the rest. Over 3.8–6 mV predicted/observed
+  counts were 1.110 and 1.097 for the line on the two real dark scans, and are 1.001 and 1.002 now.
+  Above 6 mV the real windows hold fewer than 800 counts, so the tail fit is unchanged.
+
+The window width, 800 counts and the likelihood-ratio threshold are **provisional**, tuned on two
+scans of one tube. The real dark tail is also over-dispersed (more scatter between thresholds than
+Poisson), which the fit's quoted uncertainty does not include.
+
+*Levels below the reference are not scored* (the grey "not scored" region of panel (d)). Light
+minus dark there is not photon counting: on both real light scans it exceeds the reference rate
+by 38–41 % at 2.2 mV, steadily (36–43 % pass by pass), and the excess falls with a log-slope of
+−2.3 to −2.6 per mV, on the electronic noise's amplitude scale, against −0.05 per mV for light
+minus dark just above the valley. It is counted as `subvalley_excess` and reported. So the lowest scored level
+is the reference itself. When the optimum is at it, the recommendation, the headline, the
+findings and panel (d) say so in red, since a lower level might score higher.
+
+*S/√B is the weak-signal limit.* For a signal of N counts/s at the reference, against a background
+run of equal length, the figure of merit is s/√(s + 2B), with s the photon fraction times N, and
+its best level falls as N rises. The report gives the N (10 values per decade) from which the 5 %
+band, and then the best level, reach the lowest scored level (`_bright_signal_limits`). Above that
+rate it says it cannot judge whether a lower level would be better.
 
 On the simulated tube (noise edge 5.2 mV, valley 4.8 mV) the optimum is **−6.4 mV, counting ~90 %
-of photons**, with S/√B within 5 % of best from about 6.0 to 7.6 mV. On the real tube (2026-11-10)
-it is **−6.8 mV, counting 76 %**, and the curve is jagged because the real dark tail is thin. See
-[`docs/SIMULATED_VS_REAL.md`](SIMULATED_VS_REAL.md). At 15.2 mV it has fallen to ~0.34
-of best. The strict window — noise edge to 1 % loss — is *empty* there, which the report states
+of photons**, with S/√B within 5 % of best from 6.0 to 7.6 mV; the band reaches the valley from
+N ≈ 250 counts/s and the best level from ≈ 2000. On the first real pair (2026-11-10, dark 13:20,
+light 13:59) it is **−6.8 mV, counting 76 %**, within 5 % of best from 6.4 to 7.6 mV, reaching the
+valley from N ≈ 630 and ≈ 5000 counts/s. See [`SIMULATED_VS_REAL.md`](SIMULATED_VS_REAL.md). At
+15.2 mV the real S/√B has fallen to 0.20 of best. The strict window — noise edge to 1 % loss — is *empty* there, which the report states
 rather than treating as a failure. For the R8486 at 1000 V that is expected and is the evidence for
 the Stage 2 preamp. Below 10 mV any recommendation is valid only with the cables exactly as they
 were for the scan (manual p. 22).

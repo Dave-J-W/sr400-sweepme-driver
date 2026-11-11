@@ -8,6 +8,26 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Fixed
 
+- **The dark background fit follows the curve where it bends.** The fit behind S/√B was a straight
+  line in log(rate) over ±1 mV. Where the real dark curve bends from the noise roll-off into the
+  dark tail it overshot: each real dark threshold left out in turn and predicted from the rest,
+  the predictions over 3.8–6 mV came to 1.110× (13:20 scan) and 1.097× (16:36 scan) the observed
+  counts, and were wrong by up to 3× at single thresholds over 2.2–3.6 mV. Where the ±1 mV window
+  holds at least 800 counts and a quadratic in log(rate) fits it better by a likelihood ratio
+  above 4, the window now narrows and the quadratic is used; the held-out ratios are 1.001 and
+  1.002. The thin tail keeps the straight line, so above 6 mV the fit is unchanged on both real
+  scans. The 800 counts and the ratio of 4 are provisional. No real weak-signal optimum moved.
+- **S/√B is no longer scored below the valley.** Light minus dark there was taken as photons. On
+  all four real pairings it exceeds the valley rate by 38–41 % at 2.2 mV and falls with the level
+  like the electronic noise, not like photoelectrons: light-induced extra counting, not signal.
+  S/√B is now scored from the reference level (the valley) up, and panel (d) shades the rest
+  "not scored". When the optimum or its band reaches that floor, the recommendation, headline,
+  findings and figure say so. The report also gives the signal rate from which the floor limits
+  the answer: on the first real pair, ~630 counts/s for the band and ~5000 for the best level. It
+  replaces the old line "for a bright signal the optimum moves down, to the lowest level above
+  the noise edge", which was wrong on this tube. `hv-compare` scores from the valley up too.
+  REFERENCE §9.7.
+
 - **The test log no longer files values under the wrong headings.** A log started by an older
   driver kept its old header while newer, longer rows were appended under it. On the lab PC a dark
   scan's lower bound sat under the 1 %-loss column. A log whose header differs from the current
@@ -89,6 +109,19 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Changed
 
+- **The documentation is restructured.** The driver README keeps what an operator needs:
+  installing, the GUI, the end-of-run tests and their reports. The 16 gotchas, throughput, the
+  open items and the inner workings of each test moved verbatim to
+  [`docs/REFERENCE.md`](docs/REFERENCE.md), under the same section numbers, so references in the
+  driver's messages still resolve. The root README is a landing page. The history of the drafts
+  moved from `docs/README.md`, now an index, to [`docs/HISTORY.md`](docs/HISTORY.md).
+- **The dark scan keeps its fine grid up to 10 mV.** The second real dark scan (2026-11-10 16:36)
+  fell below 1 counts/s at 7.2 mV and switched to 2 mV steps there, inside the S/√B optimum
+  region, leaving 5 thresholds in 6–10 mV for the background fit. Neither the 2 mV steps nor the
+  stop may now start below `DARK_TAIL_FROM_V` = 10 mV, which is also the manual's pickup boundary.
+  Replayed on the real rates, the 13:20 scan is unchanged (10.1 min); the 16:36 scan gets 11
+  thresholds in 6–10 mV, for 10.8 min instead of 7.8. Provisional. REFERENCE §9.7.
+
 - **The self-tests and threshold scans can be ticked as end-of-run tests.** Four new GUI
   checkboxes, all unticked by default. Each ticked test runs once in `deinitialize()`, after the
   run's last point, on the run's own open port, so it works on any SweepMe! version. A stop skips
@@ -126,6 +159,19 @@ Newest first. Gotcha and section numbers are the shared numbering of
   LabJack SweepMe! drivers repo.
 
 ### Added
+
+- **[`analysis/photon_background/`](analysis/photon_background/README.md): the threshold when the
+  signal brings a photon background it cannot be separated from.** For a background at an assumed
+  fraction f of the signal, absent from the signal-off run, the best level and its 5 % band are
+  exactly the photon-free answer for a signal of N·(1 + f), on all four real pairings. An
+  uncertainty on f adds a systematic of about Δf/(1 + f) at every level, which no threshold
+  reduces. Provisional, and a model: nothing in the scans measures f.
+- **[`analysis/low_signal_threshold/`](analysis/low_signal_threshold/README.md): the best level
+  for a weak signal.** From the four real 2026-11-10 dark × light pairings, the best level against
+  the signal rate N at the valley: 6.8 mV for N up to about 5 counts/s, falling to about 5.6 mV at
+  N = 100 and to the valley near N = 10⁴, with the range within 5 % and the counting time for
+  each. Provisional: the two dark scans disagree by more than counting noise. The second real
+  pair is copied unchanged into its `data/`. One command regenerates every output.
 
 - **Comparing PMT high voltages.** A `PMT high voltage in V` GUI field records the HV; the driver
   never sets it. The HV goes into every report, CSV, figure and the test log. A new end-of-run

@@ -81,12 +81,14 @@ The recommended level is **advice for you to enter**, not something the scan app
 3. A message appears: *"Cover the R8486 and make sure NO light can reach it…"*. Check, then
    press **OK**.
 4. Wait. The first real scan took **21 minutes**; with the current rules the same tube takes
-   about **10**, ending near 14 mV. A covered R8486 gives only a few counts per second, so each
-   threshold above the noise needs up to 30 s to collect enough counts to be meaningful. Once the
-   rate stays below 1 count per second, the scan steps 2 mV at a time. It stops once three
-   thresholds in a row are below 0.5 counts per second, because the tail beyond sets no bound. **SweepMe!'s debug log shows one line per
-   threshold**, with the time elapsed and an upper bound on the time left. **Don't touch the bench
-   or uncover the PMT.**
+   **10–11 minutes**, ending near 14 mV. A covered R8486 gives only a few counts per second, so
+   each threshold above the noise needs up to 30 s to collect enough counts to be meaningful. From
+   10 mV up, once the rate stays below 1 count per second, the scan steps 2 mV at a time, and it
+   stops once three thresholds in a row are below 0.5 counts per second, because the tail beyond
+   sets no bound. Below 10 mV it keeps its fine steps however quiet the tube is: that is where the
+   best level lies, and where the light scan needs the dark rate measured closely. **SweepMe!'s
+   debug log shows one line per threshold**, with the time elapsed and an upper bound on the time
+   left. **Don't touch the bench or uncover the PMT.**
 5. A final message gives a one-line result, for example *"lower bound 5.8 mV (GUI -0.0058)"*,
    and the paths of three files.
 
@@ -201,6 +203,13 @@ threshold. It rises as the noise is cut away, peaks, then falls slowly as photon
 
 - The **shaded band** is every level within 5 % of the best. Anything in it is a good choice.
 - The **green line** is the best one: the recommendation.
+- A **grey region** at the left, labelled *not scored*, covers every level below the reference
+  level (the valley). The scan does not score those levels. Below the valley the light scan counts
+  more than the dark scan does, by up to about 40 % on the real tube, but that extra falls with the
+  level the way the electronic noise does, not the way photon pulses do. It is extra noise counted
+  while the light is on, not more photons, so a score there would be misleading. If the best level
+  is **at** the edge of the grey region, the figure says so in red, because a lower level might
+  then score higher and the scan cannot tell.
 - A **red dashed line** far to the right, when the dark scan went far enough to find it, is
   where the dark counts vanished. The curve there is well below its peak, which is the proof that
   zero dark counts is not the optimum.
