@@ -668,7 +668,11 @@ reports:
   the threshold below about 1.2 mV, a noise hump. The first version started at the lowest level,
   read that rise as flat, and reported 1.0 mV for the real scan. The current code gives 5.2 mV,
   lower bound 5.8 mV. The 1.0 /mV limit separates that scan's noise roll-off (1.2–4.8 /mV) from
-  its dark tail (0.3–0.7 /mV), and is provisional until more scans confirm it.
+  its dark tail (0.3–0.7 /mV), and is provisional until more scans confirm it. From a single scan
+  the edge is uncertain by more than its 0.2 mV step. Redrawn at the real scans' own live times
+  around tubes tuned to each, it spreads over about 0.6–0.8 mV (5.0–5.6 and 5.6–6.4 mV)
+  ([dark-scan method study](../analysis/dark_scan_method/README.md)). Resampling the observed
+  counts instead hardly moves it, which understates the scatter of a repeated scan.
 - where **dark counts vanish**, if the scan got that far; with the 0.5 cps stop it usually does
   not, and the report says so. *That is not the operating point*: a level that kills every dark
   count is above most single-PE pulses too. The light scan measures what it costs.
@@ -776,7 +780,8 @@ It uses blocks of at least 60 s and 1000 counts, at most 180 s. After each block
 Poisson-weighted straight line through blocks spanning the last 5 minutes, and at least three of
 them. It calls the rate settled when the slope is within 2σ of zero, and gives up after 30
 minutes. The report and figure give the measured drift in %/min with its uncertainty, and the
-smallest drift the check could have resolved at that count rate. With fewer than 100 counts in
+smallest drift the check could have resolved at that count rate, flagged when that is coarser than
+the 0.5 %/min it aims for (`SETTLE_DRIFT_TARGET`: 5 % over a 10-minute dark scan). With fewer than 100 counts in
 the window it reports **CANNOT JUDGE**. The raw blocks go to a CSV (`kind: settle`, times since
 the check began).
 
@@ -792,17 +797,22 @@ Repeated light scans at one HV are replicates. Each replicate's best (S − B)/�
 median photon rate, light minus dark at the valley, by the ratio of the two. Signal scales with
 the light and background does not, so this is exact while the signal stays proportional. Each HV
 then gets the replicates' mean and standard error. A second table, `_replicates.csv`, lists every
-scan in time order. Panel (e) plots the light level of each scan in the order taken, so a source
-drift is seen rather than assumed. It writes
-tables and a five-panel figure: (a) valley and single-PE peak, (b) peak/valley,
-(c) dark rate at half the peak, (d) the corrected best (S − B)/√B, mean ± SE, against HV, and (e) the light level of each scan in time order. The verdict is a pure function,
-`_hv_verdict`, tested on constructed rows. It names an optimum only with at least three comparable
+scan in time order. It writes the two tables and a five-panel figure: (a) valley and single-PE
+peak, (b) peak/valley, (c) dark rate at half the peak, (d) the corrected best (S − B)/√B, mean ±
+SE, against HV, and (e) the light level of each scan in the order taken, so a source drift is
+seen rather than assumed. The verdict is a pure function, `_hv_verdict`, tested on constructed
+rows. It names an optimum only with at least three comparable
 HVs, a photon rate (light minus dark, at the valley) that agrees within 50 % across all scans, and a
 best S/√B strictly inside the range. With replicates it reports the optimum as **NOT RESOLVED**
 from the runner-up when their gap is under twice its uncertainty. Light that varies by more than
 50 % across the scans blocks the comparison, since proportional correction is then in doubt.
-A NOT SETTLED voltage is left out. An optimum that counts
-under half the photons is flagged as weak-signal only.
+A NOT SETTLED voltage is left out. An optimum that counts under half the photons is flagged as
+weak-signal only. A light scan whose HV field was left at 0 has no recorded HV and is not
+compared at all: both scans of the second real run (2026-11-10, 16:36 and 17:24) are like that.
+
+The measurement procedure, interleaved replicates over 975–1075 V in 25 V steps, two or three
+rounds, with the settling check and dark scan on each voltage's first visit and light scans only
+after that, is §10 of [THRESHOLD_SCAN_GUIDE.md](THRESHOLD_SCAN_GUIDE.md).
 
 Two bugs were found on the way, and are fixed for every scan:
 

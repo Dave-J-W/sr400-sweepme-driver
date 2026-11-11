@@ -160,6 +160,17 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Added
 
+- **The dark-scan method study's conclusion, in the docs.** Why do the two real dark scans
+  differ? [`analysis/dark_scan_method/`](analysis/dark_scan_method/README.md) ran the driver's own
+  sampling and analysis on simulated tubes tuned to each scan. Method alone moves the optimum
+  from 6.8 to 7.6 mV in 13–38 % of simulated pairs, but reproduces the curve differences in at
+  most 1 of 300–400. Its candidate causes, a change in electronic noise or pickup and a lower
+  dark rate later in the day, are untested.
+  [`docs/SIMULATED_VS_REAL.md`](docs/SIMULATED_VS_REAL.md) summarises it as the study's
+  conclusion, with what would settle it and what it means for choosing a level: a fixed 7.2 mV
+  scores 0.97–0.998 of the best on both simulated tubes. The four driver changes it proposes are
+  listed as proposals, not made. The guide's HV procedure now reminds the operator to fill in the
+  HV field, which both scans of the second run left at 0.
 - **Guide §6 chooses the threshold from your signal rate.** The scans' recommendation is the
   weak-signal optimum. §6 of [`docs/THRESHOLD_SCAN_GUIDE.md`](docs/THRESHOLD_SCAN_GUIDE.md) now
   gives, for a signal of N counts/s at the valley, the level to set, its GUI value, the range
@@ -171,8 +182,7 @@ Newest first. Gotcha and section numbers are the shared numbering of
   `analysis/low_signal_threshold/data/`), figures drawn from them by `selftest.py plot`. Its HV was
   not recorded. The folder README gives its provenance and what has been corrected since, and
   [`docs/SIMULATED_VS_REAL.md`](docs/SIMULATED_VS_REAL.md) adds it to every table, with the
-  optimum and band of all four dark × light pairings. Why the two dark scans differ is not
-  interpreted there: a study of it is in progress.
+  optimum and band of all four dark × light pairings.
 - **[`analysis/photon_background/`](analysis/photon_background/README.md): the threshold when the
   signal brings a photon background it cannot be separated from.** For a background at an assumed
   fraction f of the signal, absent from the signal-off run, the best level and its 5 % band are

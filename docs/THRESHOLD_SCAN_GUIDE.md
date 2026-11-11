@@ -65,6 +65,13 @@ The recommended level is **advice for you to enter**, not something the scan app
       matters. Once the scans are done, **don't move the cables**.
 - [ ] PMT **high voltage on** at its normal value (1000 V for the R8486), and left on for a few
       minutes so the dark rate settles.
+- [ ] The same voltage **typed into `PMT high voltage in V (record only, 0 = not recorded)`**.
+      The driver never reads the supply, so this field is the only record of the HV. Both scans
+      of the second real run (2026-11-10, 16:36 and 17:24) left it at 0, so their files say "not
+      recorded", and the HV comparison of §10 cannot use them.
+- [ ] **Write down** when the HV was switched on and when the tube was covered. The driver does
+      not record either, and without them the two real dark scans of 2026-11-10 could not show
+      whether the dark rate was still changing.
 - [ ] The SR400 **not counting from its own front panel** (press STOP on it if in doubt). The
       scans refuse to start while it is counting.
 
@@ -231,7 +238,9 @@ little more background. So choose from your **signal rate N**, with the table be
 
 > **Provisional.** The table comes from the four real scans of this R8486 at about 1000 V on
 > 2026-11-10 (two dark, two light), analysed in [`analysis/low_signal_threshold/`](../analysis/low_signal_threshold/README.md). The two
-> dark scans disagree by more than counting noise, so the low-N rows may still move. **Every level
+> dark scans disagree by more than counting noise, so the low-N rows may still move. A study
+> found that the difference is in the curves themselves, not only in how they were sampled (see
+> [SIMULATED_VS_REAL.md](SIMULATED_VS_REAL.md)). **Every level
 > here is below 10 mV**, so it holds only with the cables routed as they were for the scans
 > (§3). After you change the high voltage, the cables or the tube, repeat the scans (§7): the table
 > is this tube's, on that day.
@@ -274,6 +283,11 @@ difference being your signal.
   and from N ≈ 2000–4500 the best level itself, may lie below it, and the scans cannot tell. Your
   own light scan's report gives the same limits for your tube, as the signal rate from which the
   5 % band and the best level reach the valley.
+
+**The best level is less sharp than "6.8 mV only" suggests.** The top of S/√B is flat:
+counting noise alone moves a single scan's optimum by 0.5–0.7 mV (one standard deviation) in
+simulation, and on the dark-scan study's two simulated tubes a fixed 7.2 mV scores 0.97–0.998 of
+the best. So don't chase a 0.4 mV difference between two scans.
 
 **If you want one setting and don't know N well:**
 
@@ -421,14 +435,17 @@ shows up as a trend over *time*, which the comparison corrects, rather than as a
 
 1. Set the HV on the supply. Type **the same value** into the Logger module's field
    **`PMT high voltage in V (record only, 0 = not recorded)`**. Every report, CSV and figure then
-   carries it.
+   carries it. **Don't skip this.** A scan with the field at 0 is "not recorded": `hv-compare`
+   leaves it out, and a light scan is only scored against a dark scan with the same recorded HV,
+   so a forgotten value pairs scans from different voltages or none at all.
 2. Tick **`Dark settling check (PMT covered)`**, **`Dark threshold scan (PMT covered)`** and
    **`Light threshold scan (steady light)`**, and start a short run (one point).
 3. When asked, cover the tube. The **settling check** counts dark pulses at your operating
    threshold until the rate stops changing. It fits a straight line through the last 5 minutes
    and needs the slope to be consistent with zero. This takes at least 5 minutes, and at most 30.
    You don't have to guess a settling time. The debug log shows the drift after every block. The
-   dark scan follows straight away.
+   report gives the drift it measured and the smallest drift it could have seen, and says so if
+   that is coarser than the 0.5 % per minute it aims for. The dark scan follows straight away.
 4. When asked, uncover the tube and set the light. The light scan follows.
 
 **Later rounds: the light scan only.** Set the HV and type it in, tick only

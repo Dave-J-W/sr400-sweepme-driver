@@ -489,7 +489,8 @@ up. The grid, the sampling rules, the analysis and its provisional constants are
 
 `PMT high voltage in V (record only, 0 = not recorded)` is a record, not a setting: it goes into
 every report, CSV and figure, and a light scan is only scored against a dark scan with the same
-recorded HV. The `Dark settling check (PMT covered)` counts at your operating threshold until
+recorded HV. **Fill it in for every scan.** At 0 the HV is "not recorded", and `hv-compare` cannot
+use the scan. The `Dark settling check (PMT covered)` counts at your operating threshold until
 the dark rate stops drifting, and `python selftest.py hv-compare <folder>` compares the scans
 taken at several voltages. The procedure is §10 of the
 [guide](../docs/THRESHOLD_SCAN_GUIDE.md); how the check and the comparison work is §9.8 of

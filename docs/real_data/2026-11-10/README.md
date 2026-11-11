@@ -55,6 +55,15 @@ concluded at the time. Some of it has since been corrected:
    (GUI `-0.0076`), counting 62 % of the photons at the reference level, with S/√B within 5 % of
    its best from 6.8 to 7.6 mV.
 
+**The two dark scans differ** more than counting noise allows: the second reads higher at
+3–5 mV and about 0.6 of the first in the tail, with its noise edge 0.8 mV higher. A
+[study of the difference](../../../analysis/dark_scan_method/README.md) concluded that the scan method explains the
+optimum moving from 6.8 to 7.6 mV, but not the differences in the curves. By the study, those
+need a change in the tube or its surroundings between the runs, which nothing recorded can
+identify.
+[`../../SIMULATED_VS_REAL.md`](../../SIMULATED_VS_REAL.md) summarises it, with what would settle
+it.
+
 Every figure here is drawn by the current analysis, which differs from the one the reports were
 made with in two ways. The dark background behind S/√B is a fitted curve rather than each
 threshold's own rate, and levels below the valley are not scored. Both are described in

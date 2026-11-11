@@ -75,8 +75,50 @@ shows the same hump):
 
 **The two real dark scans differ.** The second reads higher from 3 to 5 mV (2.5e3 against
 741 counts/s at 3 mV, 10.2 against 7.9 at 5 mV) and lower from 6 mV up (2.0 against 2.4 counts/s at
-6 mV), and its noise edge is 0.8 mV higher. A study of why, the scan method against the tube, is
-in progress; this page records only what was measured.
+6 mV), and its noise edge is 0.8 mV higher.
+
+**Method or tube? What a study concluded.** The working hypothesis was that the two scans differ
+only in method: the second was sampled under the later rules, on a different grid and with
+different count targets. The
+[dark-scan method study](../analysis/dark_scan_method/README.md) (2026-11-11) tested that. It ran the driver's own sampling and
+analysis code on a virtual bench, against simulated tubes tuned to each real scan, 300–400
+simulated pairs of scans per case. Its verdict is that **method explains the optimum, not the
+curves**:
+
+- **The optimum** moving from 6.8 to 7.6 mV happens by method alone in 13–38 % of simulated pairs
+  on one unchanged tube. The top of S/√B is flat, which makes the optimum the output most
+  sensitive to method: counting noise alone spreads a single scan's optimum over 6.0–8.4 mV in
+  the simulations (standard deviation 0.5–0.7 mV).
+- **The differences in the curves** happen by method alone in at most 1 of 300–400 pairs: the
+  roll-off at 2.6–3.6 mV (×1.13 to ×3.32), the excess at 4.0–5.6 mV (×1.23), and the tail at
+  ×0.59. Two facts from the raw data rule out the obvious method causes. At 2.8 mV both scans
+  counted for 0.060 s in all, and got 227 and 573 counts. Both measured 6.0–7.2 mV at 241–335 s
+  into the scan, where the second reads 0.67 ± 0.07 of the first, so elapsed time within the scan
+  does not explain the tail either.
+- **The noise edge** moving from 5.2 to 6.0 mV happens by method alone in 0.25–2 % of pairs.
+- **What the study proposes instead is untested:** a change in electronic noise or pickup
+  reaching up to about 6 mV, and a dark count rate about 40 % lower later in the day. The HV-on
+  time, the cover time and the room temperature were not recorded, so the scans cannot tell.
+- **What would settle it:** a dark scan of 2–7 mV with the HV off, or with the anode replaced by a
+  50 Ω terminator (an excess that appears without the PMT is pickup); a dark-rate monitor at one
+  fixed level, for example 8 mV for 60 s every 10 minutes, from HV-on through a session, with the
+  HV-on and cover times written down; and, at 8 mV, the count variance against the window length,
+  which separates bursts of dark counts from a varying rate.
+
+These are the study's conclusions from two scans of one tube on one afternoon, not settled
+physics.
+
+**What it means when you choose a level.** Because the top of S/√B is flat, the millivolt is
+cheap. On the study's simulated tubes a fixed 7.2 mV scores 0.97–0.998 of the best on both, with
+either light scan. 7.6 mV scores 0.95–0.97 of the best on the tube like the 13:20 scan, and 6.8 mV
+0.96–0.98 on the tube like the 16:36 scan. A single scan's noise edge is also less exact than its
+0.2 mV step: in simulated repeats it falls mostly within 5.0–5.6 mV for the 13:20-like tube and
+5.6–6.4 mV for the 16:36-like one, a spread of about 0.6–0.8 mV.
+
+The study also proposes four changes to the driver, which are under consideration and **not
+made**: letting the background fit narrow only below about 6 mV, 0.2 mV light-scan steps over
+6–10 mV, optional alternating dark passes over 5.6–10 mV to pin the optimum to 0.2 mV, and
+logging every count period.
 
 ### Panel (b): live time per threshold
 
