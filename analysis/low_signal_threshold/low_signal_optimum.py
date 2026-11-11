@@ -13,8 +13,10 @@ DEFINITIONS (they are the whole answer, so they are stated once, here, and used 
   ref          the reference level of a light scan: the valley of its pulse-height density, as
                found by selftest.analyse_light (reference_v).
   b(v)         dark (background) rate at v, counts/s, from selftest._smooth_dark_rate: a local
-               Poisson maximum-likelihood fit rate = exp(a + b x) over the dark thresholds within
-               +-1 mV (widened until it holds 3 thresholds and 20 counts). Used instead of the
+               Poisson maximum-likelihood fit of log(rate) over the dark thresholds within
+               +-1 mV (widened until it holds 3 thresholds and 20 counts), linear in the level,
+               or quadratic over a narrower window where the curve bends and the window holds
+               >= 800 counts (the driver's fit since 2026-11-11). Used instead of the
                single threshold's own rate because above 6 mV a single dark threshold holds only
                a few tens of counts (+-13-25 %), which would make the optimum jump between
                neighbouring levels on counting noise alone.
@@ -85,20 +87,19 @@ SEED = 20261110
 DEAD_TIME_S = 5e-9   # SR400 pulse-pair resolution, manual p. 5 (as quoted in selftest.py)
 PICKUP_SAFE_MV = st.PICKUP_SAFE_V * 1e3
 SINGLE_SETTING_RANGES = ((1, 10), (1, 100), (1, 1000), (1, 10000), (100, 10000))
-# Lowest candidate level. HEADLINE: the light scan's valley (reference). Measured here: below the
-# valley the light-on rate exceeds photons + dark noise (light - dark = 1.44x the valley rate at
-# 2.2 mV, where real sub-valley photoelectrons cannot plausibly be 44 %), so eps > 1 there includes
-# light-induced extra counts that a weak signal may not produce in the same proportion; and across
-# the steep 2.2-3.6 mV roll-off the +-1 mV exponential dark fit misses the raw dark rate by up to
-# ~2x. Counting below the valley is also outside the definition of N. "hump" (every level above
-# the rate maximum) is run as a sensitivity check only.
+# Lowest candidate level. HEADLINE: the light scan's valley (reference), as the driver itself now
+# does (selftest.analyse_light scores S/sqrt(B) from the reference up, since 2026-11-11). Measured:
+# below the valley light - dark exceeds the valley rate by ~40 % at 2.2 mV, and the excess falls
+# with the level like the electronic noise, not like photoelectrons, so eps > 1 there includes
+# extra counting that a weak signal may not produce in the same proportion. Counting below the
+# valley is also outside the definition of N. "hump" (every level above the rate maximum) is run
+# as a sensitivity check only.
 FLOORS = ("valley", "hump")
 # b(v) estimators: "fit" = selftest._smooth_dark_rate everywhere (HEADLINE); "hybrid" = the
 # threshold's own raw rate where it holds >= HYBRID_MIN_COUNTS counts (<= 5 % Poisson), the fit
-# elsewhere. Sensitivity check on the fit's bias where the dark curve is steep and curved.
-# "fit_x0.9" / "fit_x1.1": the fit scaled by 0.9 / 1.1 at every level. Measured here: between 3.8
-# and 6.0 mV the fit sits 4-20 % ABOVE the raw thresholds (which hold < 400 counts there, so the
-# hybrid does not touch them); +-10 % brackets that bias.
+# elsewhere. "fit_x0.9" / "fit_x1.1": the fit scaled by 0.9 / 1.1 at every level. Introduced
+# when the fit read 4-20 % high over 3.8-6 mV (the straight-line fit before 2026-11-11); kept as
+# checks on whatever bias the fit has left.
 B_MODES = ("fit", "hybrid", "fit_x0.9", "fit_x1.1")
 HYBRID_MIN_COUNTS = 400
 
@@ -352,7 +353,7 @@ def fig_inputs(data, nominal):
     svg.text(30, 26, "Measured inputs: photon detection fraction eps(v) and dark rate b(v), 2026-11-10",
              15, weight="bold")
     # Panel A: eps
-    pa = Panel(svg, 90, 70, 470, 330, (0, 18.5), (0, 1.3))
+    pa = Panel(svg, 90, 70, 470, 330, (0, 18.5), (0, 1.5))
     pa.frame("A. eps(v) = (light - dark) / same at the valley",
              "discriminator level |v| (mV)", "eps (fraction of valley-level counts)")
     pa.band(0, min(l["ref_v"] for l in data["lights"].values()) * 1e3, st._C["noise"], "", opacity=0.30)
@@ -387,7 +388,7 @@ def fig_inputs(data, nominal):
                   line=False, filled=False)
         cands = nominal[dk + "L1"]["variants"][("hump", "fit")]
         pb.series([c["mv"] for c in cands], [c["b"] for c in cands], color, width=2.0,
-                  label=f"{DARKS[dk][0]}: b(v), local Poisson fit (+-1 mV)")
+                  label=f"{DARKS[dk][0]}: b(v), local Poisson fit (selftest)")
     pb.legend()
     footer(svg, 450, [
         PROVENANCE,
@@ -396,9 +397,10 @@ def fig_inputs(data, nominal):
         f"on eps is ~0.5 % per level, smaller than the markers. B: error bars are Poisson; open "
         f"triangles are thresholds with zero counts, plotted at the 95 % upper limit 3/T.",
         f"Grey, panel A: below the valley eps reaches {data['eps_below_max']:.2f}: the light-on rate there "
-        f"is more than photons + dark noise, and the dark fit (panel B) misses the raw dark rate by up to "
-        f"x{data['fit_raw_max']:.1f} on the steep 2.2-3.6 mV roll-off. Levels below the valley are "
-        f"therefore left out of the headline answer (sensitivity check only).",
+        f"is more than photons + dark noise, and the excess falls with the level like the electronic noise. "
+        f"Levels below the valley are therefore left out of the headline answer (sensitivity check only), "
+        f"as the driver also leaves them out. Panel B: on the steep 2.2-3.6 mV roll-off the fit is within "
+        f"x{data['fit_raw_max']:.2f} of the raw dark rate.",
         "The 16:36 dark scan is coarse above 7.2 mV (7.2, 9.2, 11.2 ... mV), so its b(v) between "
         "those points is a fit across a +-2 mV window, not a local measurement. "
         "Light-scan counts are summed over 3 up and 3 down passes at each level.",

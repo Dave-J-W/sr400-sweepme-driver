@@ -3284,6 +3284,13 @@ def test_log_migration_and_smooth_background(driver):
           f"{sum(single) / len(single):.1%} mean error)")
     check(st._smooth_dark_rate(rows, 0.0130) is not None,
           "it still gives a background on the coarse 2 mV tail, by widening its window")
+    # Tightened 2026-11-11, when the fit learned to follow curvature: on a tail with none, it must
+    # keep the straight line's noise reduction, not trade it for flexibility it does not need.
+    line = [abs(_straight_line_dark_rate(st, rows, v) / true(v) - 1)
+            for v in (0.0056, 0.0064, 0.0072, 0.0080, 0.0090)]
+    check(sum(errors) <= 1.25 * sum(line),
+          f"and on a tail with no curvature it does no worse than the straight line it replaced "
+          f"({sum(errors) / len(errors):.1%} against {sum(line) / len(line):.1%} mean error)")
 
     # --- on the real scans: the band is no longer one level wide -------------------------------
     real = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -3295,6 +3302,161 @@ def test_log_migration_and_smooth_background(driver):
     check(abs(result["optimum_v"] - 0.0068) < 1e-9 and hi - lo >= 0.0008 - 1e-9,
           f"on the real 2026-11-10 scans the optimum stays at 6.8 mV and the 5 % band now spans "
           f"{lo * 1e3:.1f}-{hi * 1e3:.1f} mV (it was 6.8-6.8)")
+
+
+def _straight_line_dark_rate(st, rows, v):
+    """The background fit as it was until 2026-11-11: log-linear over +-1 mV, widened in 1 mV
+    steps until it holds 3 thresholds and 20 counts. Kept here as the baseline the fix must beat."""
+    half = 0.001
+    while True:
+        window = [r for r in rows if abs(r["abs_v"] - v) <= half + 1e-9 and r["live_s"] > 0]
+        if (len(window) >= 3 and sum(r["counts"] for r in window) >= 20) or half >= 0.004 - 1e-9:
+            break
+        half += 0.001
+    if len(window) < 2 or sum(r["counts"] for r in window) < 20:
+        return None
+    fit = st._poisson_logpoly(window, v, 1)
+    return fit[0] if fit else None
+
+
+def _held_out_ratio(rows, predict, lo_v, hi_v):
+    """Leave each threshold in [lo_v, hi_v] out, predict it from the rest: sum(predicted) / sum(observed)."""
+    predicted = observed = 0.0
+    for r in rows:
+        if lo_v - 1e-9 <= r["abs_v"] <= hi_v + 1e-9:
+            others = [o for o in rows if o is not r]
+            predicted += predict(others, r["abs_v"]) * r["live_s"]
+            observed += r["counts"]
+    return predicted / observed
+
+
+def test_curved_background_and_valley_floor(driver):
+    print("\n[23h] the background fit follows the curve's bend; S/sqrt(B) is not scored below the valley")
+
+    import random
+
+    st = driver.selftest
+
+    # --- a synthetic dark curve WITH curvature: noise roll-off, a bend, then the dark tail ------
+    # Shaped like the real 13:20 scan (741 cps at 3.0 mV, 57 at 4.0, 6.8 at 5.2, 2.5 at 6.0) and
+    # sampled as the driver samples: DARK_TARGET_COUNTS per threshold, at most DARK_MAX_SECONDS.
+    def truth(v):
+        mv = v * 1e3
+        return (3e4 * math.exp(-((mv - 2.0) / 0.45) ** 2) + 180.0 * math.exp(-(mv - 3.4) / 0.5)
+                + 1.5 * math.exp(-(mv - 6.0) / 3.0))
+
+    rng = random.Random(11)
+
+    def poisson(lam):
+        limit, k, p = math.exp(-lam), 0, 1.0
+        while True:
+            p *= rng.random()
+            if p <= limit:
+                return k
+            k += 1
+
+    new_err, old_err, single_err = {}, {}, {}
+    for _ in range(20):
+        points = []
+        for v in st.threshold_grid():
+            if v > 0.0152 + 1e-9:
+                break
+            live = min(st.DARK_MAX_SECONDS, max(0.01, round(st.DARK_TARGET_COUNTS / truth(v), 2)))
+            points.append({"abs_v": v, "level_v": -v, "counts": poisson(truth(v) * live), "live_s": live, "t": 0.0})
+        rows = st.analyse_dark(points)["rows"]
+        for r in rows:
+            band = ("bend" if 0.0038 - 1e-9 <= r["abs_v"] <= 0.0060 + 1e-9 else
+                    "roll-off" if 0.0022 - 1e-9 <= r["abs_v"] <= 0.0036 + 1e-9 else None)
+            if band is None:
+                continue
+            new_err.setdefault(band, []).append(st._smooth_dark_rate(rows, r["abs_v"])[0] / truth(r["abs_v"]) - 1)
+            old_err.setdefault(band, []).append(_straight_line_dark_rate(st, rows, r["abs_v"]) / truth(r["abs_v"]) - 1)
+            single_err.setdefault(band, []).append(r["rate"] / truth(r["abs_v"]) - 1)
+
+    def bias(errs):
+        return sum(errs) / len(errs)
+
+    def rms(errs):
+        return math.sqrt(sum(e * e for e in errs) / len(errs))
+
+    check(abs(bias(new_err["bend"])) < 0.025 and bias(old_err["bend"]) > 0.05,
+          f"on a synthetic curve with a bend at 3.8-6 mV the fit's bias is {bias(new_err['bend']):+.1%}; "
+          f"the straight line it replaced read {bias(old_err['bend']):+.1%}")
+    check(rms(new_err["bend"]) < rms(single_err["bend"]),
+          f"and it is still closer than single thresholds there ({rms(new_err['bend']):.1%} against "
+          f"{rms(single_err['bend']):.1%} rms)")
+    check(rms(new_err["roll-off"]) < 0.10 and rms(old_err["roll-off"]) > 0.3,
+          f"on the steep roll-off (2.2-3.6 mV) its rms error is {rms(new_err['roll-off']):.1%}, "
+          f"against {rms(old_err['roll-off']):.0%} for the straight line")
+
+    # --- the real dark scans, held out threshold by threshold ---------------------------------
+    real = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "docs", "real_data", "2026-11-10")
+    _, dp = st.read_scan_csv(os.path.join(real, "SR400_threshold_scan_dark_2026-11-10_132008.csv"))
+    dark = st.analyse_dark(dp)
+    rows = dark["rows"]
+
+    def fitted(others, v):
+        return st._smooth_dark_rate(others, v)[0]
+
+    def straight(others, v):
+        return _straight_line_dark_rate(st, others, v)
+
+    for lo_v, hi_v, tol in ((0.0038, 0.0060, 0.03), (0.0022, 0.0036, 0.05)):
+        new, old = _held_out_ratio(rows, fitted, lo_v, hi_v), _held_out_ratio(rows, straight, lo_v, hi_v)
+        check(abs(new - 1) < tol and abs(old - 1) > 2 * tol,
+              f"the real 13:20 dark scan, each threshold in {lo_v * 1e3:.1f}-{hi_v * 1e3:.1f} mV left out "
+              f"and predicted from the rest: predicted/observed {new:.3f} (the straight line: {old:.3f})")
+    tail = [r["abs_v"] for r in rows if r["abs_v"] >= 0.0062 - 1e-9]
+    pairs = [(st._smooth_dark_rate(rows, v), _straight_line_dark_rate(st, rows, v)) for v in tail]
+    scored = [(new[0], old) for new, old in pairs if new is not None and old is not None]
+    check(all((new is None) == (old is None) for new, old in pairs)
+          and all(abs(new / old - 1) < 1e-9 for new, old in scored),
+          f"in its thin tail (all {len(tail)} thresholds from 6.2 mV, {len(scored)} with enough counts to "
+          f"fit) the fit is the straight line, unchanged")
+
+    # --- below the valley: not scored, and said so ----------------------------------------------
+    _, passes = st.read_scan_csv(os.path.join(real, "SR400_threshold_scan_light_2026-11-10_135935.csv"))
+    result = st.analyse_light(passes, dark)
+    ref = result["reference_v"]
+    check(result["fom"] and abs(result["fom"][0]["abs_v"] - ref) < 1e-9 and result["fom_floor_v"] == ref,
+          f"S/sqrt(B) is scored from the reference level ({ref * 1e3:.1f} mV) up, not below it")
+    excess = result["subvalley_excess"]
+    check(excess is not None and abs(excess[0] - 0.0022) < 1e-9 and 0.30 < excess[1] < 0.50,
+          f"below the valley the real light-minus-dark exceeds the reference rate by "
+          f"{excess[1]:.0%} at {excess[0] * 1e3:.1f} mV, which is recorded rather than scored")
+    check(not result["optimum_at_floor"] and not result["band_at_floor"],
+          "the real weak-signal optimum (6.8 mV) and its band stay clear of the floor")
+    band_n, best_n = result["floor_band_from_n"], result["floor_best_from_n"]
+    check(band_n is not None and best_n is not None and 300 < band_n < best_n < 2e4,
+          f"and it says from which signal rate the floor limits the answer: the band reaches the valley "
+          f"from ~{band_n:.0f}, the best level from ~{best_n:.0f} counts/s at the reference")
+    findings = " ".join(st._light_findings(result, dark))
+    check("scored from the reference level" in findings and "cannot say whether a lower level" in findings,
+          "the findings under the figure state both")
+    best = st._absolute_snr(result, dark)
+    check(best is not None and best[1] >= ref - 1e-9,
+          f"hv-compare's absolute S/sqrt(B) is scored from the reference up too (best at {best[1] * 1e3:.1f} mV)")
+    published = open(os.path.join(real, "SR400_threshold_scan_light_2026-11-10_135935.svg"), encoding="utf-8").read()
+    check("not scored" in published and "scored from the reference level" in published,
+          "the committed real light figure shades the unscored region and says why")
+
+    # --- a background with no roll-off: the optimum lands on the floor and the driver says so -----
+    # A flat 5 counts/s dark rate makes S/sqrt(B) follow the photon fraction, which is largest at
+    # the lowest scored level. The driver must flag that, not present the floor as an optimum.
+    flat = st.analyse_dark([{"abs_v": r["abs_v"], "level_v": -r["abs_v"], "counts": 500, "live_s": 100.0, "t": 0.0}
+                            for r in result["rows"]])
+    floor = st.analyse_light(passes, flat)
+    check(floor["optimum_at_floor"] and abs(floor["optimum_v"] - floor["reference_v"]) < 1e-9,
+          f"with a flat background the optimum is the reference level itself ({floor['optimum_v'] * 1e3:.1f} mV) "
+          f"and is flagged as at the floor")
+    check("AT the reference level" in floor["recommended_basis"],
+          "the recommendation's basis says it is at the lowest level scored")
+    lines = st._light_findings(floor, flat)
+    check(any(line.startswith("!The S/sqrt(B) optimum is AT the reference level") for line in lines),
+          "the findings say so in red")
+    svg = st.plot_light(floor, passes, flat, {"when": "test", "kind": "light"})
+    check("OPTIMUM AT THE LOWEST SCORED LEVEL" in svg, "and panel (d) says so where the optimum is drawn")
 
 
 def test_threshold_scans(driver):
@@ -3823,6 +3985,7 @@ def main() -> int:
         test_real_scans_in_repo,
         test_settling_and_hv,
         test_log_migration_and_smooth_background,
+        test_curved_background_and_valley_floor,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,

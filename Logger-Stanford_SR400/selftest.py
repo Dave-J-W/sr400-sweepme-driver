@@ -1368,6 +1368,17 @@ FOM_MIN_DARK_COUNTS = 20        # below this sqrt(B) is too uncertain to divide 
 # until it has 3 thresholds) as rate = exp(a + b * (level - here)), by Poisson maximum likelihood
 # so that zero-count thresholds count correctly. PROVISIONAL: the window width is a judgement.
 DARK_SMOOTH_HALF_WIDTH_V = 0.001
+# Where the dark curve bends, the fit narrows and goes quadratic in log(rate) (see
+# _smooth_dark_rate). Chosen on held-out data, 2026-11-11: each real dark scan's thresholds left
+# out one at a time and predicted from the rest. Over 3.8-6 mV predicted/observed counts were 1.110
+# and 1.097 for the straight line, 1.001 and 1.002 for this rule; over 2.2-3.6 mV 1.156 and 1.059
+# against 0.987 and 0.981, with the held-out chi-square per threshold falling from 148 and 477 to 3.8
+# and 11.9. Above 6 mV the real windows hold < 800 counts, so the tail fit is unchanged. On a
+# synthetic pure-exponential tail the gate keeps rms error at 4.2 % against 3.9 % for the line;
+# narrowing without the gate cost 4.9 %.
+DARK_CURVE_MIN_COUNTS = 800     # a narrowed window keeps >= 800 counts: ~3.5 % Poisson
+DARK_CURVE_LR = 4.0             # likelihood-ratio statistic the quadratic must beat (~2 sigma)
+DARK_CURVE_STEP_V = 0.0002      # narrowing step, the discriminator's own resolution
 FOM_BAND = 0.95                 # levels within 5 % of the best S/sqrt(B) are reported as a band
 
 PROMPT_DARK = (
@@ -1593,6 +1604,32 @@ def _crossing(rows: list, values: list, target: float, start_v: float):
     return None
 
 
+def _bright_signal_limits(fom: list) -> dict:
+    """Signal rates at which the scored range stops being wide enough to find the optimum.
+
+    S/sqrt(B) is the weak-signal limit. For a signal of N counts/s at the reference level, measured
+    against a background run of equal length, the figure of merit is s / sqrt(s + 2B) with s = the
+    photon fraction times N, and its best level falls as N rises. Levels below the reference are
+    not scored, so from some N the best level, then its 5 % band, is the lowest scored level, and
+    the scan cannot say whether going lower would help. Returns the first N, on a grid of 10 per
+    decade from 1 to 1e6 counts/s, where each happens (None if it does not happen by 1e6).
+    """
+    out = {"floor_best_from_n": None, "floor_band_from_n": None}
+    if not fom:
+        return out
+    for k in range(61):
+        n = 10.0 ** (k / 10.0)
+        merit = [f["efficiency"] * n / _math.sqrt(f["efficiency"] * n + 2.0 * f["dark_rate"])
+                 if f["efficiency"] > 0 else 0.0 for f in fom]
+        best = max(merit)
+        if out["floor_band_from_n"] is None and merit[0] >= FOM_BAND * best:
+            out["floor_band_from_n"] = n
+        if out["floor_best_from_n"] is None and merit[0] >= best:
+            out["floor_best_from_n"] = n
+            break
+    return out
+
+
 def analyse_light(passes: list, dark: dict | None = None) -> dict:
     """Pure analysis of repeated up/down light scans.
 
@@ -1604,7 +1641,9 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
               "hysteresis_v": None, "hysteresis_se_v": None, "hysteresis_flagged": False,
               "recommended_v": None, "recommended_basis": "", "recommended_loss": None,
               "window_v": None, "window_empty": False, "dark_vanish_loss": None,
-              "noise_edge_v": None, "fom": [], "optimum_v": None, "optimum_band_v": None}
+              "noise_edge_v": None, "fom": [], "optimum_v": None, "optimum_band_v": None,
+              "fom_floor_v": None, "optimum_at_floor": False, "band_at_floor": False,
+              "subvalley_excess": None, "floor_best_from_n": None, "floor_band_from_n": None}
     if not passes:
         result["valid"] = False
         result["reasons"].append("no passes were measured")
@@ -1793,8 +1832,19 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
     # above the noise edge and NOT where dark counts vanish; this computes it rather than
     # asserting it. Levels with too few dark counts are not scored: a near-zero background
     # estimate makes any SNR look enormous, which is exactly the trap being guarded against.
+    #
+    # Levels BELOW the reference are not scored. Light minus dark there is not photon counting:
+    # measured 2026-11-10 on both real light scans, it exceeds the reference rate by 38-41 % at
+    # 2.2 mV, steadily in all six passes (36-43 %), and the excess falls with a log-slope of -2.3 to
+    # -2.6 per mV, on the electronic noise's amplitude scale (dark: -4.2 to -4.5 per mV), against
+    # -0.05 per mV for light minus dark just above the valley. Within ~0.4 mV of the valley the
+    # excess (0.5-2 %) could be sub-valley photoelectrons; the scan cannot tell the two apart, nor
+    # whether either is Poisson or scales with a weak signal. So the scan's lowest scored level is
+    # the reference itself, and when the optimum or its band reaches it, the result says so
+    # (optimum_at_floor, band_at_floor) instead of presenting the floor as an optimum.
     if dark:
         top = max((d["abs_v"] for d in dark["rows"]), default=0.0)
+        result["fom_floor_v"] = reference
         for r in rows:
             if r["abs_v"] > top + 1e-9:
                 continue  # beyond the dark scan: the fit would be an extrapolation
@@ -1803,6 +1853,12 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
                 continue
             b_rate, b_sigma, b_counts = fit
             efficiency = max(r["rate"] - b_rate, 0.0) / plateau
+            if r["abs_v"] < reference - 1e-9:
+                if r["abs_v"] > max(rows, key=lambda x: x["rate"])["abs_v"] + 1e-9:
+                    excess = efficiency - 1.0  # past the rate maximum only: below it is the hump
+                    if result["subvalley_excess"] is None or excess > result["subvalley_excess"][1]:
+                        result["subvalley_excess"] = (r["abs_v"], excess)
+                continue
             result["fom"].append({"abs_v": r["abs_v"], "efficiency": efficiency,
                                   "dark_rate": b_rate, "dark_counts": b_counts, "dark_sigma": b_sigma,
                                   "fom": efficiency / _math.sqrt(b_rate)})
@@ -1813,6 +1869,10 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
             result["optimum_v"] = best["abs_v"]
             band = [f["abs_v"] for f in result["fom"] if f["relative"] >= FOM_BAND]
             result["optimum_band_v"] = (min(band), max(band))
+            floor = result["fom"][0]["abs_v"]
+            result["optimum_at_floor"] = abs(best["abs_v"] - floor) < 1e-9
+            result["band_at_floor"] = abs(min(band) - floor) < 1e-9
+            result.update(_bright_signal_limits(result["fom"]))
 
     # --- recommendation --------------------------------------------------------------------
     upper = result["loss_v"].get(0.01)
@@ -1835,6 +1895,8 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
             result["recommended_basis"] = (
                 "background-limited optimum: the level maximising S/sqrt(B), from this "
                 "session's dark and light scans together"
+                + (" -- AT the reference level, the lowest level scored, so a lower level might "
+                   "score higher and this scan cannot say" if result["optimum_at_floor"] else "")
             )
         elif result["valley_v"] is not None:
             result["recommended_v"] = result["valley_v"]
@@ -2472,6 +2534,12 @@ def plot_light(result: dict, passes: list, dark: dict | None, meta: dict) -> str
     if result["fom"]:
         d = _Panel(svg, rx, row2, pw, P, (0.0, xmax), (0.0, 1.08))
         d.frame("(d) S/sqrt(B), relative to its best", "|discriminator level|, mV", "S/sqrt(B) / best")
+        if result.get("fom_floor_v"):
+            # Not scored, and said so on the panel: an empty stretch of axis would read as zero.
+            # The reason is in the findings under the figure; the panel names the region.
+            d.band(0.0, result["fom_floor_v"] * 1e3, _C["noise"], "not scored", opacity=0.35)
+            if result["optimum_at_floor"]:
+                d.note("OPTIMUM AT THE LOWEST SCORED LEVEL: it may lie lower", "#c0392b", corner="br", line=2)
         if result["optimum_band_v"]:
             lo, hi = result["optimum_band_v"]
             d.band(lo * 1e3, hi * 1e3, _C["band"], f"within {1 - FOM_BAND:.0%} of best")
@@ -2540,6 +2608,42 @@ def _loss_lines(result: dict) -> list:
     return out
 
 
+def _signal_rate(n) -> str:
+    """A rate to two significant figures, as 630, 5000 or 1e4 -- never 6.3e+02."""
+    s = float(f"{n:.2g}")
+    return f"{s:.0f}" if s < 1e4 else f"{s:.2g}".replace("e+0", "e").replace("e+", "e")
+
+
+def _floor_lines(result: dict) -> list:
+    """What the S/sqrt(B) scan does not score, why, and the signal rates where that limits it."""
+    floor = result.get("fom_floor_v")
+    if floor is None or not result["fom"]:
+        return []
+    line = (f"S/sqrt(B) is scored from the reference level {_mv(floor)} up; light minus dark below "
+            f"it is not taken as photon counting")
+    if result.get("subvalley_excess"):
+        v, excess = result["subvalley_excess"]
+        line += f" (in this scan it exceeds the reference rate by up to {excess:.0%}, at {_mv(v)})"
+    out = [line + ". On the real R8486 (2026-11-10) that excess fell with the level like the "
+                  "electronic noise, not like photoelectrons."]
+    if result["optimum_at_floor"]:
+        out.append("!The S/sqrt(B) optimum is AT the reference level, the lowest level scored: a "
+                   "lower level might score higher, and this scan cannot say.")
+    best_n, band_n = result.get("floor_best_from_n"), result.get("floor_band_from_n")
+    if not result["optimum_at_floor"]:
+        if best_n is None and band_n is None:
+            out.append("S/sqrt(B) is the weak-signal limit; up to a signal of 1e6 counts/s at the "
+                       "reference level, the best level stays above the reference.")
+        else:
+            out.append("S/sqrt(B) is the weak-signal limit; a stronger signal moves the best level down. "
+                       "With a background run as long as the signal run, the 5 % band reaches the "
+                       f"reference level from a signal of ~{_signal_rate(band_n)} counts/s at the reference"
+                       + (f", and the best level does from ~{_signal_rate(best_n)} counts/s" if best_n else "")
+                       + ". For signals above that, this scan cannot say whether a lower level would "
+                         "be better.")
+    return out
+
+
 def _light_findings(result: dict, dark: dict | None) -> list:
     out = []
     if result["valley_v"] is not None:
@@ -2566,8 +2670,11 @@ def _light_findings(result: dict, dark: dict | None) -> list:
                    f"{result['dark_vanish_loss']:.1%} fewer photons than at the reference level.")
     if result["optimum_band_v"]:
         lo, hi = result["optimum_band_v"]
-        out.append(f"S/sqrt(B) is within {1 - FOM_BAND:.0%} of its best from {_mv(lo)} to {_mv(hi)}. "
-                   f"Assumes a weak, background-limited signal; for a bright one the optimum moves down.")
+        out.append(("!" if result["band_at_floor"] else "")
+                   + f"S/sqrt(B) is within {1 - FOM_BAND:.0%} of its best from {_mv(lo)} to {_mv(hi)}"
+                   + (" -- the lower end is the lowest level scored, so the band may extend lower."
+                      if result["band_at_floor"] else "."))
+        out.extend(_floor_lines(result))
     for reason in result["reasons"]:
         out.append("!" + reason)
     if result["recommended_v"] is not None and result["recommended_v"] < PICKUP_SAFE_V:
@@ -3217,13 +3324,16 @@ def run_threshold_scan_light(device) -> tuple:
         if result["fom"]:
             report.section("background-limited figure of merit, S/sqrt(B)")
             report.note(
-                "S = (light rate - dark rate) / rate at the reference level, so it can exceed 1 "
-                "below the reference; "
+                "S = (light rate - dark rate) / rate at the reference level; "
                 f"B = the dark rate at that level from a local Poisson fit to the dark scan over "
                 f"+-{DARK_SMOOTH_HALF_WIDTH_V * 1e3:g} mV (wider where the grid is coarse), so one "
-                f"threshold's counting noise does not set the score. Levels whose window holds fewer "
-                f"than {FOM_MIN_DARK_COUNTS} dark counts are not scored.",
+                f"threshold's counting noise does not set the score. Where the dark curve bends and "
+                f"the window holds >= {DARK_CURVE_MIN_COUNTS} counts, the fit is quadratic in "
+                f"log(rate) over a window narrowed to keep that many. Levels whose window holds "
+                f"fewer than {FOM_MIN_DARK_COUNTS} dark counts are not scored.",
             )
+            for line in _floor_lines(result):
+                report.note(line.lstrip("!"))
             report.table(
                 [(f"{f['abs_v'] * 1e3:6.1f} mV",
                   f"photons vs ref {f['efficiency']:.3f}   dark {f['dark_rate']:.3g} +- "
@@ -3247,10 +3357,11 @@ def run_threshold_scan_light(device) -> tuple:
             if result["optimum_band_v"] is not None:
                 lo, hi = result["optimum_band_v"]
                 report.note(f"Anywhere from {_mv(lo)} to {_mv(hi)} is within "
-                            f"{1 - FOM_BAND:.0%} of the best S/sqrt(B).")
-                report.note("This assumes a weak, background-limited signal. For a bright "
-                            "signal (S >> B) the optimum moves down, to the lowest level above "
-                            "the noise edge.")
+                            f"{1 - FOM_BAND:.0%} of the best S/sqrt(B)"
+                            + (", and the band may extend below {}, the lowest level scored."
+                               .format(_mv(lo)) if result["band_at_floor"] else "."))
+                for line in _floor_lines(result)[1:]:
+                    report.note(line.lstrip("!"))
             if low is not None and high is not None:
                 report.note(f"Strict window, noise edge to 1 % loss: {_mv(low)} to {_mv(high)}"
                             + (" -- EMPTY at this gain." if result["window_empty"] else "."))
@@ -3270,6 +3381,8 @@ def run_threshold_scan_light(device) -> tuple:
                 f"{1.0 - result['recommended_loss']:.0%} of photons"
                 + (f"; S/sqrt(B) within 5 % of best from {_mv(result['optimum_band_v'][0])} to "
                    f"{_mv(result['optimum_band_v'][1])}" if result["optimum_band_v"] else "")
+                + ("; optimum AT the reference level, the lowest scored: may lie lower"
+                   if result["optimum_at_floor"] else "")
                 + ("; strict window empty -- preamp would help" if result["window_empty"] else "")
             )
         else:
@@ -3301,51 +3414,127 @@ HV_LIGHT_CONSISTENCY = 0.5
 HV_MIN_FOR_OPTIMUM = 3
 
 
+def _solve(matrix: list, vector: list):
+    """Solve a small dense linear system by Gaussian elimination; None if it is singular."""
+    n = len(vector)
+    m = [list(row) + [v] for row, v in zip(matrix, vector)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(m[r][col]))
+        if abs(m[pivot][col]) < 1e-300:
+            return None
+        m[col], m[pivot] = m[pivot], m[col]
+        for r in range(n):
+            if r != col:
+                k = m[r][col] / m[col][col]
+                m[r] = [x - k * y for x, y in zip(m[r], m[col])]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def _poisson_logpoly(window: list, abs_v: float, degree: int):
+    """Poisson maximum-likelihood fit of log(rate) = c0 + c1 x + ... (x = level - abs_v, in mV).
+
+    Returns (rate at abs_v, its relative sigma, log-likelihood up to a constant), or None.
+    Newton steps are halved until the likelihood does not fall, so a steep or nearly empty window
+    cannot throw the fit to an overflow. Zero-count thresholds count, as they must.
+    """
+    xs = [(r["abs_v"] - abs_v) * 1e3 for r in window]
+    counts = sum(r["counts"] for r in window)
+    live = sum(r["live_s"] for r in window)
+    n = degree + 1
+    if counts <= 0 or live <= 0 or len(window) < n:
+        return None
+
+    def loglik(c):
+        total = 0.0
+        for r, x in zip(window, xs):
+            e = sum(c[k] * x ** k for k in range(n))
+            if e > 700.0:
+                return -float("inf")
+            total += r["counts"] * e - r["live_s"] * _math.exp(e)
+        return total
+
+    def information(c):
+        lam = [r["live_s"] * _math.exp(sum(c[k] * x ** k for k in range(n))) for r, x in zip(window, xs)]
+        return lam, [[sum(x ** (i + j) * l for x, l in zip(xs, lam)) for j in range(n)] for i in range(n)]
+
+    c = [_math.log(counts / live)] + [0.0] * degree
+    current = loglik(c)
+    for _ in range(100):
+        lam, info = information(c)
+        grad = [sum(x ** k * (r["counts"] - l) for r, l, x in zip(window, lam, xs)) for k in range(n)]
+        step = _solve(info, grad)
+        if step is None:
+            return None
+        scale = 1.0
+        while scale > 1e-6:
+            trial = [ci + scale * si for ci, si in zip(c, step)]
+            value = loglik(trial)
+            if value >= current - 1e-12:
+                break
+            scale /= 2.0
+        c, current = trial, value
+        if max(abs(s) for s in step) * scale < 1e-10:
+            break
+    _, info = information(c)
+    unit = _solve(info, [1.0] + [0.0] * degree)
+    sigma = _math.sqrt(unit[0]) if unit and unit[0] > 0 else 1.0 / _math.sqrt(counts)
+    return _math.exp(c[0]), sigma, current
+
+
 def _smooth_dark_rate(dark_rows: list, abs_v: float):
     """(rate, relative sigma, counts in the window) of the dark rate at abs_v from a local fit, or None.
 
-    rate(x) = exp(a + b x), x = level - abs_v, fitted to the thresholds within the window by Poisson
-    maximum likelihood (Newton). The window starts at +-DARK_SMOOTH_HALF_WIDTH_V and widens until
-    it holds 3 thresholds and FOM_MIN_DARK_COUNTS counts, up to +-4 mV.
+    Default: log(rate) linear in the level over +-DARK_SMOOTH_HALF_WIDTH_V, widened (to +-4 mV)
+    until it holds 3 thresholds and FOM_MIN_DARK_COUNTS counts -- the thin tail, where pooling is
+    the point. Where the dark curve BENDS (the noise roll-off turning into the dark tail, 2-6 mV on
+    the real tube) a straight line overshoots: measured 2026-11-10, held out threshold by threshold,
+    it read 10-11 % high over 3.8-6 mV on both real dark scans, and wrong by up to 3x below. So,
+    where the +-1 mV window holds >= DARK_CURVE_MIN_COUNTS counts AND a quadratic in log(rate)
+    improves its likelihood by more than DARK_CURVE_LR, the window is narrowed in 0.2 mV steps
+    while it keeps that many counts and 4 thresholds, and the quadratic is fitted there. A tail too
+    thin to show curvature keeps the straight line and its full window, so its noise reduction is
+    unchanged.
     """
+    usable = [r for r in dark_rows if r["live_s"] > 0]
+
+    def window(half):
+        rows = [r for r in usable if abs(r["abs_v"] - abs_v) <= half + 1e-9]
+        return rows, sum(r["counts"] for r in rows)
+
     half = DARK_SMOOTH_HALF_WIDTH_V
-    while True:
-        window = [r for r in dark_rows if abs(r["abs_v"] - abs_v) <= half + 1e-9 and r["live_s"] > 0]
-        counts = sum(r["counts"] for r in window)
-        if (len(window) >= 3 and counts >= FOM_MIN_DARK_COUNTS) or half >= 0.004 - 1e-9:
-            break
+    rows, counts = window(half)
+    if counts >= DARK_CURVE_MIN_COUNTS and len(rows) >= 5:
+        line, curve = _poisson_logpoly(rows, abs_v, 1), _poisson_logpoly(rows, abs_v, 2)
+        if line and curve and 2.0 * (curve[2] - line[2]) > DARK_CURVE_LR:
+            while half > DARK_CURVE_STEP_V + 1e-9:
+                narrower, n = window(half - DARK_CURVE_STEP_V)
+                if n < DARK_CURVE_MIN_COUNTS or len(narrower) < 4:
+                    break
+                half -= DARK_CURVE_STEP_V
+                rows, counts = narrower, n
+            fit = _poisson_logpoly(rows, abs_v, 2)
+            if fit is not None:
+                return fit[0], fit[1], counts
+    while not (len(rows) >= 3 and counts >= FOM_MIN_DARK_COUNTS) and half < 0.004 - 1e-9:
         half += 0.001
-    if len(window) < 2 or counts < FOM_MIN_DARK_COUNTS:
+        rows, counts = window(half)
+    if len(rows) < 2 or counts < FOM_MIN_DARK_COUNTS:
         return None
-    xs = [(r["abs_v"] - abs_v) * 1e3 for r in window]  # mV
-    a = _math.log(counts / sum(r["live_s"] for r in window))
-    b = 0.0
-    for _ in range(50):
-        lam = [r["live_s"] * _math.exp(a + b * x) for r, x in zip(window, xs)]
-        g0 = sum(r["counts"] - l for r, l in zip(window, lam))
-        g1 = sum(x * (r["counts"] - l) for r, l, x in zip(window, lam, xs))
-        h00 = sum(lam)
-        h01 = sum(x * l for x, l in zip(xs, lam))
-        h11 = sum(x * x * l for x, l in zip(xs, lam))
-        det = h00 * h11 - h01 * h01
-        if det <= 0:
-            break
-        da = (h11 * g0 - h01 * g1) / det
-        db = (h00 * g1 - h01 * g0) / det
-        a, b = a + da, max(min(b + db, 20.0), -20.0)
-        if abs(da) < 1e-9 and abs(db) < 1e-9:
-            break
-    lam = [r["live_s"] * _math.exp(a + b * x) for r, x in zip(window, xs)]
-    h00, h01, h11 = sum(lam), sum(x * l for x, l in zip(xs, lam)), sum(x * x * l for x, l in zip(xs, lam))
-    det = h00 * h11 - h01 * h01
-    sigma = _math.sqrt(h11 / det) if det > 0 else 1.0 / _math.sqrt(max(counts, 1))
-    return _math.exp(a), sigma, counts
+    fit = _poisson_logpoly(rows, abs_v, 1)
+    return None if fit is None else (fit[0], fit[1], counts)
 
 
 def _absolute_snr(light: dict, dark: dict):
-    """Best (S - B)/sqrt(B) in sqrt(counts/s), and its level: comparable across HV for the same light."""
+    """Best (S - B)/sqrt(B) in sqrt(counts/s), and its level: comparable across HV for the same light.
+
+    Scored from the reference level up, as in analyse_light: below it light minus dark is not
+    photon counting.
+    """
     best = None
+    floor = light.get("reference_v") or 0.0
     for row in light["rows"]:
+        if row["abs_v"] < floor - 1e-9:
+            continue
         fit = _smooth_dark_rate(dark["rows"], row["abs_v"])
         if fit is None:
             continue

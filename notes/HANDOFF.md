@@ -83,3 +83,138 @@ analysis; both affect the driver's own reports, not only the analysis folder.
   name in a subagent's README on 2026-11-10. That commit was amended before it was ever pushed.
 - Deliver code with the file-writing or edit tool, not shell heredocs. Heredocs have corrupted
   escapes and quotes several times in this project.
+
+## 2026-11-11: the two open analysis issues, fixed (working tree, not yet committed)
+
+This closes both items under "Open issues, being worked" above. Changes are confined to:
+
+- `selftest.py` analysis code;
+- `tests/test_sr400_virtual.py`;
+- the two regenerated light figures;
+- `analysis/low_signal_threshold/`.
+
+The READMEs, `docs/*.md` and the CHANGELOG are untouched.
+
+### 1. `_smooth_dark_rate` follows the bend
+
+**The rule.** It is the straight line in log(rate) over +-1 mV, as before. The exception: where
+that window holds >= `DARK_CURVE_MIN_COUNTS` (800) counts and a quadratic in log(rate) beats the
+line by a likelihood-ratio statistic > `DARK_CURVE_LR` (4), the window narrows in 0.2 mV steps. It
+keeps >= 800 counts and >= 4 thresholds, and the quadratic is fitted there. The thin tail keeps the
+line and its full window. A new helper, `_poisson_logpoly`, does the Poisson ML fit of any degree,
+with step-halving Newton so a steep window cannot overflow.
+
+**How it was chosen.** Each estimator was judged on data it was not fitted to:
+
+- leave-one-out on both real dark scans;
+- binomial thinning (each threshold's counts split 50/50 into two independent Poisson halves; fit
+  one half, score the other), which also lets the raw single-threshold rate compete;
+- two synthetic cases with known truth.
+
+**What was tried, and why the rest lost:**
+
+- The straight line (the old fit).
+- A line in an adaptive window (narrowest holding K = 200 / 400 / 800 counts). It left 2-4 % bias at
+  3.8-6 mV and failed on the roll-off.
+- A quadratic over +-1 mV. It was biased -3 to -11 % at 3.8-6 mV and noisy in the tail.
+- A quadratic in an adaptive window, ungated. It was as good in the bend, but cost rms 4.9 %
+  against 3.9 % on a pure exponential tail.
+- The raw rate. It was competitive only where a threshold holds hundreds of counts.
+- The gated quadratic was kept.
+
+**Before / after on the real data, leave-one-out:**
+
+| | 13:20 before | 13:20 after | 16:36 before | 16:36 after |
+|---|---|---|---|---|
+| predicted/observed, 3.8-6.0 mV | 1.110 | 1.001 | 1.097 | 1.002 |
+| predicted/observed, 2.2-3.6 mV | 1.156 | 0.987 | 1.059 | 0.981 |
+| chi-square per held-out threshold, 3.8-6.0 mV | 2.52 | 0.47 | 4.83 | 2.59 |
+| chi-square per held-out threshold, 2.2-3.6 mV | 148 | 3.8 | 477 | 11.9 |
+| fitted/raw at each threshold, 2.2-3.6 mV | 0.33-1.98 | 0.91-1.12 | 0.31-1.82 | 0.89-1.10 |
+
+**Above 6 mV the fit is unchanged** to 1e-16 on both scans (25 and 7 fitted thresholds).
+
+**Synthetic cases.** These come from the evaluation:
+
+- *A curve with a bend.* It is shaped like the 13:20 scan and sampled like the driver: 200 counts,
+  at most 30 s per threshold, 200 draws. Over 3.8-6 mV the bias goes from +7.4 % to +0.7 % and the
+  rms from 8.5 % to 5.2 %; a single threshold is 8.0 %. Over 2.2-3.6 mV the rms goes from 60 % to
+  5.1 %.
+- *A pure exponential tail* (the existing bench case, 200 draws). The rms goes from 3.9 % to 4.2 %.
+
+**Effect on the driver's results.** None on the weak-signal optimum or band of any of the four
+real pairings: 6.8, 6.8, 7.6 and 7.6 mV, with the same bands as before.
+
+### 2. S/sqrt(B) is not scored below the valley
+
+**Evidence**, from raw dark rates on both light scans x both dark scans:
+
+- Light minus dark exceeds the valley rate by 38-41 % at 2.2 mV.
+- The excess is steady pass to pass: 36-43 % over the six passes.
+- It falls with a log-slope of -2.3 to -2.6 per mV. The dark noise falls at -4.2 to -4.5 per mV;
+  light minus dark from the valley up falls at -0.05 per mV. So it is on the noise's amplitude
+  scale.
+- Within ~0.4 mV of the valley the excess is 0.5-2 %, which could be sub-valley photoelectrons.
+  The scans cannot separate the two, nor show whether either scales with a weak signal.
+- The 1.42-1.44x quoted above was inflated by the old fit's undershoot at 2.2 mV.
+
+**Behaviour now:**
+
+- `analyse_light` scores from the reference level up, and records the largest excess below it
+  (`subvalley_excess`).
+- It flags `optimum_at_floor` / `band_at_floor`. When the optimum is at the floor, the
+  recommendation basis, the headline, the findings (in red) and panel (d) say so.
+- `_bright_signal_limits` gives the signal rate N (counts/s at the reference, equal-time background
+  run, s/sqrt(s + 2B), 10 N values per decade) from which the 5 % band and then the best level reach
+  the floor. Above that rate the report says it cannot judge a lower level.
+- Panel (d) shades the unscored region "not scored".
+- The old report line "for a bright signal the optimum moves down, to the lowest level above the
+  noise edge" was wrong on this tube and is replaced.
+- `_absolute_snr` (hv-compare) scores from the reference up too.
+
+**On the real pairings**, the band reaches the valley from N ~ 631 / 794 / 631 / 1000 counts/s and
+the best level from ~5012 / 10000 / 5012 / 10000 (D1L1, D1L2, D2L1, D2L2). On the simulated example
+figure the numbers are ~250 and ~2000.
+
+### Bench, figures, analysis
+
+- **Virtual bench: 627/627 on two consecutive runs** (was 609).
+  - [23g]: one check tightened. On a curvature-free tail the fit may be no worse than 1.25x the
+    straight line; it measured 4.0 % against 4.0 %.
+  - [23h], new, 17 checks: the synthetic bend (bench draws +1.1 % against +7.4 %), the roll-off
+    (5.7 % against 60 % rms), the held-out real 13:20 ratios above, the unchanged tail, the floor on
+    real data, the bright-signal limits, hv-compare's floor, the committed figure's wording, and a
+    flat-background case whose optimum lands on the floor and must be flagged.
+  - No existing real-data expectation changed. Optimum 6.8 mV and band >= 0.8 mV still hold.
+- **Regenerated:** `docs/real_data/.../SR400_threshold_scan_light_2026-11-10_135935.svg` and
+  `docs/images/example_threshold_scan_light.svg`. The two dark SVGs came out byte-identical.
+- **`analysis/low_signal_threshold/`** was re-run on the fixed code, and its README has a dated
+  "Update, 2026-11-11" section.
+  - No headline "set" level changed.
+  - The N = 1000 band now ends at 5.8 mV (was 6.0).
+  - Known-background N = 20 now picks 5.8 mV (was 6.0).
+  - The low-N cost of 4.4 mV fell (x6.3-11.8 at N = 1, was x7.2-13).
+
+### Still open
+
+- **The real dark tail is over-dispersed.** Leave-one-out chi-square per threshold over 6.2-10 mV
+  is 3.8 (13:20) and 2.3 (16:36), the same before and after the fix. That is more than Poisson. It
+  would come from the dark rate changing during the scan, or from correlated (bursty) dark counts.
+  The fit's quoted sigma does not include it.
+- **Bench coverage of the 16:36 scan.** The held-out checks in the bench use only the 13:20 scan,
+  the one in `docs/real_data/`. The 16:36 numbers above come from the evaluation, which is not in
+  the repository. If the second pair moves to `docs/real_data/`, add it to [23h].
+- **The constants are provisional.** `DARK_CURVE_MIN_COUNTS` = 800 and `DARK_CURVE_LR` = 4 were
+  tuned on two scans of one tube.
+- **High signal rates.** The driver states where its floor limits the answer but cannot find a
+  sub-valley optimum. That would need evidence that separates sub-valley photoelectrons from
+  light-induced counting: for example light scans at two or more light levels (does the excess
+  scale with the light?), or a gated pulsed source.
+- **The band edges have no uncertainty.** The driver reports the S/sqrt(B) band without one.
+- **Public docs now stale in addition to the list above:**
+  - `Logger-Stanford_SR400/README.md`: the light-scan section describes B as the dark rate, says
+    nothing about the floor or the curvature fit, and keeps "for S >> B the optimum moves down".
+    The test count line still says 605 (now 627).
+  - `docs/SIMULATED_VS_REAL.md`: the bright-signal paragraph.
+  - `docs/THRESHOLD_SCAN_GUIDE.md`: panel (d) has a grey "not scored" region the guide does not
+    mention.

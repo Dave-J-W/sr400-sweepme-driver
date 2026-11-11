@@ -5,6 +5,36 @@ disagree by more than counting noise (see Robustness), so the dark rate is not y
 enough for the low-N answers to be final. Every number below comes from `low_signal_optimum.py` run
 on the raw CSVs. `summary.txt`, `results.csv` and `robust_choice.csv` hold the same numbers in full.
 
+## Update, 2026-11-11: re-run on the driver's corrected background fit
+
+This analysis found two problems in the driver's analysis code. Both are now fixed in
+`selftest.py`, and every number on this page has been regenerated with the fixed code.
+
+1. **The background fit `b(v)` read high where the dark curve bends.** It used to be a straight line
+   in log(rate) over +-1 mV. Each real dark threshold was left out in turn and predicted from the
+   rest. Over 3.8-6 mV the predictions summed to 1.110x (13:20 scan) and 1.097x (16:36 scan) the
+   observed counts. Over 2.2-3.6 mV they were wrong by up to 3x at single thresholds.
+   - **The fix.** Where the +-1 mV window holds at least 800 counts and a quadratic in log(rate)
+     fits it significantly better, the fit narrows its window and goes quadratic.
+   - **Held-out ratios now** are 1.001 and 1.002 over 3.8-6 mV.
+   - **Above 6 mV**, where the real windows hold fewer counts, the fit is exactly the old one, so
+     the thin-tail noise reduction is kept.
+   - **Fitted/raw on the same data** is now 0.89-1.12 over 2.2-3.6 mV, against 0.31-1.98 before.
+2. **Below the valley, the driver scored light minus dark as photons.** It no longer does. It scores
+   S/sqrt(B) from the valley up, which is what this analysis already did. It also reports the signal
+   rate from which that floor limits its answer.
+
+**What changed here.**
+
+- No headline "set" level changed: the equal-time table and the one-setting choices are as before.
+- The 5 % band at N = 1000 now ends at 5.8 mV rather than 6.0 mV.
+- With the background known, N = 20 now picks 5.8 mV instead of 6.0 mV. Some band edges moved by
+  one grid step.
+- The cost of 4.4 and 5.2 mV at low N fell a little (4.4 mV at N = 1: x6.3-11.8, was x7.2-13),
+  because b(v) at 4-5 mV is no longer overestimated.
+- With the old fit's bias gone, light minus dark at 2.2 mV is 1.38-1.41x the valley rate (it was
+  1.42-1.44x).
+
 ## The answer
 
 **Your signal is N photons/s, where N means the signal counts/s you would see with the
@@ -26,11 +56,12 @@ within 10.8 % of the shortest.
 | 100   | 5.6 mV | -0.0056 | 5.0-6.4 mV | 1.2 s |
 | 200   | 5.6 mV | -0.0056 | 4.6-6.0 mV | 0.58 s |
 | 500   | 5.0 mV | -0.0050 | 4.2-6.0 mV | 0.22 s |
-| 1000  | 4.6 mV | -0.0046 | 4.0*-6.0 mV | 0.11 s |
+| 1000  | 4.6 mV | -0.0046 | 4.0*-5.8 mV | 0.11 s |
 | 10000 | 4.0 mV* | -0.0040 | 4.0*-5.6 mV | 0.010 s |
 
-\* The valley, the lowest level this analysis allows. At N >= ~300-1000 counts/s the true optimum or
-the lower band edge may lie below it, but the data there cannot be trusted (see Method).
+\* The valley, the lowest level this analysis allows. At N >= ~300-600 counts/s the lower band edge,
+and at N >= ~2000-4500 the optimum, may lie below it, but the data there cannot be trusted (see
+Method).
 
 The time is the length of **each** run (signal on, signal off), so the clock time is twice that.
 The range covers the four pairings. To reach a precision p other than 10 %, multiply by (0.1/p)^2.
@@ -39,9 +70,9 @@ The range covers the four pairings. To reach a precision p other than 10 %, mult
 
 - N between 1 and 10: **6.8 mV (-0.0068)**. You lose at most 4 % in time against the best level for
   each N.
-- N between 1 and 100: **6.8 mV (-0.0068)**, at most 15 % more time.
-- N anywhere from 1 to 10000: **6.4 mV (-0.0064)**, at most 24 % more time.
-- N between 100 and 10000: **5.0 mV (-0.0050)**, at most 7 % more time.
+- N between 1 and 100: **6.8 mV (-0.0068)**, at most 17 % more time.
+- N anywhere from 1 to 10000: **6.4 mV (-0.0064)**, at most 25 % more time.
+- N between 100 and 10000: **5.0 mV (-0.0050)**, at most 6 % more time.
 
 **Every level in this table is below 10 mV.** The SR400 manual (p. 22) warns that the DISC outputs
 can be picked up by the input below 10 mV. These results hold only with the cables routed as they
@@ -62,8 +93,8 @@ Best levels across the four pairings, from `robust_choice.csv`:
 
 | N | 1 | 2 | 5 | 10 | 20 | 50 | 100 | 200 | 500 | 1000 | 10000 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| set (mV) | 6.8 | 6.8 | 6.4 | 6.0 | 6.0 | 5.6 | 5.6 | 5.0 | 4.6 | 4.4 | 4.0* |
-| within 5 % in all four (mV) | 6.8 | 6.4-6.8 | 6.0-6.8 | 5.6-6.8 | 5.4-6.8 | 5.0-6.4 | 4.6-6.0 | 4.4-6.0 | 4.0*-6.0 | 4.0*-5.8 | 4.0*-5.4 |
+| set (mV) | 6.8 | 6.8 | 6.4 | 6.0 | 5.8 | 5.6 | 5.6 | 5.0 | 4.6 | 4.4 | 4.0* |
+| within 5 % in all four (mV) | 6.8 | 6.4-6.8 | 6.0-6.8 | 5.6-6.8 | 5.4-6.4 | 5.0-6.4 | 4.6-6.0 | 4.2-6.0 | 4.0*-5.8 | 4.0*-5.8 | 4.0*-5.4 |
 | time for 10 % (s) | 315-433 | 112-142 | 34-39 | 15 | 6.6-6.8 | 2.4 | 1.2 | 0.55 | 0.21 | 0.10 | 0.010 |
 
 The optimum is 0-0.6 mV lower than in the equal-time case for the same N. Here the background
@@ -76,11 +107,11 @@ N. The range covers the four pairings (`summary.txt`, `fig_cost_of_fixed_levels.
 
 | N | 4.4 mV | 5.2 mV | 6.0 mV | 6.8 mV | 7.6 mV | 9.2 mV |
 |---:|---|---|---|---|---|---|
-| 1     | x7.2-13 | x2.2-4.0 | x1.13-1.56 | x1.00-1.04 | x1.00-1.14 | x1.8-2.2 |
-| 10    | x3.3-4.3 | x1.36-1.70 | x1.00-1.06 | x1.00-1.03 | x1.11-1.21 | x1.9-2.0 |
-| 100   | x1.26-1.35 | x1.02-1.04 | x1.01-1.03 | x1.12-1.15 | x1.32-1.38 | x2.1-2.2 |
-| 1000  | x1.00-1.01 | x1.02-1.03 | x1.09-1.10 | x1.24-1.26 | x1.46-1.51 | x2.3-2.4 |
-| 10000 | x1.01 | x1.07 | x1.15-1.16 | x1.31-1.32 | x1.54-1.59 | x2.4-2.5 |
+| 1     | x6.3-11.8 | x2.0-4.0 | x1.13-1.56 | x1.00-1.04 | x1.00-1.14 | x1.8-2.2 |
+| 10    | x2.9-3.9 | x1.31-1.70 | x1.00-1.06 | x1.00-1.03 | x1.11-1.21 | x1.9-2.0 |
+| 100   | x1.22-1.30 | x1.02-1.04 | x1.01-1.04 | x1.12-1.17 | x1.32-1.40 | x2.1-2.2 |
+| 1000  | x1.00-1.01 | x1.02-1.04 | x1.10-1.11 | x1.25-1.26 | x1.47-1.52 | x2.3-2.4 |
+| 10000 | x1.01 | x1.07 | x1.15-1.16 | x1.31-1.33 | x1.54-1.59 | x2.4-2.5 |
 
 9.2 mV replaces the 9.0 mV in the brief because 9.0 mV was not measured in either light scan, and
 nothing here is interpolated. Low levels are costly at low N because the dark rate climbs steeply
@@ -95,18 +126,20 @@ is 0.39-0.42.
   (1.64 at 6.8 mV in the 13:20 dark, 0.67 at 7.6 mV in the 16:36 dark), so N = 1 is not deep in the
   background-limited regime. In the equal-time case the D2 pairings stay at 7.6 mV up to N ~ 1 and
   then drop to 6.8 mV. The D1 pairings are at 6.8 mV throughout.
-- **N ~ 5-20.** The optimum drops to 6.0-6.8 mV.
+- **N ~ 5-20.** The optimum drops to 5.8-6.8 mV.
 - **N ~ 50-200.** 5.0-6.0 mV. That is **below the driver's noise edge** (5.2 mV for the 13:20 dark,
-  6.0 mV for the 16:36 dark). The dark rate there (8.6-10.6 counts/s at 5.0 mV) is small next to N.
-- **N >= 1000.** 4.4-4.6 mV. The best level reaches the valley in at least one pairing from N ~ 4000
-  counts/s (equal time), or ~2000 with the background known.
+  6.0 mV for the 16:36 dark). The dark rate there (7.9-10.5 counts/s at 5.0 mV) is small next to N.
+- **N >= 1000.** 4.4-4.6 mV. The best level reaches the valley in at least one pairing from N ~ 4500
+  counts/s (equal time), or ~2200 with the background known. The driver now reports the same kind of
+  limit for its own scans: for the 13:20 + 13:59 pair, the band reaches the valley from ~630 counts/s
+  and the best level from ~5000. It uses a coarser N grid (10 per decade) and a single pairing.
 
 This tube has no level "clear of the noise" (the driver already reports that the strict window is
 empty without a preamp), so the high-N optimum is set by the trade-off itself. It ends at the
 valley, the reference level, rather than at a noise edge.
 
-**Flatness.** In each pairing the 5 % band is 0.4-1.2 mV wide at N <= 20 and 1.8-2.2 mV at N >=
-500, where its lower edge is the valley floor. At N = 1-2 (equal time) the band common to all four
+**Flatness.** In each pairing the 5 % band is 0.4-1.4 mV wide at N <= 20 and 1.6-2.2 mV at N >=
+500, where its lower edge is at or near the valley floor. At N = 1-2 (equal time) the band common to all four
 pairings shrinks to the single level 6.8 mV, because the two dark scans pull in opposite directions.
 For N <= 0.2 counts/s (0.1 with the background known) no level is within 5 % in all four pairings at
 once.
@@ -117,10 +150,12 @@ once.
    `selftest.analyse_dark` and `selftest.analyse_light`. Light counts are summed over the 3 up and 3
    down passes at each level. The reference level is the valley found by `analyse_light`.
 2. **b(v)** is `selftest._smooth_dark_rate`, the driver's own background estimate. It is a Poisson
-   maximum-likelihood fit of exp(a + b x) to the dark thresholds within +-1 mV, widened until it holds
-   3 thresholds and 20 counts. I used it rather than the single threshold's rate because a dark
-   threshold between 6 and 10 mV holds only 11-77 counts (13:20 scan) or 16-36 counts (16:36 scan),
-   which is +-11-30 %. That alone would make the optimum jump between neighbouring levels.
+   maximum-likelihood fit of log(rate) to the dark thresholds within +-1 mV, widened until it holds 3
+   thresholds and 20 counts. It is linear in the level, except where the curve bends and the window
+   holds at least 800 counts: there it is quadratic over a narrower window (since 2026-11-11; see the
+   update above). I used it rather than the single threshold's rate because a dark threshold
+   between 6 and 10 mV holds only 11-77 counts (13:20 scan) or 16-36 counts (16:36 scan), which is
+   +-11-30 %. That alone would make the optimum jump between neighbouring levels.
 3. **eps(v)** = (R_light(v) - b(v)) / (R_light(ref) - b(ref)). The driver's own efficiency does not
    subtract b at the reference. That differs by a constant factor only, so the argmax is the same.
 4. For each N and each figure of merit, F1 = s/sqrt(s + b) and F2 = s/sqrt(s + 2b) with s = eps N, I
@@ -139,18 +174,21 @@ once.
    over those resamples.
 
 **Why levels below the valley are excluded.** They are run only as a sensitivity check
-(`fig_inputs.svg`, panel A, grey). Three reasons:
+(`fig_inputs.svg`, panel A, grey). The driver now excludes them from its own S/sqrt(B) scan for the
+same reasons:
 
 - Below the valley the light-on rate is more than photons plus dark noise. Light minus dark rises to
-  1.42-1.44x the valley rate at 2.2 mV, and the light rate peaks at 5.9e5 counts/s at 2.0 mV against
-  3.8e5 at the valley. My judgement (not tested here) is that sub-valley photoelectrons cannot
-  plausibly be ~44 %. Part of the excess is extra counting that the light induces, and a weak signal
-  may not produce it in the same proportion.
-- Across the steep 2.2-3.6 mV roll-off the +-1 mV exponential fit misses the raw dark rate by up to
-  x3.2. Those thresholds hold 200-402 counts (13:20) and 560-1236 counts (16:36), so this is a
-  curvature bias of the fit, not counting noise. Between 3.8 and 6.0 mV the fit sits 4-20 % above the
-  raw rates. That bias is covered by the +-10 % sensitivity check below.
+  1.38-1.41x the valley rate at 2.2 mV, and the light rate peaks at 5.9e5 counts/s at 2.0 mV against
+  3.8e5 at the valley. The excess is steady across all six passes (36-43 % at 2.2 mV). It falls with
+  the level at a log-slope of -2.3 to -2.6 per mV, close to the dark noise's -4.2 to -4.5 per mV and
+  far from the -0.05 per mV of light minus dark just above the valley. So it lives on the noise's
+  amplitude scale, not the photoelectrons'. These numbers come from the raw dark rates, computed
+  while fixing the driver, and are recorded in `notes/HANDOFF.md`.
+- Within ~0.4 mV of the valley the excess is only 0.5-2 % and could be sub-valley photoelectrons.
+  The scans cannot tell the two apart, nor whether either would scale with a weak signal.
 - Counting below the valley is outside the definition of N.
+- Until 2026-11-11 there was a fourth reason: the dark fit missed the raw rate by up to 3x on the
+  2.2-3.6 mV roll-off. That is fixed (see the update above).
 
 ## Assumptions
 
@@ -178,7 +216,7 @@ once.
 - *Which light scan* (a ~2 % gain difference) moves the optimum by 0.2 mV at a few N, and by 0.4 mV
   once (16:36 dark, N = 20 equal time and N = 10 known background: 6.4 vs 6.0 mV). The time
   difference there is under 3 %.
-- At N >= 50 all four agree within 0.6 mV, and the robust level's time is within 0.7 % of each
+- At N >= 50 all four agree within 0.6 mV, and the robust level's time is within 0.8 % of each
   pairing's own best.
 - At N = 1 the robust 6.8 mV costs at most 4.2 % against the D2 pairings' 7.6 mV.
 
@@ -194,13 +232,12 @@ once.
 **Counting statistics.** These are the 16-84 % ranges of the resampled optimum (`results.csv`, 88
 rows):
 
-- In 79 rows the range is at most 0.4 mV wide: one level or two neighbouring grid levels.
+- In 78 rows the range is at most 0.4 mV wide: one level or two neighbouring grid levels.
 - It is 0.8 mV (6.8-7.6 mV) for the 16:36-dark pairings at N = 1 (both figures of merit) and N = 2
   (equal time). On this data 6.8 and 7.6 mV are a near tie there.
-- It is 0.8 mV (6.0-6.8 mV) for 13:20 dark + 17:24 light at N = 5 (equal time).
-- It is 0.6 mV (4.4-5.0 mV) for 16:36 dark + 17:24 light at N = 500 (known background) and N = 1000
+- It is 0.8 mV (6.0-6.8 mV) for both 13:20-dark pairings at N = 2 (known background) and N = 5
   (equal time).
-- In the N -> 0 limit the 13:20-dark optima are 6.8 mV in 90 % and 98 % of resamples. The 16:36-dark
+- In the N -> 0 limit the 13:20-dark optima are 6.8 mV in 88 % and 96 % of resamples. The 16:36-dark
   optima are 7.6 mV in 78 % and 72 % (16-84 % ranges 7.2-7.6 and 6.8-7.6 mV).
 
 **Sensitivity to the analysis choices** (`sensitivity.csv`, "SENSITIVITY" in `summary.txt`). Three
@@ -210,10 +247,11 @@ alternatives, tested separately:
 - replacing the fit by the raw dark rate wherever a threshold holds >= 400 counts;
 - scaling b(v) by 0.9 or 1.1.
 
-They move individual optima by 0.2-0.4 mV at some N, and below the valley to 3.4-4.2 mV at N = 10000.
-If any of them were the truth, the headline level would cost at most 0.3 % more time (equal-time
-background) or 1.2 % (background known). The optimum is flat enough that these choices do not
-matter in practice.
+They move individual optima by 0.2-0.4 mV at some N, and below the valley to 3.2-4.2 mV at N = 10000.
+If any of them were the truth, the headline level would cost at most 1.0 % more time (equal-time
+background) or 2.6 % (background known). Both worst cases are from allowing levels below the valley.
+The +-10 % and raw-rate checks cost at most 0.3 %. The optimum is flat enough that these choices do
+not matter in practice.
 
 **Checked against the brief.**
 

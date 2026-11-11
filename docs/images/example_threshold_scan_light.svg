@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1207" viewBox="0 0 1200 1207">
-<rect x="0" y="0" width="1200" height="1207" fill="white"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1287" viewBox="0 0 1200 1287">
+<rect x="0" y="0" width="1200" height="1287" fill="white"/>
 <text x="24.0" y="30.0" font-size="17" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">SR400 threshold scan, LIGHT -- R8486 on SIGNAL INPUT 1, discriminator A, FALL</text>
 <text x="1176.0" y="30.0" font-size="14" font-family="Arial, sans-serif" text-anchor="end" font-weight="bold" fill="#c0392b">SIMULATED EXAMPLE -- not a measurement</text>
 <text x="24.0" y="50.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">2026-11-10 13:40:45   port simulated R8486 (virtual bench model) (GPIB)   PMT HV not recorded   6 passes   dark scan used: example_threshold_scan_dark.csv</text>
-<text x="24.0" y="74.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#1a7f37">RECOMMENDED A DISC LVL -6.8 mV, FALL -- counts 86.7% of photons at the reference level.  Basis: background-limited optimum: the level maximising S/sqrt(B), from this</text>
+<text x="24.0" y="74.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#1a7f37">RECOMMENDED A DISC LVL -6.4 mV, FALL -- counts 89.8% of photons at the reference level.  Basis: background-limited optimum: the level maximising S/sqrt(B), from this</text>
 <text x="24.0" y="91.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#1a7f37">session&#x27;s dark and light scans together.</text>
 <clipPath id="clip1"><rect x="90.0" y="135.0" width="480.0" height="330.0"/></clipPath>
 <line x1="90.0" y1="135.0" x2="90.0" y2="465.0" stroke="#eeeeee" stroke-width="1"/>
@@ -822,8 +822,8 @@
 <text x="774.8" y="227.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#8e44ad">reference 4.8 mV</text>
 <line x1="793.6" y1="135.0" x2="793.6" y2="465.0" stroke="#e67e22" stroke-width="1.5" stroke-dasharray="5,3"/>
 <text x="796.6" y="240.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#e67e22">noise edge 5.2</text>
-<line x1="880.9" y1="135.0" x2="880.9" y2="465.0" stroke="#1a9850" stroke-width="1.5"/>
-<text x="883.9" y="253.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">recommended 6.8</text>
+<line x1="859.1" y1="135.0" x2="859.1" y2="465.0" stroke="#1a9850" stroke-width="1.5"/>
+<text x="862.1" y="253.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">recommended 6.4</text>
 <clipPath id="clip3"><rect x="90.0" y="547.0" width="480.0" height="330.0"/></clipPath>
 <line x1="90.0" y1="547.0" x2="90.0" y2="877.0" stroke="#eeeeee" stroke-width="1"/>
 <line x1="90.0" y1="877.0" x2="90.0" y2="881.0" stroke="#222" stroke-width="1"/>
@@ -1078,65 +1078,45 @@
 <text x="690.0" y="539.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">(d) S/sqrt(B), relative to its best</text>
 <text x="930.0" y="911.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">|discriminator level|, mV</text>
 <text x="638.0" y="712.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222" transform="rotate(-90 638.0 712.0)">S/sqrt(B) / best</text>
-<rect x="837.7" y="547.0" width="36.9" height="330.0" fill="#f39c12" stroke="none" fill-opacity="0.18"/>
-<text x="840.7" y="871.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555" font-style="italic">within 5% of best</text>
-<polyline points="699.2,876.6 703.8,876.5 708.5,876.3 713.1,876.1 717.7,875.8 722.3,875.4 726.9,874.9 731.5,874.2 736.2,873.3 740.8,872.2 745.4,870.6 750.0,868.6 754.6,865.9 759.2,862.4 763.8,857.8 768.5,851.7 773.1,843.8 777.7,833.5 782.3,820.5 786.9,804.5 791.5,785.1 796.2,762.9 800.8,738.2 805.4,712.1 810.0,678.2 814.6,652.3 819.2,622.6 823.8,608.5 828.5,589.9 837.7,575.7 846.9,571.4 856.2,572.3 865.4,578.0 874.6,584.5 883.8,592.5 893.1,600.7 902.3,609.6 911.5,618.4 920.8,628.6 930.0,638.4 939.2,649.0 948.5,659.6 957.7,670.8 966.9,682.1 976.2,692.5 985.4,703.9 994.6,715.3 1003.8,725.6 1013.1,736.3 1022.3,748.0 1031.5,758.7 1040.8,768.2 1059.2,786.0 1105.4,816.3" fill="none" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="699.2" cy="876.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="703.8" cy="876.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="708.5" cy="876.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="713.1" cy="876.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="717.7" cy="875.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="722.3" cy="875.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="726.9" cy="874.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="731.5" cy="874.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="736.2" cy="873.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="740.8" cy="872.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="745.4" cy="870.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="750.0" cy="868.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="754.6" cy="865.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="759.2" cy="862.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="763.8" cy="857.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="768.5" cy="851.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="773.1" cy="843.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="777.7" cy="833.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="782.3" cy="820.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="786.9" cy="804.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="791.5" cy="785.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="796.2" cy="762.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="800.8" cy="738.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="805.4" cy="712.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="810.0" cy="678.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="814.6" cy="652.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="819.2" cy="622.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="823.8" cy="608.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="828.5" cy="589.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="837.7" cy="575.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="846.9" cy="571.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="856.2" cy="572.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="865.4" cy="578.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="874.6" cy="584.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="883.8" cy="592.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="893.1" cy="600.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="902.3" cy="609.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="911.5" cy="618.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="920.8" cy="628.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="930.0" cy="638.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="939.2" cy="649.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="948.5" cy="659.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="957.7" cy="670.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="966.9" cy="682.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="976.2" cy="692.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="985.4" cy="703.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="994.6" cy="715.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1003.8" cy="725.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1013.1" cy="736.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1022.3" cy="748.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1031.5" cy="758.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1040.8" cy="768.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1059.2" cy="786.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<circle cx="1105.4" cy="816.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
-<line x1="846.9" y1="547.0" x2="846.9" y2="877.0" stroke="#1a9850" stroke-width="1.5"/>
-<text x="849.9" y="561.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">recommended 6.8</text>
+<rect x="690.0" y="547.0" width="110.8" height="330.0" fill="#bdc3c7" stroke="none" fill-opacity="0.35"/>
+<text x="693.0" y="871.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555" font-style="italic">not scored</text>
+<rect x="828.5" y="547.0" width="36.9" height="330.0" fill="#f39c12" stroke="none" fill-opacity="0.18"/>
+<text x="831.5" y="871.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555" font-style="italic">within 5% of best</text>
+<polyline points="800.8,723.8 805.4,690.5 810.0,657.3 814.6,628.1 819.2,604.9 823.8,588.8 828.5,578.1 837.7,571.4 846.9,578.3 856.2,579.2 865.4,584.7 874.6,591.0 883.8,598.8 893.1,606.9 902.3,615.6 911.5,624.2 920.8,634.1 930.0,643.8 939.2,654.1 948.5,664.4 957.7,675.5 966.9,686.4 976.2,696.6 985.4,707.8 994.6,718.9 1003.8,729.0 1013.1,739.5 1022.3,750.9 1031.5,761.3 1040.8,770.6 1059.2,788.0 1105.4,817.7" fill="none" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="800.8" cy="723.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="805.4" cy="690.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="810.0" cy="657.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="814.6" cy="628.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="819.2" cy="604.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="823.8" cy="588.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="828.5" cy="578.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="837.7" cy="571.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="846.9" cy="578.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="856.2" cy="579.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="865.4" cy="584.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="874.6" cy="591.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="883.8" cy="598.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="893.1" cy="606.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="902.3" cy="615.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="911.5" cy="624.2" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="920.8" cy="634.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="930.0" cy="643.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="939.2" cy="654.1" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="948.5" cy="664.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="957.7" cy="675.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="966.9" cy="686.4" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="976.2" cy="696.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="985.4" cy="707.8" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="994.6" cy="718.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1003.8" cy="729.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1013.1" cy="739.5" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1022.3" cy="750.9" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1031.5" cy="761.3" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1040.8" cy="770.6" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1059.2" cy="788.0" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<circle cx="1105.4" cy="817.7" r="3.5" fill="#1a7f37" stroke="#1a7f37" stroke-width="1.2" clip-path="url(#clip4)"/>
+<line x1="837.7" y1="547.0" x2="837.7" y2="877.0" stroke="#1a9850" stroke-width="1.5"/>
+<text x="840.7" y="561.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#1a9850">recommended 6.4</text>
 <line x1="1151.5" y1="547.0" x2="1151.5" y2="877.0" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5,3"/>
 <text x="1148.5" y="574.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#c0392b">dark counts vanish 20.0</text>
 <text x="1162.0" y="853.0" font-size="11" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#555" font-style="italic">levels with &lt; 20 dark counts are not scored</text>
@@ -1145,8 +1125,13 @@
 <text x="24.0" y="1065.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Drift: 0.00% trend over the scan, 0.00% left after removing it (tolerance 2%).</text>
 <text x="24.0" y="1081.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Hysteresis: up-minus-down shift +0.000 +- 0.000 mV on the shoulder.</text>
 <text x="24.0" y="1097.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Where dark counts vanished (20.0 mV) this scan counts 99.3% fewer photons than at the reference level.</text>
-<text x="24.0" y="1113.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">S/sqrt(B) is within 5% of its best from 6.4 mV to 8.0 mV. Assumes a weak, background-limited signal; for a bright one the optimum moves down.</text>
-<text x="24.0" y="1129.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">no level is both above the noise edge (5.2 mV) and below 1 % photon loss (5.0 mV): at this gain the SR400 cannot fully separate electronic noise from single-PE</text>
-<text x="24.0" y="1145.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">pulses. Expected for the R8486 at 1000 V without a preamp (bench inventory, Stage 2)</text>
-<text x="24.0" y="1161.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Below 10 mV: valid only with the cables exactly as they were for this scan (manual p. 22).</text>
+<text x="24.0" y="1113.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">S/sqrt(B) is within 5% of its best from 6.0 mV to 7.6 mV.</text>
+<text x="24.0" y="1129.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">S/sqrt(B) is scored from the reference level 4.8 mV up; light minus dark below it is not taken as photon counting (in this scan it exceeds the reference rate by up</text>
+<text x="24.0" y="1145.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">to 21%, at 0.6 mV). On the real R8486 (2026-11-10) that excess fell with the level like the electronic noise, not like photoelectrons.</text>
+<text x="24.0" y="1161.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">S/sqrt(B) is the weak-signal limit; a stronger signal moves the best level down. With a background run as long as the signal run, the 5 % band reaches the reference</text>
+<text x="24.0" y="1177.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">level from a signal of ~250 counts/s at the reference, and the best level does from ~2000 counts/s. For signals above that, this scan cannot say whether a lower</text>
+<text x="24.0" y="1193.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">level would be better.</text>
+<text x="24.0" y="1209.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">no level is both above the noise edge (5.2 mV) and below 1 % photon loss (5.0 mV): at this gain the SR400 cannot fully separate electronic noise from single-PE</text>
+<text x="24.0" y="1225.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#c0392b">pulses. Expected for the R8486 at 1000 V without a preamp (bench inventory, Stage 2)</text>
+<text x="24.0" y="1241.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Below 10 mV: valid only with the cables exactly as they were for this scan (manual p. 22).</text>
 </svg>
