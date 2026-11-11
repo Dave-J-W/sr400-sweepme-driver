@@ -1328,6 +1328,13 @@ DARK_COARSE_STEP_V = 0.002
 # vanish is therefore no longer measured, and the report says so. PROVISIONAL, from that one scan.
 DARK_STOP_BELOW_CPS = 0.5
 DARK_STOP_AFTER = 3
+# Neither the 2 mV steps nor the stop may start below this level, however quiet the tube. The
+# second real dark scan (2026-11-10 16:36) fell below 1 cps at 7.2 mV and went coarse there, in
+# the middle of the S/sqrt(B) optimum region (6.4-7.6 mV), leaving 5 thresholds in 6-10 mV where
+# the background fit wants many. The optimum region plus the fit's +-1 mV ends near 9 mV, and
+# 10 mV is also the manual's pickup boundary. Replayed on the real rates: the 13:20 scan is
+# unchanged (10.1 min), the 16:36 scan gets 11 thresholds in 6-10 mV for 10.8 min instead of 7.8.
+DARK_TAIL_FROM_V = 0.010
 LIGHT_TARGET_COUNTS = 10_000  # 1 % Poisson per threshold per pass
 LIGHT_MAX_SECONDS = 5.0
 LIGHT_REPEATS = 3             # each repeat is one up pass and one down pass
@@ -2903,7 +2910,7 @@ def run_threshold_scan_dark(device) -> tuple:
             rate = point["counts"] / point["live_s"]
             peak_rate = max(p["counts"] / p["live_s"] for p in points)
             slow_in_a_row = slow_in_a_row + 1 if rate < DARK_COARSE_BELOW_CPS < peak_rate else 0
-            if not coarse and slow_in_a_row >= 2:
+            if not coarse and slow_in_a_row >= 2 and abs_v >= DARK_TAIL_FROM_V - 1e-9:
                 coarse = True
                 report.note(f"from {abs_v * 1e3:.1f} mV: below {DARK_COARSE_BELOW_CPS:g} cps at two "
                             f"thresholds in a row, so {DARK_COARSE_STEP_V * 1e3:g} mV steps from here.")
@@ -2932,7 +2939,8 @@ def run_threshold_scan_dark(device) -> tuple:
                     break
 
             # Past the noise peak only: the rate there is far above the limit in any case.
-            low_in_a_row = low_in_a_row + 1 if rate < DARK_STOP_BELOW_CPS < peak_rate else 0
+            low_in_a_row = (low_in_a_row + 1 if rate < DARK_STOP_BELOW_CPS < peak_rate
+                            and abs_v >= DARK_TAIL_FROM_V - 1e-9 else 0)
             if low_in_a_row >= DARK_STOP_AFTER:
                 line = (f"stopped at {abs_v * 1e3:.1f} mV: {low_in_a_row} thresholds in a row below "
                         f"{DARK_STOP_BELOW_CPS:g} cps, so the scan is in the dark tail, which sets "

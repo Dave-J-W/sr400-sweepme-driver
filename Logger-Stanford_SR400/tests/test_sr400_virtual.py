@@ -3419,6 +3419,28 @@ def test_threshold_scans(driver):
         check("thresholds in a row below 0.5 cps" in newest and "is not measured" in newest,
               "and the report says why it stopped, and that the vanish level is not measured")
 
+    # --- a quiet tube: below 1 cps early, yet fine steps and no stop until 10 mV -------------
+    # The real 16:36 dark scan went coarse at 7.2 mV, inside the S/sqrt(B) optimum region.
+    # Its own folder: the checks below read the newest dark row of tmpdir's test log.
+    sr400_q = VirtualSR400(pmt={"dark_rate": 1.0}, time_scale=1e5)
+    device_q, _ = _scan_device(driver, sr400_q, tempfile.mkdtemp(prefix="sr400_quiet_"))
+    device_q.run_threshold_scan_dark()
+    dark_q = getattr(device_q, "_dark_threshold_scan", None)
+    if dark_q:
+        rows_q = dark_q["rows"]
+        below_1 = [r["abs_v"] for r in rows_q if r["rate"] < 1.0 and r["abs_v"] > 0.003]
+        steps_below_floor = [round((b["abs_v"] - a["abs_v"]) * 1e3, 1) for a, b in zip(rows_q, rows_q[1:])
+                             if b["abs_v"] <= st.DARK_TAIL_FROM_V + 1e-9]
+        check(below_1 and min(below_1) < st.DARK_TAIL_FROM_V,
+              f"the quiet tube is below 1 cps well under 10 mV (from {min(below_1) * 1e3 if below_1 else None} mV)")
+        check(max(steps_below_floor) <= 0.4 + 1e-9,
+              f"but the scan keeps its fine grid up to 10 mV (largest step there "
+              f"{max(steps_below_floor)} mV)")
+        check(rows_q[-1]["abs_v"] >= st.DARK_TAIL_FROM_V - 1e-9,
+              f"and does not stop before 10 mV (stopped at {rows_q[-1]['abs_v'] * 1e3:.1f} mV)")
+        in_region = [r for r in rows_q if 0.006 - 1e-9 <= r["abs_v"] <= 0.010 + 1e-9]
+        check(len(in_region) >= 10, f"so 6-10 mV, where the background fit works, has {len(in_region)} thresholds")
+
     # --- light, with the dark scan in hand --------------------------------------
     sr400.pmt["light_rate"] = 5.0e4
     log["boxes"].clear(); log["blocking"].clear()
