@@ -40,8 +40,8 @@ into it.
 
 ## Fixed by this audit
 
-**1. The terminator question was never a hardware question.** `docs/README.md` recorded the two
-drafts' disagreement about RS-232 line endings as something only the bench could settle. The manual
+**1. The terminator question was never a hardware question.** `docs/README.md` (now
+[HISTORY.md](HISTORY.md)) recorded the two drafts' disagreement about RS-232 line endings as something only the bench could settle. The manual
 states it directly (p. 37):
 
 > The terminating sequence for the GPIB interface is always `<cr><lf>`. The default sequence for

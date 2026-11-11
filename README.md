@@ -1,22 +1,37 @@
 # SR400 driver for SweepMe!
 
 A [SweepMe!](https://sweep-me.net) **Logger** driver for the Stanford Research Systems
-SR400 two-channel gated photon counter, over RS-232 or GPIB.
+SR400 two-channel gated photon counter, over RS-232 or GPIB. It also carries hardware self-tests
+and discriminator threshold scans for an R8486 photomultiplier, run from the GUI at the end of a
+run. MIT licensed.
 
 | | |
 |---|---|
-| Driver | [`Logger-Stanford_SR400/`](Logger-Stanford_SR400/) — `main.py` (~2400 lines), [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/), `license.txt` |
+| Driver | [`Logger-Stanford_SR400/`](Logger-Stanford_SR400/): `main.py`, `selftest.py`, [README](Logger-Stanford_SR400/README.md), [tests](Logger-Stanford_SR400/tests/), `license.txt` |
 | Columns | `Counter A`, `Counter B`, `Rate A`, `Rate B`, `Count time` |
 | Interfaces | RS-232 (COM) and GPIB, via the pysweepme port manager |
-| Tests | 462 checks, no hardware required |
-| History | [`CHANGELOG.md`](CHANGELOG.md), [`docs/`](docs/) |
+| Tests | a virtual bench, no hardware required ([driver README §5.1](Logger-Stanford_SR400/README.md)) |
+| History | [`CHANGELOG.md`](CHANGELOG.md), [`docs/HISTORY.md`](docs/HISTORY.md) |
 
 Every command the driver sends is documented in the SR400 manual, Revision 2.7,
 chapter *Remote Programming* (pp. 37–47), and **audited against it** — see
 [`docs/MANUAL_AUDIT.md`](docs/MANUAL_AUDIT.md). Nothing is inferred from generic
 SCPI conventions: the SR400 predates IEEE-488.2 and has no `*IDN?`, `*RST` or
 `*CLS`, so `connect()` identifies the instrument by reading its counting mode
-(`CM`). MIT licensed.
+(`CM`).
+
+## Where to read
+
+| You want to | Read |
+|---|---|
+| install the driver and take counts | [driver README](Logger-Stanford_SR400/README.md) §1–3 |
+| choose the discriminator threshold, step by step | [`docs/THRESHOLD_SCAN_GUIDE.md`](docs/THRESHOLD_SCAN_GUIDE.md) |
+| run a self-test, and find its report | [driver README](Logger-Stanford_SR400/README.md) §9 |
+| see real scans of the tube, and how they differ from the simulated examples | [`docs/SIMULATED_VS_REAL.md`](docs/SIMULATED_VS_REAL.md), [`docs/real_data/`](docs/real_data/) |
+| know why the driver does what it does: gotchas, throughput, open items, test internals | [`docs/REFERENCE.md`](docs/REFERENCE.md) |
+| go deeper into the threshold choice | [`analysis/`](analysis/): the low-signal optimum and the photon-background case |
+
+[`docs/README.md`](docs/README.md) indexes everything in `docs/`.
 
 ## Two things to decide before you start
 
@@ -42,7 +57,7 @@ auto-split takes 1.6 s and runs 2 × 0.8 s — exact to the timebase's 25 ppm. I
 an 80 % duty floor by default, with a `>99 % duty cycle` tick box for when the dead
 time between periods matters, and it plans both floors at once so it can tell you what
 the other would have given. It refuses where a preset is not a time (counter T off the
-10 MHz timebase, or `A for B preset` mode). Gotcha 3 in the driver README has the detail.
+10 MHz timebase, or `A for B preset` mode). Gotcha 3 has the detail.
 
 ## Installing
 
@@ -54,143 +69,54 @@ C:\Users\Public\Documents\SweepMe!\CustomDevices\Logger-Stanford_SR400\
 ```
 
 (`get_folder("CUSTOMDEVICES")`; SweepMe! creates it on first start). Pure Python over the
-pysweepme port manager: no vendor library, nothing to compile.
+pysweepme port manager: no vendor library, nothing to compile. `main.py` is the only entry point
+SweepMe! loads; `selftest.py` beside it is loaded by the driver itself.
 
 **What has been tested, and on what.** No minimum SweepMe! version has been established. The
 evidence is:
 
 - **On hardware: SweepMe! 1.5.7.9**, on the lab PC, with the SR400 on GPIB through an NI
-  GPIB-USB-HS. On 2026-11-10, connect and *Retrieve data* worked and counts were returned.
-  On this version the self-tests could not reach the instrument when run as actions, because
-  SweepMe! gave the action neither a port name nor an open port. So they are also offered as
-  end-of-run tests, ticked in the GUI (driver README §9.0). Those have not yet been run on
-  hardware.
+  GPIB-USB-HS. On 2026-11-10, connect and *Retrieve data* worked and counts were returned, and
+  the dark and light threshold scans ran as end-of-run tests ([`docs/real_data/`](docs/real_data/)).
+  On this version the self-tests and scans cannot reach the instrument when run as actions,
+  because SweepMe! gives the action neither a port name nor an open port. So they are run as
+  end-of-run tests, ticked in the GUI (driver README §9.0).
 - **On the virtual bench**, through standalone pysweepme from PyPI: 1.5.8.4 (the 1.5.8 line),
   1.5.6.17 and 1.6.1.5. The bench passes, the sibling `selftest.py` loads, and all six actions
   resolve. The 1.5.7 line has not been run on the bench, though its last PyPI release, 1.5.7.5,
-  has the `message_box(msg, blocking=...)` that the threshold scans' prompts rely on. pysweepme 1.5.8.4 has no `pysweepme.load_source`, so the driver's importlib fallback is
-  the path that runs there.
+  has the `message_box(msg, blocking=...)` that the threshold scans' prompts rely on. pysweepme
+  1.5.8.4 has no `pysweepme.load_source`, so the driver's importlib fallback is the path that
+  runs there.
 
 SweepMe! compiles pysweepme into its executable, so the copy it bundles cannot be inspected. The
 PyPI releases are stand-ins for it, not the same code.
 
-`main.py` is the only entry point SweepMe! will load. `pysweepme`'s
-`get_main_py_path()` tries `main_<pyver>_<bitness>.py` for an architecture-specific
-build and then falls back to `main.py`; nothing else in a driver folder is ever a
-candidate, whatever it is called.
+## What is not there yet
 
-## Why a Logger and not a Switch
-
-Every setting goes to the instrument once, in `configure()`; a measurement point is
-then just an acquisition — `measure()` followed by `call()`. That is Logger semantics,
-and the folder-name prefix is what actually selects the module. The `# Type:` comment
-in `main.py` is documentation, not something the loader reads.
-
-The consequence is that **gate-delay scanning is not wired up**, which matters because a
-gate-delay scan is the SR400's characteristic experiment. Everything except the code is now
-settled. It belongs in the scan machinery, every command it needs is implemented and
-round-trip tested, and the output shape is decided: **a scan returns one row with *N*
-columns per counter, and the mode selects the reduction applied to the scan buffer** — not a
-different acquisition architecture. One SweepMe! point stays one complete scan; summing is
-what `Scan of N periods` does to the buffer, and a gate scan simply does not sum.
-
-Two things fell out of settling it. Driver-stepped rows are not available to a Logger at
-all, since handing SweepMe! the x-axis needs the `SweepMode`/`apply()` pair a Logger never
-gets. And the decision was smaller than recorded: auto-split and per-period statistics are
-both *reductions to a fixed column count*, so neither was ever waiting on it.
-
-[§7.2 of the driver README](Logger-Stanford_SR400/README.md) has the reasoning and the two
-sub-decisions; §7.3 is the implementation spec.
-
-## Host-side performance
-
-Two things dominate RS-232 throughput and neither is the baud rate.
-
-The SR400 pads every transmitted character by `WAIT × 3.3 ms` — 20 ms at the factory
-default — which the driver zeroes automatically with `SW 0`. And an FTDI USB-serial
-adapter holds short reads until its **latency timer** expires, 16 ms by default, charged
-per read transaction rather than per byte. `connect()` detects the timer and warns once,
-and two actions report and fix it: `report_com_port_latency` (read-only) and
-`reduce_com_port_latency`, which writes sysfs on Linux and on Windows generates a `.reg`
-file rather than demanding administrator rights. Both are host-side only and send the
-instrument nothing, so either is safe to click mid-run. See §8 of the driver README.
-
-Two more actions run a **hardware self-test** in two tiers: `run_self_test` needs no cabling
-changes and writes the raw response-format table that retires the driver's remaining
-assumptions, and `run_self_test_loopback` uses one BNC from the A DISC output to SIGNAL
-INPUT 2 to give counters B and T an exact known pulse train — the only way to test counter B
-at all, since it cannot see the internal timebase. Both refuse while the instrument is
-counting, restore everything they touch without using a storage slot, and write a timestamped
-report. Two **threshold-scan** actions sweep discriminator A for the R8486: a dark scan for the
-lowest usable level and a light scan, up and down three times, for the upper bound —
-and from both together the level maximising S/√B — with a step-by-step
-[operator's guide](docs/THRESHOLD_SCAN_GUIDE.md), with example figures, for first-time users. Each scan writes its raw data as CSV and a
-plot as SVG beside the report, so the operator can choose the threshold by eye. Driver README §9.
-
-`Fast readout (batch queries)` chains counter queries to cut round trips — about 3.5×
-fewer at 10 periods per point. Off by default, because the manual both documents chained
-queries and advises against them; gotcha 16 quotes both. **Fixing the latency timer is
-worth more than enabling it**, and doing both is barely better than fixing the timer
-alone.
+**Gate-delay scanning.** The driver is a Logger: every setting goes to the instrument once, in
+`configure()`, and a point is just an acquisition. A gate-delay scan, the SR400's characteristic
+experiment, therefore belongs in the instrument's own scan machinery. Every command it needs is
+implemented and round-trip tested, and the output shape is settled (one row of *N* columns per
+counter). What remains is the code. [`docs/REFERENCE.md`](docs/REFERENCE.md) §7.2 has the
+reasoning and §7.3 the implementation spec.
 
 ## Tests
 
 No SR400 required. `tests/test_sr400_virtual.py` implements a simulator of the
 documented ASCII command set behind the pysweepme port interface — including the
-instrument's buffer limits — and runs the whole driver lifecycle against it.
+instrument's buffer limits and a simulated R8486 — and runs the whole driver lifecycle against it.
 
 ```bash
 python Logger-Stanford_SR400/tests/test_sr400_virtual.py
 ```
 
-462 checks, covering:
-
-- both measurement modes, and both count-time modes
-- the count-time planner as a pure function: every split in the specification, at every
-  duty floor, plus the `is_exact` labelling of exact splits that exceed the soft cap on
-  periods
-- the count-period model including EXTERNAL dwell, and one-significant-digit preset
-  rounding on both the count-time and the preset-counts paths
-- `A for B preset` mode's `NaN` columns, and every range check
-- the OR-accumulating status-byte poll, echo-on detection, and the timeout path
-- interface-specific command gating on GPIB versus RS-232, and the front-panel lock cycle
-- latency-timer detection and both actions, including that neither writes to the
-  instrument
-- batched readout proved **identical** to unbatched for 1/2/10/17/33 periods, plus its
-  desync, buffer-limit and dead-link failure paths
-- both hardware self-test actions: that they complete, restore every setting they touch
-  against a full state snapshot, refuse while the instrument reports counting, detect a
-  missing loopback cable and stop cleanly, and never send `SE`, `ST` or `RC`
-- both threshold scans against a simulated R8486: adaptive dark timing, the light-leak and
-  no-signal refusals, the light probe's refusals, drift flagged, injected hysteresis
-  recovered in mV, and the S/√B optimum landing between the noise edge and the level
-  where dark counts vanish
-- the scans' records and plots: CSV and SVG written beside each report, the CSV re-analysed to
-  the same result, the plot regenerated from the CSV alone, and the refusals visible on the
-  figure itself
-- a round trip of every wrapped command
-
-It does **not** cover anything about the real instrument: response *formats*,
-command-processing latency, and all electrical behaviour need hardware. Passing means
-the driver's logic is right against a simulator built from the same manual the driver was
-written from — not that it measures correctly. The hardware bring-up sequence, in
-escalating order, is §5.2 of the driver README.
+What it covers, and the expected count, are in §5.1 of the driver README. Passing means the
+driver's logic is right against a simulator built from the same manual the driver was written
+from — not that it measures correctly. The hardware bring-up sequence is §5.2.
 
 ## Where the driver came from
 
-[`docs/`](docs/) holds the record — start with [`docs/README.md`](docs/README.md).
-
-- [`docs/MANUAL_AUDIT.md`](docs/MANUAL_AUDIT.md) — every command, numeric limit and
-  status bit checked against the manual. Nothing in the driver was wrong; three
-  documentation defects were fixed, including one constant whose docstring claimed more
-  than its source said. Also records a `pdftotext` trap that mis-pairs the abridged
-  command list badly enough to make `SW` look like the terminator command.
-- [`docs/plans/`](docs/plans/) — the latency-and-batching implementation plan, verbatim,
-  plus a rebase note: what it assumed, where each task landed, two deliberate deviations.
-- [`docs/drafts/`](docs/drafts/) — an independent early implementation, verbatim, with
-  what was taken from it, what was not and why, and two defects in it reproduced against
-  the virtual bench.
-
-The drafts disagreed about the RS-232 line terminator, and that was recorded as needing
-hardware. It did not — the manual settles it, and the driver's split is correct: `\r` on
-RS-232 with echo off, CR LF on GPIB.
+[`docs/HISTORY.md`](docs/HISTORY.md) records the drafts it grew from, what was taken from them
+and why, and the latency-and-batching plan ([`docs/plans/`](docs/plans/)).
+[`docs/MANUAL_AUDIT.md`](docs/MANUAL_AUDIT.md) checks every command, numeric limit and status bit
+against the manual.

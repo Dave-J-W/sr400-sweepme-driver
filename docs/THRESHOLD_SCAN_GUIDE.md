@@ -4,7 +4,8 @@ For the **R8486 photomultiplier on SIGNAL INPUT 1** of the SR400. You need to kn
 discriminator threshold *is*: the smallest pulse the SR400 will count. This guide covers how to
 choose it, using the driver's two threshold scans.
 
-The technical reference is §9.7 of the [driver README](../Logger-Stanford_SR400/README.md). You don't need it to follow this.
+The technical reference is §9.7 of [REFERENCE.md](REFERENCE.md). You don't need it to follow
+this.
 
 ---
 
