@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+# The dark-scan method study's raw simulation output (~43 MB, seeded and regenerable by its
+# scripts): kept on disk, out of the public history. See analysis/dark_scan_method/README.md.
+analysis/dark_scan_method/out/

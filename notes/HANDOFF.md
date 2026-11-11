@@ -84,7 +84,7 @@ analysis; both affect the driver's own reports, not only the analysis folder.
 - Deliver code with the file-writing or edit tool, not shell heredocs. Heredocs have corrupted
   escapes and quotes several times in this project.
 
-## 2026-11-11: the two open analysis issues, fixed (working tree, not yet committed)
+## 2026-11-11: the two open analysis issues, fixed
 
 This closes both items under "Open issues, being worked" above. Changes are confined to:
 
@@ -287,3 +287,86 @@ apart from a one-line pointer in its README.
 - **Inherited from `analysis/low_signal_threshold/`:** the two dark scans disagree by 0.59x in the
   tail; there is no trust below the valley; every level is below 10 mV (pickup-sensitive); the
   second pair's HV is not recorded.
+
+## 2026-11-11: dark-scan method study, `analysis/dark_scan_method/`
+
+Asked: are the 13:20 and 16:36 dark scans different only through method (grid, count times)?
+The method: the driver's own `_measure_point`, rule sets and analysis, run on a virtual bench
+(`VirtualSR400` subclassed on a virtual clock, not modified), with tubes T1 and T2 tuned to each
+real scan. 300-400 seeded scans per case. Everything is in the folder's README. No driver, test or
+doc file was touched.
+
+### Verdict: method explains the optimum, not the curves
+
+| Difference (16:36 against 13:20) | Same tube, method only | Changed tube (T1 then T2) |
+|---|---|---|
+| 2.6-3.6 mV, x1.13-3.32 (z = 16.4 at 3.0 mV) | 0/400 | 27-53 % |
+| 4.0-5.6 mV, x1.23 +- 0.04 | 0/400 | 53 % |
+| tail >= 6.4 mV, x0.59 +- 0.06 | 0/400 Poisson, 1/300 over-dispersed | 28 % |
+| edge 5.2 -> 6.0 mV | 0.25 % Poisson, 1-2 % over-dispersed | 51 % |
+| optimum 6.8 -> 7.6 mV, both light scans | 12.8 % Poisson, 37.5 % over-dispersed | 53 % |
+
+- The noise-free tubes reproduce the real edges and optima exactly (5.2 / 6.8 and 6.0 / 7.6 mV).
+- Exact observed optimum pair: 8.5 % for the changed tube against 0.5 % for the same tube. Exact
+  edge pair: 13.5 % against 0.75 %.
+- **Two physical changes are needed.**
+  1. Electronic noise at 2.5-6 mV changed: an extra ~5e3 counts/s at 2.8 mV, ~2 counts/s at
+     5.6 mV.
+  2. The dark (single-PE-like) rate fell ~40 % in the tail.
+- **Neither is elapsed time.** At 6.0-7.2 mV both scans were at t = 241-335 s, and the ratio there
+  is 0.67 +- 0.07.
+- **Neither is count time.** Both scans counted 2.8 mV for 60 ms, and read 3783 against 9550
+  counts/s.
+- **First-window factor kappa.** From the live-time fingerprint of the driver's own
+  `_measure_point`, kappa is consistent with 1: 13:20 1.0-2.0, 16:36 0.85-1.0, at 2.6-3.6 mV.
+- **No within-threshold rate change.** None at p < 0.05, over 36 thresholds.
+- **Simulated settling, mains and drift fail.** DAC settling (1-20 ms), 60 Hz modulation and a
+  common dark relaxation reproduce none of the curve differences.
+- **The millivolt is cheap.** The top of S/sqrt(B) is flat:
+  - 7.6 mV scores 0.95-0.97 of the best on T1;
+  - 6.8 mV scores 0.96-0.98 on T2;
+  - a fixed 7.2 mV scores 0.97-0.998 on both.
+
+### Found on the way
+
+- **Over-dispersion.** The tail over-dispersion is level-independent: var/mean ~3, which whole
+  clusters of mean size 2 reproduce (held-out chi-square medians 3.25 and 2.91 against the real
+  3.76 and 2.25). A slow modulation (300 s) cannot reproduce it.
+- **Unexplained smoothness.** 13:20 at 3.8-6 mV is smoother than Poisson (0.47; 1.5 % of
+  simulations).
+- **The dark tail is broader than the photon curve.** Its exponential slopes are 0.27 and
+  0.21 /mV; the light eps falls at 0.36 /mV.
+- **The 13:20 edge is set by one threshold:** 6.4 mV, 77 counts. Splicing the scans flips the edge
+  between 6.4 and 6.8 mV.
+- **Grid only:** 13:20 thinned to the 16:36 levels moves its optimum from 6.8 to 7.2 mV.
+- **Analysis issue, proposed and not made:** `_smooth_dark_rate`'s curvature narrowing caps the
+  optimum's precision.
+  - Any +-1 mV tail window with >= 800 counts narrows to ~800 counts.
+  - So with the driver's fit, P(two scans within 0.2 mV) only goes from 0.26 (11 min) to 0.66
+    (12 h).
+  - With the straight line kept from 6 mV up, it reaches 0.84-0.97 at ~190 min (T1), and
+    0.92-0.94 (T2).
+- **Under a drifting dark rate, interleave.** On T1 with drift, ~190 min:
+  - one 480 s upward pass is reproducible (0.91) but biased: 0 % within 0.2 mV of the truth;
+  - 8 alternating passes of 60 s reach 0.91-0.98, and 95-99 % within 0.2 mV of the truth.
+- **The light grid limits the optimum.** The real light scans step 0.4 mV above 6 mV, so their
+  optimum cannot resolve 0.2 mV.
+
+### Proposed, for the main session to decide
+
+1. Narrow the dark fit only below ~6 mV.
+2. A 0.2 mV light grid over 6-10 mV.
+3. An optional refinement stage: 7 alternating dark passes over 5.6-10 mV at 0.2 mV and 60 s,
+   ~3 h. Or else report the band, or use a plateau level such as 7.2 mV.
+4. Log every count period.
+
+### Still open
+
+- **Is the 2.6-6 mV excess pickup?** Test it with a dark scan with the HV off, or a 50 ohm
+  terminator.
+- **The dark-rate history.** It needs a fixed-level monitor (e.g. 8 mV, 60 s every 10 min) from
+  HV-on, with the HV-on and cover times recorded.
+- **Clusters or modulation?** Distinguish them by var/mean against window length at 8 mV.
+- **The noise and dark decomposition at 4-8 mV is poorly fixed** by two scans.
+- **`out/` holds ~43 MB of raw runs.** Kept on the study's disk, not committed (in `.gitignore`):
+  the seeded scripts regenerate it. Committing it would keep 43 MB in the public history for good.

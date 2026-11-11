@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+<rect x="0" y="0" width="1200" height="900" fill="white"/>
+<text x="40.0" y="30.0" font-size="15" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">Time structure: is either scan&#x27;s difference tied to elapsed time or to the first count window?</text>
+<clipPath id="clip1"><rect x="100.0" y="70.0" width="1040.0" height="330.0"/></clipPath>
+<line x1="100.0" y1="70.0" x2="100.0" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="100.0" y1="400.0" x2="100.0" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="100.0" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">0</text>
+<line x1="199.0" y1="70.0" x2="199.0" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="199.0" y1="400.0" x2="199.0" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="199.0" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">100</text>
+<line x1="298.1" y1="70.0" x2="298.1" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="298.1" y1="400.0" x2="298.1" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="298.1" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">200</text>
+<line x1="397.1" y1="70.0" x2="397.1" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="397.1" y1="400.0" x2="397.1" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="397.1" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">300</text>
+<line x1="496.2" y1="70.0" x2="496.2" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="496.2" y1="400.0" x2="496.2" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="496.2" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">400</text>
+<line x1="595.2" y1="70.0" x2="595.2" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="595.2" y1="400.0" x2="595.2" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="595.2" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">500</text>
+<line x1="694.3" y1="70.0" x2="694.3" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="694.3" y1="400.0" x2="694.3" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="694.3" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">600</text>
+<line x1="793.3" y1="70.0" x2="793.3" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="793.3" y1="400.0" x2="793.3" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="793.3" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">700</text>
+<line x1="892.4" y1="70.0" x2="892.4" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="892.4" y1="400.0" x2="892.4" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="892.4" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">800</text>
+<line x1="991.4" y1="70.0" x2="991.4" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="991.4" y1="400.0" x2="991.4" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="991.4" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">900</text>
+<line x1="1090.5" y1="70.0" x2="1090.5" y2="400.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="1090.5" y1="400.0" x2="1090.5" y2="404.0" stroke="#222" stroke-width="1"/>
+<text x="1090.5" y="416.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">1000</text>
+<line x1="100.0" y1="381.7" x2="1140.0" y2="381.7" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="381.7" x2="100.0" y2="381.7" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="385.7" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">-4</text>
+<line x1="100.0" y1="345.0" x2="1140.0" y2="345.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="345.0" x2="100.0" y2="345.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="349.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">-3</text>
+<line x1="100.0" y1="308.3" x2="1140.0" y2="308.3" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="308.3" x2="100.0" y2="308.3" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="312.3" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">-2</text>
+<line x1="100.0" y1="271.7" x2="1140.0" y2="271.7" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="271.7" x2="100.0" y2="271.7" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="275.7" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">-1</text>
+<line x1="100.0" y1="235.0" x2="1140.0" y2="235.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="235.0" x2="100.0" y2="235.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="239.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">0</text>
+<line x1="100.0" y1="198.3" x2="1140.0" y2="198.3" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="198.3" x2="100.0" y2="198.3" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="202.3" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">1</text>
+<line x1="100.0" y1="161.7" x2="1140.0" y2="161.7" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="161.7" x2="100.0" y2="161.7" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="165.7" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">2</text>
+<line x1="100.0" y1="125.0" x2="1140.0" y2="125.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="125.0" x2="100.0" y2="125.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="129.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">3</text>
+<line x1="100.0" y1="88.3" x2="1140.0" y2="88.3" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="88.3" x2="100.0" y2="88.3" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="92.3" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">4</text>
+<rect x="100.0" y="70.0" width="1040.0" height="330.0" fill="none" stroke="#222" fill-opacity="1.0"/>
+<text x="100.0" y="62.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">(a) tail residuals (6.2-15.2 mV) against elapsed time in the scan, Pearson (obs - fit)/sqrt(fit)</text>
+<text x="620.0" y="434.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">elapsed time t_s in the scan (s)</text>
+<text x="48.0" y="235.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222" transform="rotate(-90 48.0 235.0)">residual (sigma)</text>
+<line x1="100.0" y1="235.0" x2="1140.0" y2="235.0" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="1136.0" y="232.0" font-size="9" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#7f7f7f"></text>
+<line x1="100.0" y1="161.7" x2="1140.0" y2="161.7" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="104.0" y="158.7" font-size="9" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#7f7f7f">+2</text>
+<line x1="100.0" y1="308.3" x2="1140.0" y2="308.3" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="104.0" y="305.3" font-size="9" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#7f7f7f">-2</text>
+<polyline points="371.1,165.4 401.2,355.1 431.3,219.7 461.4,279.9 491.6,157.6 521.7,217.7 551.8,220.1 582.0,146.0 612.1,211.4 642.2,311.6 672.4,254.2 702.5,264.7 732.6,162.9 762.8,203.9 792.8,273.3 823.0,272.7 853.1,322.0 883.2,122.3 913.4,198.6 943.5,285.6 973.7,293.1 1003.8,238.1 1033.9,211.7" fill="none" stroke="#1f77b4" stroke-width="0.8" clip-path="url(#clip1)"/>
+<circle cx="371.1" cy="165.4" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="401.2" cy="355.1" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="431.3" cy="219.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="461.4" cy="279.9" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="491.6" cy="157.6" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="521.7" cy="217.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="551.8" cy="220.1" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="582.0" cy="146.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="612.1" cy="211.4" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="642.2" cy="311.6" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="672.4" cy="254.2" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="702.5" cy="264.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="732.6" cy="162.9" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="762.8" cy="203.9" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="792.8" cy="273.3" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="823.0" cy="272.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="853.1" cy="322.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="883.2" cy="122.3" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="913.4" cy="198.6" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="943.5" cy="285.6" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="973.7" cy="293.1" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="1003.8" cy="238.1" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<circle cx="1033.9" cy="211.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polyline points="369.2,289.1 399.2,274.2 429.3,207.0 459.4,223.5 489.5,173.7 519.6,243.8 549.6,274.9" fill="none" stroke="#d62728" stroke-width="0.8" clip-path="url(#clip1)"/>
+<polygon points="369.2,284.6 364.6,292.8 373.7,292.8" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="399.2,269.7 394.7,277.9 403.8,277.9" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="429.3,202.4 424.8,210.6 433.9,210.6" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="459.4,218.9 454.9,227.1 464.0,227.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="489.5,169.2 484.9,177.4 494.0,177.4" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="519.6,239.3 515.0,247.5 524.1,247.5" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<polygon points="549.6,270.4 545.1,278.6 554.2,278.6" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip1)"/>
+<rect x="881.2" y="76.0" width="252.8" height="38.0" fill="white" stroke="#cccccc" fill-opacity="0.92"/>
+<line x1="887.2" y1="86.0" x2="909.2" y2="86.0" stroke="#1f77b4" stroke-width="1.5"/>
+<circle cx="898.2" cy="86.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2"/>
+<text x="915.2" y="90.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 13:20: chi2/n = 2.61 (n = 23)</text>
+<line x1="887.2" y1="101.0" x2="909.2" y2="101.0" stroke="#d62728" stroke-width="1.5"/>
+<polygon points="898.2,96.5 893.7,104.6 902.8,104.6" fill="#d62728" stroke="#d62728" stroke-width="1.2"/>
+<text x="915.2" y="105.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 16:36: chi2/n = 1.15 (n = 7)</text>
+<text x="1132.0" y="390.0" font-size="11" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#555" font-style="italic">Fit: noise ln-quadratic + exponential dark, per scan (03). 13:20 alternates high/low from 6.4 mV: lag-1 correlation -0.28 over 6.2-10 mV.</text>
+<text x="1132.0" y="376.0" font-size="11" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#555" font-style="italic">Same elapsed time, different rates: at 6.0-7.2 mV both scans were at t = 241-335 s, and 16:36 reads x0.67.</text>
+<clipPath id="clip2"><rect x="100.0" y="490.0" width="1040.0" height="330.0"/></clipPath>
+<line x1="192.9" y1="490.0" x2="192.9" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="192.9" y1="820.0" x2="192.9" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="192.9" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">0.5</text>
+<line x1="378.6" y1="490.0" x2="378.6" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="378.6" y1="820.0" x2="378.6" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="378.6" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">1</text>
+<line x1="564.3" y1="490.0" x2="564.3" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="564.3" y1="820.0" x2="564.3" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="564.3" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">1.5</text>
+<line x1="750.0" y1="490.0" x2="750.0" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="750.0" y1="820.0" x2="750.0" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="750.0" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">2</text>
+<line x1="935.7" y1="490.0" x2="935.7" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="935.7" y1="820.0" x2="935.7" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="935.7" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">2.5</text>
+<line x1="1121.4" y1="490.0" x2="1121.4" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="1121.4" y1="820.0" x2="1121.4" y2="824.0" stroke="#222" stroke-width="1"/>
+<text x="1121.4" y="836.0" font-size="10" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">3</text>
+<line x1="100.0" y1="820.0" x2="1140.0" y2="820.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="820.0" x2="100.0" y2="820.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="824.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">0</text>
+<line x1="100.0" y1="765.0" x2="1140.0" y2="765.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="765.0" x2="100.0" y2="765.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="769.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">2</text>
+<line x1="100.0" y1="710.0" x2="1140.0" y2="710.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="710.0" x2="100.0" y2="710.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="714.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">4</text>
+<line x1="100.0" y1="655.0" x2="1140.0" y2="655.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="655.0" x2="100.0" y2="655.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="659.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">6</text>
+<line x1="100.0" y1="600.0" x2="1140.0" y2="600.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="600.0" x2="100.0" y2="600.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="604.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">8</text>
+<line x1="100.0" y1="545.0" x2="1140.0" y2="545.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="545.0" x2="100.0" y2="545.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="549.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">10</text>
+<line x1="100.0" y1="490.0" x2="1140.0" y2="490.0" stroke="#eeeeee" stroke-width="1"/>
+<line x1="96.0" y1="490.0" x2="100.0" y2="490.0" stroke="#222" stroke-width="1"/>
+<text x="94.0" y="494.0" font-size="10" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#222">12</text>
+<rect x="100.0" y="490.0" width="1040.0" height="330.0" fill="none" stroke="#222" fill-opacity="1.0"/>
+<text x="100.0" y="482.0" font-size="13" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">(b) first 10-ms window counting kappa x the later windows: profile likelihood from the live-time fingerprint</text>
+<text x="620.0" y="854.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222">kappa (first-window rate / later rate)</text>
+<text x="48.0" y="655.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#222" transform="rotate(-90 48.0 655.0)">-2 delta ln L</text>
+<line x1="100.0" y1="714.4" x2="1140.0" y2="714.4" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="1136.0" y="711.4" font-size="9" font-family="Arial, sans-serif" text-anchor="end" font-weight="normal" fill="#7f7f7f">95 % (3.84)</text>
+<polyline points="118.6,495.5 192.9,495.5 267.1,528.3 322.9,697.7 378.6,799.3 452.9,820.0 564.3,795.8 750.0,756.0 1121.4,518.8" fill="none" stroke="#1f77b4" stroke-width="1.5" clip-path="url(#clip2)"/>
+<circle cx="118.6" cy="495.5" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="192.9" cy="495.5" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="267.1" cy="528.3" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="322.9" cy="697.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="378.6" cy="799.3" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="452.9" cy="820.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="564.3" cy="795.8" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="750.0" cy="756.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="1121.4" cy="518.8" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polyline points="118.6,692.7 192.9,743.8 267.1,749.1 322.9,787.0 378.6,813.7 452.9,811.9 564.3,814.0 750.0,820.0 1121.4,755.2" fill="none" stroke="#1f77b4" stroke-width="1.5" stroke-dasharray="5,3" clip-path="url(#clip2)"/>
+<circle cx="118.6" cy="692.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="192.9" cy="743.8" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="267.1" cy="749.1" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="322.9" cy="787.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="378.6" cy="813.7" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="452.9" cy="811.9" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="564.3" cy="814.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="750.0" cy="820.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<circle cx="1121.4" cy="755.2" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polyline points="118.6,495.5 192.9,495.5 267.1,558.6 322.9,794.5 378.6,820.0 452.9,677.0 564.3,495.5 750.0,495.5 1121.4,495.5" fill="none" stroke="#d62728" stroke-width="1.5" clip-path="url(#clip2)"/>
+<polygon points="118.6,490.9 114.0,499.1 123.1,499.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="192.9,490.9 188.3,499.1 197.4,499.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="267.1,554.1 262.6,562.3 271.7,562.3" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="322.9,789.9 318.3,798.1 327.4,798.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="378.6,815.5 374.0,823.6 383.1,823.6" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="452.9,672.5 448.3,680.7 457.4,680.7" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="564.3,490.9 559.7,499.1 568.8,499.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="750.0,490.9 745.5,499.1 754.5,499.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="1121.4,490.9 1116.9,499.1 1126.0,499.1" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polyline points="118.6,818.0 192.9,820.0 267.1,786.9 322.9,742.2 378.6,770.8 452.9,751.2 564.3,710.1 750.0,682.5 1121.4,606.2" fill="none" stroke="#d62728" stroke-width="1.5" stroke-dasharray="5,3" clip-path="url(#clip2)"/>
+<polygon points="118.6,813.5 114.0,821.7 123.1,821.7" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="192.9,815.5 188.3,823.6 197.4,823.6" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="267.1,782.4 262.6,790.5 271.7,790.5" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="322.9,737.7 318.3,745.9 327.4,745.9" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="378.6,766.3 374.0,774.5 383.1,774.5" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="452.9,746.6 448.3,754.8 457.4,754.8" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="564.3,705.5 559.7,713.7 568.8,713.7" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="750.0,678.0 745.5,686.2 754.5,686.2" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<polygon points="1121.4,601.6 1116.9,609.8 1126.0,609.8" fill="#d62728" stroke="#d62728" stroke-width="1.2" clip-path="url(#clip2)"/>
+<line x1="378.6" y1="490.0" x2="378.6" y2="820.0" stroke="#2ca02c" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="381.6" y="504.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#2ca02c">kappa = 1: no first-window effect</text>
+<rect x="955.6" y="496.0" width="178.4" height="68.0" fill="white" stroke="#cccccc" fill-opacity="0.92"/>
+<line x1="961.6" y1="506.0" x2="983.6" y2="506.0" stroke="#1f77b4" stroke-width="1.5"/>
+<circle cx="972.6" cy="506.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2"/>
+<text x="989.6" y="510.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 13:20, 2.6-3.6 mV</text>
+<line x1="961.6" y1="521.0" x2="983.6" y2="521.0" stroke="#1f77b4" stroke-width="1.5" stroke-dasharray="5,3"/>
+<circle cx="972.6" cy="521.0" r="3.5" fill="#1f77b4" stroke="#1f77b4" stroke-width="1.2"/>
+<text x="989.6" y="525.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 13:20, 3.8-6.0 mV</text>
+<line x1="961.6" y1="536.0" x2="983.6" y2="536.0" stroke="#d62728" stroke-width="1.5"/>
+<polygon points="972.6,531.5 968.1,539.6 977.1,539.6" fill="#d62728" stroke="#d62728" stroke-width="1.2"/>
+<text x="989.6" y="540.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 16:36, 2.6-3.6 mV</text>
+<line x1="961.6" y1="551.0" x2="983.6" y2="551.0" stroke="#d62728" stroke-width="1.5" stroke-dasharray="5,3"/>
+<polygon points="972.6,546.5 968.1,554.6 977.1,554.6" fill="#d62728" stroke="#d62728" stroke-width="1.2"/>
+<text x="989.6" y="555.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">dark 16:36, 3.8-6.0 mV</text>
+<text x="40.0" y="866.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">(b): values above 12 drawn at 12; 9 kappa values, 3 rates, 3000 runs of the driver&#x27;s _measure_point per point. The CSVs do not log single count periods; the total live time is a partial fingerprint.</text>
+<text x="40.0" y="882.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">Source: out/03_tail_residuals.csv, out/02b_kappa_profile.csv.</text>
+</svg>

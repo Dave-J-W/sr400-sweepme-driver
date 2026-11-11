@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+<rect x="0" y="0" width="1200" height="720" fill="white"/>
+<text x="40.0" y="30.0" font-size="15" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#222">How often does each scenario reproduce each observed difference? (16:36 scan against 13:20 scan)</text>
+<text x="40.0" y="52.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#444">Fraction of seeded simulated pairs (300-400 each) at least as extreme as observed, in the observed direction. 0 means none of the pairs.</text>
+<text x="482.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">edge up</text>
+<text x="482.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">&gt;= 0.8 mV</text>
+<text x="607.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">optimum up</text>
+<text x="607.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">&gt;= 0.8 mV,</text>
+<text x="607.5" y="126.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">both lights</text>
+<text x="732.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">3.0 mV</text>
+<text x="732.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">z &gt;= 16.4</text>
+<text x="857.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">2.6-3.6 mV</text>
+<text x="857.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">chi2 &gt;= 506</text>
+<text x="982.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">4.0-5.6 mV</text>
+<text x="982.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">ratio &gt;= 1.23</text>
+<text x="1107.5" y="98.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">tail &gt;= 6.4 mV</text>
+<text x="1107.5" y="112.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="bold" fill="#222">ratio &lt;= 0.59</text>
+<text x="40.0" y="170.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#333">METHOD ONLY, same tube T1: 16:36 rules against 13:20 rules</text>
+<text x="52.0" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">Poisson counting</text>
+<rect x="422.0" y="183.0" width="121.0" height="24.0" fill="#f5f5ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.003</text>
+<rect x="547.0" y="183.0" width="121.0" height="24.0" fill="#b7b7ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.13</text>
+<rect x="672.0" y="183.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="183.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="183.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="183.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="200.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ tail over-dispersion (clusters, var/mean 3)</text>
+<rect x="422.0" y="213.0" width="121.0" height="24.0" fill="#ebebff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.01</text>
+<rect x="547.0" y="213.0" width="121.0" height="24.0" fill="#8686ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.36</text>
+<rect x="672.0" y="213.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="213.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="213.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="213.0" width="121.0" height="24.0" fill="#f3f3ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="230.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.003</text>
+<text x="52.0" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ DAC settling, tau 20 ms</text>
+<rect x="422.0" y="243.0" width="121.0" height="24.0" fill="#eeeeff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.007</text>
+<rect x="547.0" y="243.0" width="121.0" height="24.0" fill="#8282ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.39</text>
+<rect x="672.0" y="243.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="243.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="243.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="243.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="260.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ DAC settling, tau 5 ms</text>
+<rect x="422.0" y="273.0" width="121.0" height="24.0" fill="#e5e5ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.02</text>
+<rect x="547.0" y="273.0" width="121.0" height="24.0" fill="#8585ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.37</text>
+<rect x="672.0" y="273.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="273.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="273.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="273.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="290.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ dark rate relaxing x2 -&gt; x1, tau 600 s</text>
+<rect x="422.0" y="303.0" width="121.0" height="24.0" fill="#eeeeff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.007</text>
+<rect x="547.0" y="303.0" width="121.0" height="24.0" fill="#9e9eff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.23</text>
+<rect x="672.0" y="303.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="303.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="303.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="303.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="320.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ dark rate relaxing x2 -&gt; x1, tau 3000 s</text>
+<rect x="422.0" y="333.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="547.0" y="333.0" width="121.0" height="24.0" fill="#b4b4ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.14</text>
+<rect x="672.0" y="333.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="333.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="333.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="333.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="350.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">+ 60 Hz modulation of the noise, depth 0.5</text>
+<rect x="422.0" y="363.0" width="121.0" height="24.0" fill="#e7e7ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.01</text>
+<rect x="547.0" y="363.0" width="121.0" height="24.0" fill="#8585ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.37</text>
+<rect x="672.0" y="363.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="363.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="363.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="363.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="380.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="40.0" y="410.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#333">SAME TUBE + AN INTERMITTENT EXTRA NOISE SOURCE (environment, not method)</text>
+<text x="52.0" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">extra noise on/off (mean on 120 s, off 600 s)</text>
+<rect x="422.0" y="423.0" width="121.0" height="24.0" fill="#ccccff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.06</text>
+<rect x="547.0" y="423.0" width="121.0" height="24.0" fill="#8383ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.38</text>
+<rect x="672.0" y="423.0" width="121.0" height="24.0" fill="#cfcfff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.06</text>
+<rect x="797.0" y="423.0" width="121.0" height="24.0" fill="#b2b2ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.15</text>
+<rect x="922.0" y="423.0" width="121.0" height="24.0" fill="#bcbcff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.11</text>
+<rect x="1047.0" y="423.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="440.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">extra noise on/off (mean on 900 s, off 900 s)</text>
+<rect x="422.0" y="453.0" width="121.0" height="24.0" fill="#bcbcff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.11</text>
+<rect x="547.0" y="453.0" width="121.0" height="24.0" fill="#8989ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.34</text>
+<rect x="672.0" y="453.0" width="121.0" height="24.0" fill="#bebeff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.10</text>
+<rect x="797.0" y="453.0" width="121.0" height="24.0" fill="#8e8eff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.32</text>
+<rect x="922.0" y="453.0" width="121.0" height="24.0" fill="#9a9aff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.25</text>
+<rect x="1047.0" y="453.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="470.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="40.0" y="500.0" font-size="12" font-family="Arial, sans-serif" text-anchor="start" font-weight="bold" fill="#333">PHYSICS, a changed tube (with over-dispersion)</text>
+<text x="52.0" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">tail only: dark part x0.59</text>
+<rect x="422.0" y="513.0" width="121.0" height="24.0" fill="#bdbdff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.11</text>
+<rect x="547.0" y="513.0" width="121.0" height="24.0" fill="#7d7dff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.42</text>
+<rect x="672.0" y="513.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="797.0" y="513.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="922.0" y="513.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<rect x="1047.0" y="513.0" width="121.0" height="24.0" fill="#7979ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="530.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.45</text>
+<text x="52.0" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">noise edge only: extra noise 2.4-6 mV</text>
+<rect x="422.0" y="543.0" width="121.0" height="24.0" fill="#9292ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.29</text>
+<rect x="547.0" y="543.0" width="121.0" height="24.0" fill="#6f6fff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.52</text>
+<rect x="672.0" y="543.0" width="121.0" height="24.0" fill="#9292ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.29</text>
+<rect x="797.0" y="543.0" width="121.0" height="24.0" fill="#6868ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.57</text>
+<rect x="922.0" y="543.0" width="121.0" height="24.0" fill="#3737ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#ffffff">1.00</text>
+<rect x="1047.0" y="543.0" width="121.0" height="24.0" fill="#ffffff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="560.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0</text>
+<text x="52.0" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">both: T1 then T2 (as tuned to the two scans)</text>
+<rect x="422.0" y="573.0" width="121.0" height="24.0" fill="#7070ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.51</text>
+<rect x="547.0" y="573.0" width="121.0" height="24.0" fill="#6d6dff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.53</text>
+<rect x="672.0" y="573.0" width="121.0" height="24.0" fill="#9696ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.27</text>
+<rect x="797.0" y="573.0" width="121.0" height="24.0" fill="#6d6dff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.53</text>
+<rect x="922.0" y="573.0" width="121.0" height="24.0" fill="#6d6dff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.53</text>
+<rect x="1047.0" y="573.0" width="121.0" height="24.0" fill="#9595ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="590.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.28</text>
+<text x="52.0" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#222">both, same (current) rules for both scans</text>
+<rect x="422.0" y="603.0" width="121.0" height="24.0" fill="#6d6dff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="482.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.53</text>
+<rect x="547.0" y="603.0" width="121.0" height="24.0" fill="#7575ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="607.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.47</text>
+<rect x="672.0" y="603.0" width="121.0" height="24.0" fill="#3a3aff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="732.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#ffffff">0.97</text>
+<rect x="797.0" y="603.0" width="121.0" height="24.0" fill="#3737ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="857.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#ffffff">1.00</text>
+<rect x="922.0" y="603.0" width="121.0" height="24.0" fill="#7777ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="982.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.46</text>
+<rect x="1047.0" y="603.0" width="121.0" height="24.0" fill="#8181ff" stroke="#cccccc" fill-opacity="1.0"/>
+<text x="1107.5" y="620.0" font-size="11" font-family="Arial, sans-serif" text-anchor="middle" font-weight="normal" fill="#111">0.40</text>
+<text x="40.0" y="656.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">0 means none of 300-400 pairs (&lt; ~1/300). In every row but the last, the earlier scan used the 13:20 rules and the later one the 16:36 rules, as in the real data; the last row uses the current rules for both.</text>
+<text x="40.0" y="672.0" font-size="10" font-family="Arial, sans-serif" text-anchor="start" font-weight="normal" fill="#555">Source: out/06_summary_pairs.csv, out/09_summary_pairs.csv, out/10_summary_pairs.csv.</text>
+</svg>
