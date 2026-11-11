@@ -3009,6 +3009,60 @@ def test_real_scans_in_repo(driver):
           f"1 % loss is at the settable 4.2 mV, GUI -0.0042 (got {one})")
     check(0.05 < one["sigma_mv"] < 0.2, f"with an honest uncertainty of about 0.1 mV (got {one['sigma_mv']:.3f})")
 
+    # --- the second real run, 16:36 dark and 17:24 light --------------------------------------
+    dark2_name = "SR400_threshold_scan_dark_2026-11-10_163608"
+    light2_name = "SR400_threshold_scan_light_2026-11-10_172444"
+    for name in (dark2_name, light2_name):
+        for suffix in (".csv", ".svg"):
+            check(os.path.exists(os.path.join(real, name + suffix)), f"docs/real_data/2026-11-10/{name}{suffix} is committed")
+    if not os.path.exists(os.path.join(real, light2_name + ".csv")):
+        return
+    analysis_copy = os.path.join(os.path.dirname(os.path.dirname(real)), os.pardir, "analysis",
+                                 "low_signal_threshold", "data")
+    for name in (dark2_name, light2_name):
+        mine = os.path.join(real, name + ".csv")
+        theirs = os.path.join(analysis_copy, name + ".csv")
+        check(os.path.exists(theirs) and open(mine, "rb").read() == open(theirs, "rb").read(),
+              f"{name}.csv is byte-identical to the copy the low-signal analysis reads")
+
+    # All four CSVs in one folder, as committed: each light scan must still find ITS dark scan.
+    work = tempfile.mkdtemp(prefix="sr400_real_both_")
+    for name in (dark_name, light_name, dark2_name, light2_name):
+        shutil.copy(os.path.join(real, name + ".csv"), work)
+    for name in (dark_name, light_name, dark2_name, light2_name):
+        fresh = open(st.plot_csv(os.path.join(work, name + ".csv")), encoding="utf-8").read()
+        published = open(os.path.join(real, name + ".svg"), encoding="utf-8").read()
+        check(fresh == published, f"{name}.svg is exactly what selftest.py plot makes from its CSV, with both "
+                                  f"runs in the folder -- if not, regenerate it")
+    light1_svg = open(os.path.join(real, light_name + ".svg"), encoding="utf-8").read()
+    light2_svg = open(os.path.join(real, light2_name + ".svg"), encoding="utf-8").read()
+    check(dark_name + ".csv" in light1_svg and dark2_name not in light1_svg,
+          "with the 16:36 dark in the folder, the 13:59 light still uses the 13:20 dark, not a later one")
+    check(dark2_name + ".csv" in light2_svg and "found beside" not in light2_svg,
+          "the 17:24 light uses the 16:36 dark its own CSV names")
+
+    _, dark2_points = st.read_scan_csv(os.path.join(real, dark2_name + ".csv"))
+    _, passes2 = st.read_scan_csv(os.path.join(real, light2_name + ".csv"))
+    dark2 = st.analyse_dark(dark2_points)
+    check(abs(dark2["noise_edge_v"] - 0.0060) < 1e-9 and abs(dark2["lower_bound_v"] - 0.0066) < 1e-9,
+          f"the 16:36 dark: noise edge 6.0 mV, lower bound 6.6 mV, GUI -0.0066 "
+          f"(got {dark2['noise_edge_v']}, {dark2['lower_bound_v']})")
+    result2 = st.analyse_light(passes2, dark2)
+    check(abs(result2["valley_v"] - 0.0038) < 1e-9 and abs(result2["peak_v"] - 0.0072) < 1e-9,
+          f"the 17:24 light: valley 3.8 mV, single-PE peak 7.2 mV (got {result2['valley_v']}, {result2['peak_v']})")
+    # The four dark x light pairings, as the folder README and SIMULATED_VS_REAL tabulate them.
+    expected = {(dark_name, light_name): 0.0068, (dark_name, light2_name): 0.0068,
+                (dark2_name, light_name): 0.0076, (dark2_name, light2_name): 0.0076}
+    darks = {dark_name: dark, dark2_name: dark2}
+    lights = {light_name: passes, light2_name: passes2}
+    got = {k: st.analyse_light(lights[k[1]], darks[k[0]])["optimum_v"] for k in expected}
+    check(all(abs(got[k] - v) < 1e-9 for k, v in expected.items()),
+          f"the S/sqrt(B) optimum on the four pairings is 6.8, 6.8, 7.6, 7.6 mV, as the docs tabulate "
+          f"(got {[round(v * 1e3, 1) for v in got.values()]})")
+    lo, hi = result2["optimum_band_v"]
+    check(abs(lo - 0.0068) < 1e-9 and abs(hi - 0.0076) < 1e-9,
+          f"and on the second run its 5 % band is 6.8-7.6 mV (got {lo * 1e3:.1f}-{hi * 1e3:.1f})")
+
 
 def test_settling_and_hv(driver):
     print("\n[23f] the PMT HV record, the dark settling check, and hv-compare")
@@ -3407,6 +3461,18 @@ def test_curved_background_and_valley_floor(driver):
         check(abs(new - 1) < tol and abs(old - 1) > 2 * tol,
               f"the real 13:20 dark scan, each threshold in {lo_v * 1e3:.1f}-{hi_v * 1e3:.1f} mV left out "
               f"and predicted from the rest: predicted/observed {new:.3f} (the straight line: {old:.3f})")
+    dark2_csv = os.path.join(real, "SR400_threshold_scan_dark_2026-11-10_163608.csv")
+    if os.path.exists(dark2_csv):
+        rows2 = st.analyse_dark(st.read_scan_csv(dark2_csv)[1])["rows"]
+        new2, old2 = _held_out_ratio(rows2, fitted, 0.0038, 0.0060), _held_out_ratio(rows2, straight, 0.0038, 0.0060)
+        check(abs(new2 - 1) < 0.03 and abs(old2 - 1) > 0.06,
+              f"the real 16:36 dark scan, 3.8-6.0 mV held out: predicted/observed {new2:.3f} "
+              f"(the straight line: {old2:.3f})")
+        tail2 = [r["abs_v"] for r in rows2 if r["abs_v"] >= 0.0062 - 1e-9]
+        pairs2 = [(st._smooth_dark_rate(rows2, v), _straight_line_dark_rate(st, rows2, v)) for v in tail2]
+        scored2 = [(a[0], b) for a, b in pairs2 if a is not None and b is not None]
+        check(scored2 and all(abs(a / b - 1) < 1e-9 for a, b in scored2),
+              f"and in its thin tail the fit is the straight line, unchanged ({len(scored2)} thresholds)")
     tail = [r["abs_v"] for r in rows if r["abs_v"] >= 0.0062 - 1e-9]
     pairs = [(st._smooth_dark_rate(rows, v), _straight_line_dark_rate(st, rows, v)) for v in tail]
     scored = [(new[0], old) for new, old in pairs if new is not None and old is not None]
