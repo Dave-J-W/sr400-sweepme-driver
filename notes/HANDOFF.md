@@ -28,8 +28,14 @@ pending docs decision.
 
 - The S/sqrt(B) optimum for a weak signal is 6.8-7.6 mV across all four dark x light pairings, and
   7.2 mV scores 0.92-0.95 of best in every one. GUI value: negative volts, so 6.8 mV is -0.0068.
-- The lower bound moves ~1 mV between runs (5.8 against 6.6 mV). That is a real change between
-  runs, not counting noise: Poisson resampling moves each scan's edge by at most 0.2 mV.
+- The lower bound moves ~1 mV between runs (5.8 against 6.6 mV). Two different uncertainties,
+  not to be confused:
+  - Resampling a scan's own counts moves its edge by at most 0.2 mV.
+  - Repeating the whole scan on the same tube spreads the edge over 0.6-0.8 mV. That is the
+    honest single-scan uncertainty, from the simulations in `analysis/dark_scan_method/`.
+  - Even so, method alone gives the 5.2 -> 6.0 mV difference in only 0.25-2 % of simulated pairs.
+    So it reflects a change in the curve, as the curve differences themselves do. The optimum's
+    6.8 -> 7.6 mV shift, by contrast, is within method (13-38 %).
 - The best level against signal rate N is in `analysis/low_signal_threshold/README.md`. It falls
   from 6.8 mV at N <= 5 counts/s to about 5.6 mV at N ~ 100 and the valley near N ~ 10^4.
 

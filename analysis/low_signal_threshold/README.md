@@ -231,6 +231,12 @@ same reasons:
   3.75 / 5.02 mV, against 2.96 / 3.64 / 4.84 mV.
 - The scans were taken at 13:20 (before the 13:59 room-light scan) and 16:36 (after it). Why they
   differ (dark adaptation, temperature, something else) is not known from these files.
+- *Added 2026-11-11:* the later study in [`../dark_scan_method/`](../dark_scan_method/README.md)
+  simulated both scans' methods on one tube. The curve differences above arise from method
+  alone in at most 1 of 300-400 pairs, so they are a change in the tube or its electronics. The
+  difference between the optima (6.8 against 7.6 mV) arises from method alone in 13-38 % of pairs,
+  so that part of the spread is within method. A full repeat scan's noise edge spreads over
+  0.6-0.8 mV, much more than resampling one scan's counts suggests.
 
 **Counting statistics.** These are the 16-84 % ranges of the resampled optimum (`results.csv`, 88
 rows):
