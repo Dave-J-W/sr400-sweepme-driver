@@ -160,6 +160,13 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Added
 
+- **The second real run in [`docs/real_data/2026-11-10/`](docs/real_data/2026-11-10/)**: the
+  16:36 dark and 17:24 light scans, CSVs byte for byte as measured (also in
+  `analysis/low_signal_threshold/data/`), figures drawn from them by `selftest.py plot`. Its HV was
+  not recorded. The folder README gives its provenance and what has been corrected since, and
+  [`docs/SIMULATED_VS_REAL.md`](docs/SIMULATED_VS_REAL.md) adds it to every table, with the
+  optimum and band of all four dark × light pairings. Why the two dark scans differ is not
+  interpreted there: a study of it is in progress.
 - **[`analysis/photon_background/`](analysis/photon_background/README.md): the threshold when the
   signal brings a photon background it cannot be separated from.** For a background at an assumed
   fraction f of the signal, absent from the signal-off run, the best level and its 5 % band are
