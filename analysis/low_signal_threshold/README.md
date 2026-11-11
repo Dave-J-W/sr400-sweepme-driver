@@ -5,6 +5,9 @@ disagree by more than counting noise (see Robustness), so the dark rate is not y
 enough for the low-N answers to be final. Every number below comes from `low_signal_optimum.py` run
 on the raw CSVs. `summary.txt`, `results.csv` and `robust_choice.csv` hold the same numbers in full.
 
+If the signal brings a photon background that cannot be separated from it, see
+[`../photon_background/`](../photon_background/README.md).
+
 ## Update, 2026-11-11: re-run on the driver's corrected background fit
 
 This analysis found two problems in the driver's analysis code. Both are now fixed in

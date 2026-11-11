@@ -1,0 +1,130 @@
+PHOTON BACKGROUND -- machine-written summary (do not edit; regenerate)
+python 3.12.4, Monte Carlo 20000 trials per level, seed 20261111
+
+CANDIDATE LEVELS (valley up, within the dark scan, fit defined)
+  D1L1: 36 levels 4.0-18.0 mV; valley 4.0 mV
+  D1L2: 37 levels 3.8-18.0 mV; valley 3.8 mV
+  D2L1: 34 levels 4.0-15.2 mV; valley 4.0 mV
+  D2L2: 35 levels 3.8-15.2 mV; valley 3.8 mV
+
+CHECK 1: statistical part = photon-free analysis at N' = N (1 + f)
+  per-level variance, (N, f) against photon-free at N': max |ratio - 1| = 7.8e-16 (floating point only)
+  best level, 5 % band edges and floor flags compared in 5152 cases (4 pairings x 2 cases x 92 N x 7 f): 0 differ
+  one-level-for-all-four choice and its common band: 0 of 154 differ
+  NOT exact only when the photon-free answer is read off a table at N = 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 10000: nearest-row lookup of N' differs in 314 of 1134 (N, f) cases, by up to 0.6 mV (the table's own discreteness, not the model)
+  valley floor: the 5 % band reaches the valley in 1700 of 5152 cases, identically at (N, f) and at N' (the floor is the same candidate set)
+
+CHECK 2: Monte Carlo of N_hat = (C_on - C_off) / (eps (1 + f_assumed) T), D1L1, N = 10/s, true f = 0.1, T = 100 s
+  f_assumed 0.10, 4.4 mV: bias +0.0004 (model +0.0000, MC +-0.0005); relative sd 0.0684 (model 0.0678)
+  f_assumed 0.10, 5.2 mV: bias +0.0002 (model +0.0000, MC +-0.0003); relative sd 0.0458 (model 0.0459)
+  f_assumed 0.10, 6.0 mV: bias +0.0000 (model +0.0000, MC +-0.0003); relative sd 0.0403 (model 0.0403)
+  f_assumed 0.10, 6.8 mV: bias +0.0002 (model +0.0000, MC +-0.0003); relative sd 0.0408 (model 0.0409)
+  f_assumed 0.10, 7.6 mV: bias -0.0001 (model +0.0000, MC +-0.0003); relative sd 0.0440 (model 0.0440)
+  f_assumed 0.10, 9.2 mV: bias +0.0001 (model +0.0000, MC +-0.0004); relative sd 0.0558 (model 0.0552)
+  f_assumed 0.13, 4.4 mV: bias -0.0265 (model -0.0265, MC +-0.0005); relative sd 0.0659 (model 0.0660)
+  f_assumed 0.13, 5.2 mV: bias -0.0263 (model -0.0265, MC +-0.0003); relative sd 0.0443 (model 0.0447)
+  f_assumed 0.13, 6.0 mV: bias -0.0265 (model -0.0265, MC +-0.0003); relative sd 0.0392 (model 0.0392)
+  f_assumed 0.13, 6.8 mV: bias -0.0270 (model -0.0265, MC +-0.0003); relative sd 0.0398 (model 0.0399)
+  f_assumed 0.13, 7.6 mV: bias -0.0264 (model -0.0265, MC +-0.0003); relative sd 0.0430 (model 0.0428)
+  f_assumed 0.13, 9.2 mV: bias -0.0264 (model -0.0265, MC +-0.0004); relative sd 0.0541 (model 0.0538)
+  worst bias disagreement 1.5 MC standard errors; worst sd disagreement 1.0% (MC precision on an sd ~0.5%)
+  the bias is the same at every level: the threshold does not change the systematic
+
+CHECK 3: the systematic multiplies every level's time-to-p by the same factor
+  levels within 5 % of the best time to p, against the statistical 5 % band: 0 of 2992 (pairing x case x N x f x delta_f, with p the largest of (0.05, 0.1, 0.2) above the floor) differ
+
+CHECK 4: at fixed counting time T the near-best range depends only on T / T_cross and N'
+  closed form: within 5 % of the best total precision <=> V(v) / V(best) <= 1/0.95^2 + (1/0.95^2 - 1) T / T_cross
+  direct band against the closed form: 0 of 12628 cases differ
+  D1L1, f = 0.1, equal-time off run: levels within 5 % [10 %] of the best total precision at T = r * T_cross
+    N=   1 (best 6.8 mV): r=0.1: 6.4-7.6 [5.8-7.6]; r=0.3: 6.0-7.6 [5.8-7.6]; r=1: 5.8-7.6 [5.6-8.0]; r=3: 5.6-8.0 [5.4-9.2]; r=10: 5.2-9.6 [4.8-10.8]
+    N=  10 (best 6.0 mV): r=0.1: 5.6-6.8 [5.4-7.6]; r=0.3: 5.6-7.2 [5.2-7.6]; r=1: 5.4-7.6 [5.2-8.0]; r=3: 5.2-8.0 [4.8-9.2]; r=10: 4.6-9.6 [4.4-10.8]
+    N= 100 (best 5.6 mV): r=0.1: 4.6-6.4 [4.4-6.8]; r=0.3: 4.6-6.4 [4.4-7.2]; r=1: 4.4-6.8 [4.2-7.6]; r=3: 4.2-7.6 [4.0-8.8]; r=10: 4.0-9.2 [4.0-10.4]
+    N=1000 (best 4.6 mV): r=0.1: 4.0-6.0 [4.0-6.4]; r=0.3: 4.0-6.0 [4.0-6.8]; r=1: 4.0-6.4 [4.0-7.2]; r=3: 4.0-7.2 [4.0-8.4]; r=10: 4.0-8.8 [4.0-10.4]
+
+OPERATOR TABLE (equal-time off run; one level for all four pairings; T common to all four = geometric
+  mean of their T_cross, 2 significant figures; 'within 5 %' = within 5 % of the best total precision
+  at that T in all four pairings)
+  N=   1, f=0.1 delta_f = 10% of f (+-0.01): floor 0.91%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 61000 s within 5 %: 6.4-7.6 mV; after 610000 s: 5.6-9.2 mV; time to total 10 %: 411-621 s
+  N=   1, f=0.1 delta_f = 30% of f (+-0.03): floor 2.73%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 6800 s within 5 %: 6.4-7.6 mV; after 68000 s: 5.6-9.2 mV; time to total 10 %: 441-665 s
+  N=   1, f=0.1 delta_f = 100% of f (+-0.1): floor 9.09%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 610 s within 5 %: 6.4-7.6 mV; after 6100 s: 5.6-9.2 mV; time to total 10 %: 2.35e+03-3.55e+03 s
+  N=   1, f=0.1 delta_f = 1% absolute (+-0.01): floor 0.91%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 61000 s within 5 %: 6.4-7.6 mV; after 610000 s: 5.6-9.2 mV; time to total 10 %: 411-621 s
+  N=   1, f=0.1 delta_f = 5% absolute (+-0.05): floor 4.55%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 2400 s within 5 %: 6.4-7.6 mV; after 24000 s: 5.6-9.2 mV; time to total 10 %: 514-776 s
+  N=   1, f=0.01 delta_f = 30% of f (+-0.003): floor 0.30%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 660000 s within 5 %: 6.4-7.6 mV; after 6.6e+06 s: 5.6-9.2 mV; time to total 10 %: 471-719 s
+  N=   1, f=0.5 delta_f = 30% of f (+-0.15): floor 10.00%; set 6.8 mV (GUI -0.0068); statistical 5 % band 6.8-6.8 mV; after T = 300 s within 5 %: 6.4-7.6 mV; after 3000 s: 5.6-9.2 mV; time to total 10 %: never-never s
+  N=  10, f=0.1 delta_f = 10% of f (+-0.01): floor 0.91%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 1900 s within 5 %: 5.8-7.2 mV; after 19000 s: 5.0-9.2 mV; time to total 10 %: 15.2-16.7 s
+  N=  10, f=0.1 delta_f = 30% of f (+-0.03): floor 2.73%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 210 s within 5 %: 5.8-7.2 mV; after 2100 s: 5.0-9.2 mV; time to total 10 %: 16.3-17.9 s
+  N=  10, f=0.1 delta_f = 100% of f (+-0.1): floor 9.09%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 19 s within 5 %: 5.8-7.2 mV; after 190 s: 5.0-9.2 mV; time to total 10 %: 86.7-95.7 s
+  N=  10, f=0.1 delta_f = 1% absolute (+-0.01): floor 0.91%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 1900 s within 5 %: 5.8-7.2 mV; after 19000 s: 5.0-9.2 mV; time to total 10 %: 15.2-16.7 s
+  N=  10, f=0.1 delta_f = 5% absolute (+-0.05): floor 4.55%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 77 s within 5 %: 5.8-7.2 mV; after 770 s: 5.0-9.2 mV; time to total 10 %: 19-20.9 s
+  N=  10, f=0.01 delta_f = 30% of f (+-0.003): floor 0.30%; set 6.4 mV (GUI -0.0064); statistical 5 % band 6.0-6.8 mV; after T = 20000 s within 5 %: 5.8-7.2 mV; after 200000 s: 5.0-9.2 mV; time to total 10 %: 16.7-18.7 s
+  N=  10, f=0.5 delta_f = 30% of f (+-0.15): floor 10.00%; set 6.0 mV (GUI -0.006); statistical 5 % band 5.8-6.8 mV; after T = 11 s within 5 %: 5.6-7.2 mV; after 110 s: 4.8-9.2 mV; time to total 10 %: never-never s
+  N= 100, f=0.1 delta_f = 10% of f (+-0.01): floor 0.91%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.8-6.4 mV; after T = 130 s within 5 %: 4.6-6.8 mV; after 1300 s: 4.0-8.8 mV; time to total 10 %: 1.09-1.11 s
+  N= 100, f=0.1 delta_f = 30% of f (+-0.03): floor 2.73%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.8-6.4 mV; after T = 15 s within 5 %: 4.6-6.8 mV; after 150 s: 4.0-9.2 mV; time to total 10 %: 1.16-1.19 s
+  N= 100, f=0.1 delta_f = 100% of f (+-0.1): floor 9.09%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.8-6.4 mV; after T = 1.3 s within 5 %: 4.6-6.8 mV; after 13 s: 4.0-8.8 mV; time to total 10 %: 6.2-6.36 s
+  N= 100, f=0.1 delta_f = 1% absolute (+-0.01): floor 0.91%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.8-6.4 mV; after T = 130 s within 5 %: 4.6-6.8 mV; after 1300 s: 4.0-8.8 mV; time to total 10 %: 1.09-1.11 s
+  N= 100, f=0.1 delta_f = 5% absolute (+-0.05): floor 4.55%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.8-6.4 mV; after T = 5.3 s within 5 %: 4.6-6.8 mV; after 53 s: 4.0-8.8 mV; time to total 10 %: 1.36-1.39 s
+  N= 100, f=0.01 delta_f = 30% of f (+-0.003): floor 0.30%; set 5.6 mV (GUI -0.0056); statistical 5 % band 5.0-6.4 mV; after T = 1400 s within 5 %: 4.6-6.8 mV; after 14000 s: 4.0-9.2 mV; time to total 10 %: 1.18-1.21 s
+  N= 100, f=0.5 delta_f = 30% of f (+-0.15): floor 10.00%; set 5.6 mV (GUI -0.0056); statistical 5 % band 4.6-6.0 mV; after T = 0.78 s within 5 %: 4.4-6.8 mV; after 7.8 s: 4.0-8.8 mV; time to total 10 %: never-never s
+  N=1000, f=0.1 delta_f = 10% of f (+-0.01): floor 0.91%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 12 s within 5 %: 4.0-6.4 mV; after 120 s: 4.0-8.8 mV; time to total 10 %: 0.0965-0.0987 s
+  N=1000, f=0.1 delta_f = 30% of f (+-0.03): floor 2.73%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 1.3 s within 5 %: 4.0-6.4 mV; after 13 s: 4.0-8.8 mV; time to total 10 %: 0.103-0.106 s
+  N=1000, f=0.1 delta_f = 100% of f (+-0.1): floor 9.09%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 0.12 s within 5 %: 4.0-6.4 mV; after 1.2 s: 4.0-8.8 mV; time to total 10 %: 0.551-0.564 s
+  N=1000, f=0.1 delta_f = 1% absolute (+-0.01): floor 0.91%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 12 s within 5 %: 4.0-6.4 mV; after 120 s: 4.0-8.8 mV; time to total 10 %: 0.0965-0.0987 s
+  N=1000, f=0.1 delta_f = 5% absolute (+-0.05): floor 4.55%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 0.47 s within 5 %: 4.0-6.4 mV; after 4.7 s: 4.0-8.8 mV; time to total 10 %: 0.121-0.123 s
+  N=1000, f=0.01 delta_f = 30% of f (+-0.003): floor 0.30%; set 4.6 mV (GUI -0.0046); statistical 5 % band 4.0-5.8 mV; after T = 120 s within 5 %: 4.0-6.4 mV; after 1200 s: 4.0-8.8 mV; time to total 10 %: 0.105-0.107 s
+  N=1000, f=0.5 delta_f = 30% of f (+-0.15): floor 10.00%; set 4.4 mV (GUI -0.0044); statistical 5 % band 4.0-5.8 mV; after T = 0.07 s within 5 %: 4.0-6.4 mV; after 0.7 s: 4.0-8.8 mV; time to total 10 %: never-never s
+
+STATISTICAL OPTIMUM, one level for all four pairings -- equal_time_dark (level mV [common 5 % band])
+  N=    1: f=0: 6.8 [6.8-6.8]  f=0.0001: 6.8 [6.8-6.8]  f=0.001: 6.8 [6.8-6.8]  f=0.01: 6.8 [6.8-6.8]  f=0.03: 6.8 [6.8-6.8]  f=0.1: 6.8 [6.8-6.8]  f=0.2: 6.8 [6.8-6.8]  f=0.5: 6.8 [6.8-6.8]
+  N=    2: f=0: 6.8 [6.8-6.8]  f=0.0001: 6.8 [6.8-6.8]  f=0.001: 6.8 [6.8-6.8]  f=0.01: 6.8 [6.8-6.8]  f=0.03: 6.8 [6.8-6.8]  f=0.1: 6.8 [6.8-6.8]  f=0.2: 6.8 [6.8-6.8]  f=0.5: 6.8 [6.8-6.8]
+  N=    5: f=0: 6.8 [6.4-6.8]  f=0.0001: 6.8 [6.4-6.8]  f=0.001: 6.8 [6.4-6.8]  f=0.01: 6.8 [6.4-6.8]  f=0.03: 6.8 [6.4-6.8]  f=0.1: 6.8 [6.4-6.8]  f=0.2: 6.8 [6.4-6.8]  f=0.5: 6.8 [6.0-6.8]
+  N=   10: f=0: 6.4 [6.0-6.8]  f=0.0001: 6.4 [6.0-6.8]  f=0.001: 6.4 [6.0-6.8]  f=0.01: 6.4 [6.0-6.8]  f=0.03: 6.4 [6.0-6.8]  f=0.1: 6.4 [6.0-6.8]  f=0.2: 6.4 [5.8-6.8]  f=0.5: 6.0 [5.8-6.8]
+  N=   20: f=0: 6.0 [5.6-6.8]  f=0.0001: 6.0 [5.6-6.8]  f=0.001: 6.0 [5.6-6.8]  f=0.01: 6.0 [5.6-6.8]  f=0.03: 6.0 [5.6-6.8]  f=0.1: 6.0 [5.6-6.8]  f=0.2: 6.0 [5.6-6.8]  f=0.5: 6.0 [5.6-6.8]
+  N=   50: f=0: 5.8 [5.4-6.4]  f=0.0001: 5.8 [5.4-6.4]  f=0.001: 5.8 [5.4-6.4]  f=0.01: 5.8 [5.4-6.4]  f=0.03: 5.8 [5.4-6.4]  f=0.1: 5.8 [5.2-6.4]  f=0.2: 5.8 [5.2-6.4]  f=0.5: 5.6 [5.0-6.4]
+  N=  100: f=0: 5.6 [5.0-6.4]  f=0.0001: 5.6 [5.0-6.4]  f=0.001: 5.6 [5.0-6.4]  f=0.01: 5.6 [5.0-6.4]  f=0.03: 5.6 [5.0-6.4]  f=0.1: 5.6 [4.8-6.4]  f=0.2: 5.6 [4.8-6.4]  f=0.5: 5.6 [4.6-6.0]
+  N=  200: f=0: 5.6 [4.6-6.0]  f=0.0001: 5.6 [4.6-6.0]  f=0.001: 5.6 [4.6-6.0]  f=0.01: 5.6 [4.6-6.0]  f=0.03: 5.0 [4.6-6.0]  f=0.1: 5.0 [4.4-6.0]  f=0.2: 5.0 [4.4-6.0]  f=0.5: 5.0 [4.4-6.0]
+  N=  500: f=0: 5.0 [4.2-6.0]  f=0.0001: 5.0 [4.2-6.0]  f=0.001: 5.0 [4.2-6.0]  f=0.01: 5.0 [4.2-6.0]  f=0.03: 5.0 [4.2-6.0]  f=0.1: 5.0 [4.2-6.0]  f=0.2: 4.8 [4.0-6.0]  f=0.5: 4.6 [4.0-6.0]
+  N= 1000: f=0: 4.6 [4.0-5.8]  f=0.0001: 4.6 [4.0-5.8]  f=0.001: 4.6 [4.0-5.8]  f=0.01: 4.6 [4.0-5.8]  f=0.03: 4.6 [4.0-5.8]  f=0.1: 4.6 [4.0-5.8]  f=0.2: 4.4 [4.0-5.8]  f=0.5: 4.4 [4.0-5.8]
+  N=10000: f=0: 4.0 [4.0-5.6]  f=0.0001: 4.0 [4.0-5.6]  f=0.001: 4.0 [4.0-5.6]  f=0.01: 4.0 [4.0-5.6]  f=0.03: 4.0 [4.0-5.6]  f=0.1: 4.0 [4.0-5.6]  f=0.2: 4.0 [4.0-5.6]  f=0.5: 4.0 [4.0-5.4]
+
+STATISTICAL OPTIMUM, one level for all four pairings -- known_dark (level mV [common 5 % band])
+  N=    1: f=0: 6.8 [6.8-6.8]  f=0.0001: 6.8 [6.8-6.8]  f=0.001: 6.8 [6.8-6.8]  f=0.01: 6.8 [6.8-6.8]  f=0.03: 6.8 [6.8-6.8]  f=0.1: 6.8 [6.8-6.8]  f=0.2: 6.8 [6.8-6.8]  f=0.5: 6.8 [6.8-6.8]
+  N=    2: f=0: 6.8 [6.4-6.8]  f=0.0001: 6.8 [6.4-6.8]  f=0.001: 6.8 [6.4-6.8]  f=0.01: 6.8 [6.4-6.8]  f=0.03: 6.8 [6.4-6.8]  f=0.1: 6.8 [6.4-6.8]  f=0.2: 6.8 [6.4-6.8]  f=0.5: 6.8 [6.4-6.8]
+  N=    5: f=0: 6.4 [6.0-6.8]  f=0.0001: 6.4 [6.0-6.8]  f=0.001: 6.4 [6.0-6.8]  f=0.01: 6.4 [6.0-6.8]  f=0.03: 6.4 [6.0-6.8]  f=0.1: 6.4 [6.0-6.8]  f=0.2: 6.4 [5.8-6.8]  f=0.5: 6.0 [5.8-6.8]
+  N=   10: f=0: 6.0 [5.6-6.8]  f=0.0001: 6.0 [5.6-6.8]  f=0.001: 6.0 [5.6-6.8]  f=0.01: 6.0 [5.6-6.8]  f=0.03: 6.0 [5.6-6.8]  f=0.1: 6.0 [5.6-6.8]  f=0.2: 6.0 [5.6-6.8]  f=0.5: 6.0 [5.6-6.8]
+  N=   20: f=0: 5.8 [5.4-6.4]  f=0.0001: 5.8 [5.4-6.4]  f=0.001: 5.8 [5.4-6.4]  f=0.01: 5.8 [5.4-6.4]  f=0.03: 5.8 [5.4-6.4]  f=0.1: 5.8 [5.4-6.4]  f=0.2: 5.8 [5.4-6.4]  f=0.5: 5.8 [5.2-6.4]
+  N=   50: f=0: 5.6 [5.0-6.4]  f=0.0001: 5.6 [5.0-6.4]  f=0.001: 5.6 [5.0-6.4]  f=0.01: 5.6 [5.0-6.4]  f=0.03: 5.6 [5.0-6.4]  f=0.1: 5.6 [4.8-6.4]  f=0.2: 5.6 [4.8-6.4]  f=0.5: 5.6 [4.6-6.0]
+  N=  100: f=0: 5.6 [4.6-6.0]  f=0.0001: 5.6 [4.6-6.0]  f=0.001: 5.6 [4.6-6.0]  f=0.01: 5.6 [4.6-6.0]  f=0.03: 5.0 [4.6-6.0]  f=0.1: 5.0 [4.4-6.0]  f=0.2: 5.0 [4.4-6.0]  f=0.5: 5.0 [4.4-6.0]
+  N=  200: f=0: 5.0 [4.2-6.0]  f=0.0001: 5.0 [4.2-6.0]  f=0.001: 5.0 [4.2-6.0]  f=0.01: 5.0 [4.2-6.0]  f=0.03: 5.0 [4.2-6.0]  f=0.1: 5.0 [4.2-6.0]  f=0.2: 5.0 [4.2-6.0]  f=0.5: 4.8 [4.0-6.0]
+  N=  500: f=0: 4.6 [4.0-5.8]  f=0.0001: 4.6 [4.0-5.8]  f=0.001: 4.6 [4.0-5.8]  f=0.01: 4.6 [4.0-5.8]  f=0.03: 4.6 [4.0-5.8]  f=0.1: 4.6 [4.0-5.8]  f=0.2: 4.4 [4.0-5.8]  f=0.5: 4.4 [4.0-5.8]
+  N= 1000: f=0: 4.4 [4.0-5.8]  f=0.0001: 4.4 [4.0-5.8]  f=0.001: 4.4 [4.0-5.8]  f=0.01: 4.4 [4.0-5.8]  f=0.03: 4.4 [4.0-5.8]  f=0.1: 4.4 [4.0-5.8]  f=0.2: 4.4 [4.0-5.8]  f=0.5: 4.2 [4.0-5.6]
+  N=10000: f=0: 4.0 [4.0-5.4]  f=0.0001: 4.0 [4.0-5.4]  f=0.001: 4.0 [4.0-5.4]  f=0.01: 4.0 [4.0-5.4]  f=0.03: 4.0 [4.0-5.4]  f=0.1: 4.0 [4.0-5.4]  f=0.2: 4.0 [4.0-5.4]  f=0.5: 4.0 [4.0-5.2]
+
+HOW MUCH THE PHOTON BACKGROUND MOVES THINGS (equal-time off run, one level for all four)
+  N=    1: level f=0 6.8 -> f=0.5 6.8 mV; statistical time to 10 % x0.49-0.52; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x11.76->x10.20, 5.2: x3.96->x3.50, 6.8: x1.04->x1.01, 7.6: x1.14->x1.15
+  N=    2: level f=0 6.8 -> f=0.5 6.8 mV; statistical time to 10 % x0.51-0.54; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x9.08->x7.64, 5.2: x3.18->x2.77, 6.8: x1.00->x1.00, 7.6: x1.15->x1.16
+  N=    5: level f=0 6.8 -> f=0.5 6.8 mV; statistical time to 10 % x0.56-0.59; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x5.87->x4.63, 5.2: x2.27->x1.91, 6.8: x1.00->x1.01, 7.6: x1.17->x1.18
+  N=   10: level f=0 6.4 -> f=0.5 6.0 mV; statistical time to 10 % x0.58-0.62; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x3.87->x3.04, 5.2: x1.70->x1.47, 6.8: x1.03->x1.06, 7.6: x1.21->x1.26
+  N=   20: level f=0 6.0 -> f=0.5 6.0 mV; statistical time to 10 % x0.61-0.62; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x2.58->x2.08, 5.2: x1.35->x1.22, 6.8: x1.08->x1.11, 7.6: x1.29->x1.32
+  N=   50: level f=0 5.8 -> f=0.5 5.6 mV; statistical time to 10 % x0.64-0.64; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.65->x1.42, 5.2: x1.12->x1.07, 6.8: x1.13->x1.15, 7.6: x1.35->x1.38
+  N=  100: level f=0 5.6 -> f=0.5 5.6 mV; statistical time to 10 % x0.65-0.65; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.30->x1.18, 5.2: x1.04->x1.02, 6.8: x1.17->x1.18, 7.6: x1.40->x1.41
+  N=  200: level f=0 5.6 -> f=0.5 5.0 mV; statistical time to 10 % x0.65-0.65; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.12->x1.06, 5.2: x1.01->x1.01, 6.8: x1.19->x1.22, 7.6: x1.43->x1.46
+  N=  500: level f=0 5.0 -> f=0.5 4.6 mV; statistical time to 10 % x0.65-0.66; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.03->x1.01, 5.2: x1.02->x1.03, 6.8: x1.24->x1.25, 7.6: x1.48->x1.50
+  N= 1000: level f=0 4.6 -> f=0.5 4.4 mV; statistical time to 10 % x0.66-0.66; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.01->x1.00, 5.2: x1.04->x1.04, 6.8: x1.26->x1.28, 7.6: x1.52->x1.54
+  N=10000: level f=0 4.0 -> f=0.5 4.0 mV; statistical time to 10 % x0.66-0.66; worst-case time penalty of fixed levels f=0 -> f=0.5: 4.4: x1.01->x1.02, 5.2: x1.07->x1.08, 6.8: x1.33->x1.33, 7.6: x1.59->x1.60
+
+F AT WHICH PHOTON-BACKGROUND COUNTS EQUAL THE DARK TERM (f eps N = m b) AT THE BEST LEVEL
+  D1L1 equal_time_dark: N=1: f=4.3, N=10: f=0.681, N=100: f=0.0794, N=1000: f=0.0316, N=10000: f=0.0117
+  D1L1 known_dark: N=1: f=2.15, N=10: f=0.341, N=100: f=0.0858, N=1000: f=0.0233, N=10000: f=0.00541
+  D1L2 equal_time_dark: N=1: f=3.69, N=10: f=0.681, N=100: f=0.0794, N=1000: f=0.0464, N=10000: f=0.0158
+  D1L2 known_dark: N=1: f=2.51, N=10: f=0.341, N=100: f=0.0858, N=1000: f=0.0369, N=10000: f=0.00794
+  D2L1 equal_time_dark: N=1: f=2.33, N=10: f=0.398, N=100: f=0.0926, N=1000: f=0.0398, N=10000: f=0.0126
+  D2L1 known_dark: N=1: f=1.17, N=10: f=0.271, N=100: f=0.0464, N=1000: f=0.0293, N=10000: f=0.00584
+  D2L2 equal_time_dark: N=1: f=2.33, N=10: f=0.293, N=100: f=0.0926, N=1000: f=0.0584, N=10000: f=0.0185
+  D2L2 known_dark: N=1: f=1.17, N=10: f=0.293, N=100: f=0.0464, N=1000: f=0.043, N=10000: f=0.00926
+
+CONTRAST: photon background also in the off run, removed by on/off (equal time): best level = photon-free at N (1 + 2f), no systematic
+  D1L1 N=10, f=0.1: photon-free 6.0 mV; inseparable (N(1+f)) 6.0 mV; subtractable (N(1+2f)) 5.8 mV
+  D1L1 N=10, f=0.5: photon-free 6.0 mV; inseparable (N(1+f)) 5.8 mV; subtractable (N(1+2f)) 5.8 mV
+  D1L1 N=100, f=0.1: photon-free 5.6 mV; inseparable (N(1+f)) 5.6 mV; subtractable (N(1+2f)) 5.6 mV
+  D1L1 N=100, f=0.5: photon-free 5.6 mV; inseparable (N(1+f)) 5.6 mV; subtractable (N(1+2f)) 5.0 mV

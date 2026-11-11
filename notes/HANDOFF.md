@@ -218,3 +218,72 @@ figure the numbers are ~250 and ~2000.
   - `docs/SIMULATED_VS_REAL.md`: the bright-signal paragraph.
   - `docs/THRESHOLD_SCAN_GUIDE.md`: panel (d) has a grey "not scored" region the guide does not
     mention.
+
+## 2026-11-11: `analysis/photon_background/`, an inseparable photon background
+
+**The operator's model.** The signal N brings a photon background f N, with f assumed between
+0.01 % and 50 %:
+
+- it has the same pulse heights as the signal, so the same eps(v) applies;
+- it is absent from the signal-off run (dark only), and no threshold separates it from the signal;
+- the estimate is N_hat = (C_on - C_off) / (eps (1 + f_assumed) T).
+
+The coordinator's first version (background in both runs, removed by on/off) was withdrawn by the
+operator. It survives as a one-paragraph contrast: best level at N (1 + 2f), no systematic. The
+folder reads the four 2026-11-10 scans in place, needs only the standard library plus
+`selftest.py`, and reruns byte-identically (seeded). `analysis/low_signal_threshold/` is unchanged
+apart from a one-line pointer in its README.
+
+### Checked, all four pairings, both figures of merit (equal-time off run; dark known)
+
+- **The statistical part is the photon-free analysis at N' = N (1 + f), exactly.**
+  - Per-level variance ratio within 7.8e-16 of 1.
+  - Best level, 5 % band edges and valley-floor flags identical in 5152 of 5152 cases (92 N x 7 f).
+  - The one-level-for-all-four choice is identical in 154 of 154 cases.
+  - The floor and the grid do not break it, because the candidate set is the same.
+  - It is not exact only when read off a coarse N table: the nearest row differs in 314 of 1134
+    cases, by up to 0.6 mV.
+- **Systematic.** The relative bias is (f - f_a)/(1 + f_a) at every level, so to first order
+  delta_f/(1 + f), and no threshold changes it.
+- **Monte Carlo** (13:20 + 13:59, N = 10/s, f = 0.1, T = 100 s, six levels, 20000 trials,
+  f_a = 0.10 and 0.13): bias within 1.5 MC standard errors, spread within 1.0 %.
+- **Total.** T_p(v) = V(v)/(p^2 - floor^2). The levels within 5 % of the best time to p equal the
+  statistical band for every delta_f (2992 of 2992 cases). At a fixed time T the near-best range
+  follows V(v)/V(best) <= 1/0.95^2 + (1/0.95^2 - 1) T/T_cross, with T_cross = V(best)/floor^2;
+  checked in 12628 of 12628 cases.
+
+### Results (equal-time off run)
+
+- **Level against N and f.** One level for all four pairings: 6.8 / 6.4 / 5.6 / 4.6 mV at
+  N = 1 / 10 / 100 / 1000 for f <= 10 %. At f = 50 % it is at most 0.6 mV lower (N = 200:
+  5.6 -> 5.0 mV).
+- **The photon background helps the statistics.** The time to 10 % at f = 50 % is x0.49-0.66 of
+  the photon-free time. Its whole cost is the floor delta_f/(1 + f): for example 2.7 % at
+  f = 10 % +- 3 %, and 10 % at f = 50 % +- 15 %, where a total of 10 % is never reached.
+- **Less emphasis on small dark counts appears only at fixed counting time.** On 13:20 + 13:59 at
+  f = 10 %, the range within 5 % of the best total precision widens:
+
+  | N | 0.1 x T_cross | T_cross | 10 x T_cross |
+  |---:|---:|---:|---:|
+  | 10  | 1.2 mV | 2.2 mV | 5.0 mV |
+  | 100 | 1.8 mV | 2.4 mV | 5.2 mV |
+
+  In time-to-p terms nothing widens. The low-level cost at N = 10 (4.4 mV) only falls from x3.9 to
+  x3.0 between f = 0 and f = 50 %.
+- **Where the photon background out-noises the dark term** (f eps N = 2b at the best level):
+  f ~ 0.3-0.7 at N = 10, ~0.08-0.09 at N = 100, ~0.03-0.06 at N = 1000. At N = 1 it would need
+  f > 2.3, so dark noise always dominates there.
+
+### Still open
+
+- **Spectral mismatch.** If the background's pulse heights differ from the signal's (multi-photon
+  pile-up from a pulsed source; light-induced small-pulse counting like the sub-valley excess),
+  the bias becomes level-dependent, f (eps_bg/eps - 1)/(1 + f), and the threshold could then
+  matter for the systematic. The test is N_hat at two or more levels in the real experiment, or a
+  threshold scan of signal plus background compared with the room-light eps(v). No such data
+  exists.
+- **A time-varying f** adds variance that the model leaves out.
+- **f and delta_f are operator inputs.** Nothing in these scans measures them.
+- **Inherited from `analysis/low_signal_threshold/`:** the two dark scans disagree by 0.59x in the
+  tail; there is no trust below the valley; every level is below 10 mV (pickup-sensitive); the
+  second pair's HV is not recorded.
