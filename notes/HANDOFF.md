@@ -376,3 +376,58 @@ doc file was touched.
 - **The noise and dark decomposition at 4-8 mV is poorly fixed** by two scans.
 - **`out/` holds ~43 MB of raw runs.** Kept on the study's disk, not committed (in `.gitignore`):
   the seeded scripts regenerate it. Committing it would keep 43 MB in the public history for good.
+
+## 2026-11-11: the study's changes 1, 2 and 4 made; the band's middle recommended
+
+The operator chose changes 1, 2 and 4 from the study's list and deferred 3 (alternating dark
+passes) "for later/never". All three are made in `selftest.py`. The recommendation now also
+follows the study's cheaper alternative: the middle of the band, not the argmax.
+
+- **1. The fit narrows only below 6 mV** (`DARK_CURVE_BELOW_V = 0.006`). From 6 mV up,
+  `_smooth_dark_rate` is the straight line over +-1 mV however many counts the window holds. This
+  is the study's `tail_line`. On the two real dark scans it changes nothing: their tails never
+  triggered the narrowing.
+- **2. The light scan has its own grid,** `light_threshold_grid()`, with 0.2 mV steps from 0.4 to
+  10.0 mV. It has 75 levels, against `threshold_grid()`'s 65. Below 6 mV and above 10 mV it is the
+  dark grid. The dark scan's grid is unchanged.
+- **4. Every count period is logged** to `<scan stem>.periods.csv` beside the scan CSV, for both
+  scans. It has one row per period, with `point` (the 1-based row of the scan CSV), `period`,
+  `counts`, `live_s` and `since_level_s` (time from the level change to the period's start).
+  `read_scan_csv` returns its raw rows with `kind: periods`. The driver's own CSV lookups skip it
+  by `kind`; the bench's `_newest(..., ".csv")` skips it by name.
+- **The recommendation is the band's middle.** This is the scored level nearest the midpoint of
+  the 5 % band's two ends; ties go to the higher score. Its own score may fall below 0.95, because
+  the band need not be contiguous. It is used down to `FOM_MIDDLE_MIN = 0.90`, and only when the
+  band spans more than one level and is not at the floor. Otherwise the plain optimum is
+  recommended, as before. The basis text names the band, the middle's own score, whether the band
+  is split, and the single best level.
+  - **What the real data showed, which the study's model tubes did not:** 7.2 mV scores only
+    0.92-0.95 on all four pairings, in both independent light scans. The light efficiency is
+    smooth there; the dip is in B. The +-1 mV sliding window gains and loses dark thresholds as it
+    moves, so B is not monotonic over 7.2-8.0 mV (16:36: 0.93, 0.67, 0.72 cps at 7.2, 7.6,
+    8.0 mV). Part of the 7.6 mV "peak" is that local dip in B.
+  - So a rule that picks only among in-band levels returned the noisy argmax again. That was my
+    first version, caught on the real data before commit.
+  - The four pairings are now recommended at 6.8, 6.8, 7.6 and 7.2 mV (D1L1, D1L2, D2L1, D2L2).
+    Before, they were 6.8, 6.8, 7.6 and 7.6. D2L1's band is one level, so that is its optimum.
+    D1L1's band is 6.4-7.6 mV, with an unscored midpoint of 7.0. 6.8 and 7.2 tie there, and 6.8
+    wins on score.
+- **Bench: 665 checks**, section [23i], run three times. The three committed light figures (both
+  real, and the guide's example) were regenerated. Their recommendation text changed, and it is one
+  line longer, so everything below it moves down 17 px; the panels' data are as before.
+- **`analysis/low_signal_threshold` re-run.** No optimum, band or time changed. Only the bootstrap
+  spreads moved (in resampled scans the narrowing had sometimes switched on at 6 mV and above).
+  The README's counting-statistics paragraph is updated with the before and after numbers.
+  `analysis/photon_background` re-ran byte-identical.
+- **`analysis/dark_scan_method` is not re-run.** It is a record of the driver as it was. Its
+  "driver" arm is the pre-change fit; it is now the same as its `tail_line` arm.
+
+### Still open
+
+- **Docs.** The documents session owns them. These still describe the old behaviour: the
+  recommended level for the second real run (7.6, now 7.2 mV), the light grid (0.4 mV above
+  6 mV), the background fit's narrowing, and the absence of the periods file.
+- **B's roughness above 6 mV** is the next limit on reproducibility, and nothing here fixes it.
+  A fit with a window that does not jump would help: one straight line over the whole tail from
+  6 mV, or a kernel-weighted window. Test it on the study's simulators before changing the driver.
+- **Change 3 (alternating dark passes)** is deferred by the operator.

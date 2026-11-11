@@ -160,7 +160,9 @@ class Report:
                     lines += ["", "Companion files, same folder:"]
                     for suffix in extras:
                         kind = {".csv": "raw data, one row per measurement",
-                                ".svg": "plot -- opens in any web browser"}.get(suffix, "")
+                                ".svg": "plot -- opens in any web browser",
+                                ".periods.csv": "every count period: counts, length, time since the "
+                                                "level was set"}.get(suffix, "")
                         lines.append(f"  {stem}{suffix}   {kind}")
                 path = os.path.join(folder, stem + ".txt")
                 with open(path, "w") as handle:
@@ -1379,7 +1381,15 @@ DARK_SMOOTH_HALF_WIDTH_V = 0.001
 DARK_CURVE_MIN_COUNTS = 800     # a narrowed window keeps >= 800 counts: ~3.5 % Poisson
 DARK_CURVE_LR = 4.0             # likelihood-ratio statistic the quadratic must beat (~2 sigma)
 DARK_CURVE_STEP_V = 0.0002      # narrowing step, the discriminator's own resolution
+# The narrowed quadratic applies only below this level. Above it the dark curve is the gentle
+# tail, and narrowing there caps the window at ~800 counts however long the scan counted: the
+# dark-scan method study (analysis/dark_scan_method, 2026-11-11) found that with this cap, 12 h of
+# dark counting raised the chance of two scans' optima agreeing within 0.2 mV only from 0.26 to
+# 0.66. Below 6 mV the bend is real, and the held-out results above stand. On the real scans, whose
+# tails hold < 800 counts per window, nothing changes.
+DARK_CURVE_BELOW_V = 0.006
 FOM_BAND = 0.95                 # levels within 5 % of the best S/sqrt(B) are reported as a band
+FOM_MIDDLE_MIN = 0.90           # the band's middle is recommended only if it scores at least this
 
 PROMPT_DARK = (
     "SR400 threshold scan, DARK.\n\n"
@@ -1423,6 +1433,24 @@ def threshold_grid() -> list:
     levels = []
     for start, stop, step in ((0.0004, 0.0060, 0.0002),
                               (0.0064, 0.0152, 0.0004),
+                              (0.0160, 0.0400, 0.0020)):
+        count = int(round((stop - start) / step)) + 1
+        levels.extend(round(start + i * step, 4) for i in range(count))
+    return levels
+
+
+def light_threshold_grid() -> list:
+    """The light scan's levels: threshold_grid, but 0.2 mV steps all the way to 10 mV.
+
+    The weak-signal S/sqrt(B) optimum and its band lie in 6-10 mV on the real tube. With 0.4 mV
+    steps there the light scan could not place the optimum finer than 0.4 mV, while the
+    discriminator sets 0.2 mV (dark-scan method study, analysis/dark_scan_method, 2026-11-11).
+    A light threshold takes well under a second at a usable light level, so the extra levels cost
+    seconds per pass. Below 6 mV, and above 10 mV, the grid is threshold_grid's.
+    """
+    levels = []
+    for start, stop, step in ((0.0004, 0.0100, 0.0002),
+                              (0.0104, 0.0152, 0.0004),
                               (0.0160, 0.0400, 0.0020)):
         count = int(round((stop - start) / step)) + 1
         levels.extend(round(start + i * step, 4) for i in range(count))
@@ -1869,6 +1897,20 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
             result["optimum_v"] = best["abs_v"]
             band = [f["abs_v"] for f in result["fom"] if f["relative"] >= FOM_BAND]
             result["optimum_band_v"] = (min(band), max(band))
+            # The S/sqrt(B) top is flat and its single best point is noisy: across the four real
+            # pairings it was 6.8 or 7.6 mV, while on the simulated tubes a fixed 7.2 mV scored
+            # 0.97-0.998 of the best (analysis/dark_scan_method). So the recommendation is the
+            # scored level nearest the midpoint of the band's two ends; ties go to the higher
+            # score. The band need not be contiguous: on the real scans 7.2 mV itself scored
+            # 0.92-0.95, a dip from the +-1 mV background window gaining and losing thresholds,
+            # so the level nearest the midpoint is taken whatever its own score, down to
+            # FOM_MIDDLE_MIN. Below that the band is two separate tops, not one flat one.
+            middle = 0.5 * (min(band) + max(band))
+            pick = min(result["fom"], key=lambda f: (round(abs(f["abs_v"] - middle), 6), -f["relative"]))
+            result["band_middle_v"] = pick["abs_v"]
+            result["band_middle_relative"] = pick["relative"]
+            result["band_split"] = any(f["relative"] < FOM_BAND for f in result["fom"]
+                                       if min(band) - 1e-9 <= f["abs_v"] <= max(band) + 1e-9)
             floor = result["fom"][0]["abs_v"]
             result["optimum_at_floor"] = abs(best["abs_v"] - floor) < 1e-9
             result["band_at_floor"] = abs(min(band) - floor) < 1e-9
@@ -1890,7 +1932,24 @@ def analyse_light(passes: list, dark: dict | None = None) -> dict:
             )
 
     if result["valid"] and not result["drift_flagged"]:
-        if result["optimum_v"] is not None:
+        if result["optimum_v"] is not None and result.get("band_middle_v") is not None \
+                and not result["band_at_floor"] and result["band_middle_relative"] >= FOM_MIDDLE_MIN \
+                and result["optimum_band_v"][1] > result["optimum_band_v"][0] + 1e-9:
+            lo, hi = result["optimum_band_v"]
+            result["recommended_v"] = result["band_middle_v"]
+            result["recommended_basis"] = (
+                f"middle of the background-limited band: S/sqrt(B) is within 5 % of its best from "
+                f"{lo * 1e3:.1f} to {hi * 1e3:.1f} mV, and this is the scored level nearest its "
+                f"midpoint, at {result['band_middle_relative']:.3f} of the best"
+                + (" (the band is not contiguous: some levels inside it score below 0.95)"
+                   if result["band_split"] else "")
+                + (". It is also the single best level"
+                   if abs(result["band_middle_v"] - result["optimum_v"]) < 1e-9 else
+                   f". The single best level, {result['optimum_v'] * 1e3:.1f} mV, moves more from "
+                   f"scan to scan than the band does")
+                + ". From this session's dark and light scans together"
+            )
+        elif result["optimum_v"] is not None:
             result["recommended_v"] = result["optimum_v"]
             result["recommended_basis"] = (
                 "background-limited optimum: the level maximising S/sqrt(B), from this "
@@ -1944,13 +2003,22 @@ def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float,
     """
     level = -abs_v if SCAN_SLOPE == "Fall" else abs_v
     device.set_discriminator_level(SCAN_COUNTER, level)
+    # Every count period is kept: its counts, length and how long after the level change it
+    # started. The dark-scan method study could not test discriminator settling, bursts or mains
+    # pickup from the per-threshold totals alone, because 13 different period sequences fitted one
+    # threshold's numbers. These go to the scan's .periods.csv.
+    level_set = time.monotonic()
+    periods = []
 
     counts, live, period = 0, 0.0, MIN_PERIOD_SECONDS
     while True:
         period = min(_ceil_count_time(device, period), MAX_PERIOD_SECONDS)
         device.set_count_time(period)
         actual = device.get_counter_preset("T") / device.CLOCK_FREQUENCY
-        counts += _count_one_period(device, timeout=actual + 10.0)
+        began = time.monotonic() - level_set
+        got = _count_one_period(device, timeout=actual + 10.0)
+        periods.append({"counts": got, "live_s": actual, "since_level_s": began})
+        counts += got
         live += actual
         target = target_counts
         if fast_target > target_counts and counts > 0 and fast_target * live / counts < fast_seconds:
@@ -1963,7 +2031,7 @@ def _measure_point(device, abs_v: float, target_counts: int, max_seconds: float,
         period = max(MIN_PERIOD_SECONDS, min(needed * 1.1, remaining))
 
     return {"abs_v": abs_v, "level_v": level, "counts": counts, "live_s": live,
-            "t": time.monotonic()}
+            "t": time.monotonic(), "periods": periods}
 
 
 def _scan_conditions_note(report) -> None:
@@ -2059,6 +2127,21 @@ def scan_csv(meta: dict, records: list) -> str:
     return "\n".join(lines) + "\n"
 
 
+def periods_csv(meta: dict, records: list) -> str:
+    """Every count period of a scan, one row each, beside the scan's CSV.
+
+    point is the 1-based measurement in the scan CSV's order; since_level_s is when the period
+    began, after that level was set. The scan CSV's totals are the sums over each point's periods.
+    """
+    lines = [f"# {key}: {value}" for key, value in dict(meta, kind="periods", of_kind=meta["kind"]).items()]
+    lines.append("point,repeat,direction,block,abs_v_V,period,counts,live_s,since_level_s")
+    for k, r in enumerate(records, start=1):
+        for j, p in enumerate(r.get("periods") or [], start=1):
+            lines.append(f"{k},{r.get('repeat', '')},{r.get('direction', '')},{r.get('block', '')},"
+                         f"{r['abs_v']:.5f},{j},{int(p['counts'])},{p['live_s']:.6f},{p['since_level_s']:.4f}")
+    return "\n".join(lines) + "\n"
+
+
 def read_scan_csv(path: str):
     """Inverse of scan_csv. Returns (meta, points) for dark, (meta, passes) for light."""
     meta, header, rows = {}, None, []
@@ -2080,6 +2163,8 @@ def read_scan_csv(path: str):
                 "counts": int(row["counts"]), "live_s": float(row["live_s"]),
                 "t": float(row["t_s"])}
 
+    if meta.get("kind") == "periods":
+        return meta, rows  # raw rows: a companion record, not a scan
     if meta.get("kind") == "dark":
         return meta, [point(r) for r in rows]
     if meta.get("kind") == "settle":
@@ -2689,6 +2774,8 @@ def _scan_files(report, meta: dict, records: list, draw) -> dict:
     cost the data, and if it happens the plot can be regenerated from the CSV once fixed.
     """
     files = {".csv": scan_csv(meta, records)}
+    if any(r.get("periods") for r in records):
+        files[".periods.csv"] = periods_csv(meta, records)
     try:
         files[".svg"] = draw(meta)
     except Exception as exc:  # noqa: BLE001 -- the data matters more than the picture
@@ -3229,7 +3316,7 @@ def run_threshold_scan_light(device) -> tuple:
             report.note(f"Above {LIGHT_WARN_CPS:.0e} cps: dead-time loss is no longer negligible "
                         f"at the 1 % level this scan resolves. Dimmer is better.")
 
-        grid = threshold_grid()
+        grid = light_threshold_grid()
         started = time.monotonic()
         total_passes = 2 * LIGHT_REPEATS
         _progress(
@@ -3503,7 +3590,7 @@ def _smooth_dark_rate(dark_rows: list, abs_v: float):
 
     half = DARK_SMOOTH_HALF_WIDTH_V
     rows, counts = window(half)
-    if counts >= DARK_CURVE_MIN_COUNTS and len(rows) >= 5:
+    if counts >= DARK_CURVE_MIN_COUNTS and len(rows) >= 5 and abs_v < DARK_CURVE_BELOW_V - 1e-9:
         line, curve = _poisson_logpoly(rows, abs_v, 1), _poisson_logpoly(rows, abs_v, 2)
         if line and curve and 2.0 * (curve[2] - line[2]) > DARK_CURVE_LR:
             while half > DARK_CURVE_STEP_V + 1e-9:

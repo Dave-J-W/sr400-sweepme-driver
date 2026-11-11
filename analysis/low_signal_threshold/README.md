@@ -241,13 +241,17 @@ same reasons:
 **Counting statistics.** These are the 16-84 % ranges of the resampled optimum (`results.csv`, 88
 rows):
 
-- In 78 rows the range is at most 0.4 mV wide: one level or two neighbouring grid levels.
+- In 79 rows the range is at most 0.4 mV wide: one level or two neighbouring grid levels.
 - It is 0.8 mV (6.8-7.6 mV) for the 16:36-dark pairings at N = 1 (both figures of merit) and N = 2
   (equal time). On this data 6.8 and 7.6 mV are a near tie there.
-- It is 0.8 mV (6.0-6.8 mV) for both 13:20-dark pairings at N = 2 (known background) and N = 5
-  (equal time).
-- In the N -> 0 limit the 13:20-dark optima are 6.8 mV in 88 % and 96 % of resamples. The 16:36-dark
+- It is 0.8 mV (6.0-6.8 mV) for dark 13:20 with light 17:24 at N = 5 (equal time), and 0.6 mV
+  (5.8-6.4 mV) for dark 13:20 with light 13:59 at N = 5 (known background) and N = 10 (equal time).
+- In the N -> 0 limit the 13:20-dark optima are 6.8 mV in 90 % and 98 % of resamples. The 16:36-dark
   optima are 7.6 mV in 78 % and 72 % (16-84 % ranges 7.2-7.6 and 6.8-7.6 mV).
+- These counts are from the re-run of 2026-11-11, after the driver stopped the fit's curvature
+  narrowing at 6 mV (dark-scan method study). Before it, 78 rows were at most 0.4 mV wide, and the
+  N -> 0 modes were 88 % and 96 %. No optimum, band or time changed, only the resampled spreads:
+  in resampled scans the narrowing had sometimes switched on at and above 6 mV.
 
 **Sensitivity to the analysis choices** (`sensitivity.csv`, "SENSITIVITY" in `summary.txt`). Three
 alternatives, tested separately:

@@ -3525,6 +3525,124 @@ def test_curved_background_and_valley_floor(driver):
     check("OPTIMUM AT THE LOWEST SCORED LEVEL" in svg, "and panel (d) says so where the optimum is drawn")
 
 
+def test_dark_scan_study_changes(driver):
+    print("\n[23i] the dark-scan method study's changes: fit gate, light grid, every period, band middle")
+
+    import tempfile
+
+    st = driver.selftest
+
+    # --- 1. the curvature narrowing only below 6 mV ------------------------------------------------
+    # A dark curve curved in log(rate) everywhere, counted long enough that every +-1 mV window holds
+    # far more than DARK_CURVE_MIN_COUNTS. Expected counts, no noise: the gate alone decides.
+    def truth(v):
+        mv = v * 1e3
+        return 50.0 * math.exp(-(mv - 4.0) / 0.8 + 0.08 * (mv - 4.0) ** 2)
+
+    points = [{"abs_v": round(0.0040 + i * 0.0002, 4), "level_v": -round(0.0040 + i * 0.0002, 4),
+               "counts": int(round(truth(0.0040 + i * 0.0002) * 2000.0)), "live_s": 2000.0, "t": 0.0}
+              for i in range(31)]  # 4.0-10.0 mV
+    rows = st.analyse_dark(points)["rows"]
+    check(abs(st.DARK_CURVE_BELOW_V - 0.006) < 1e-12, "the narrowing is gated at 6 mV")
+    below = st._smooth_dark_rate(rows, 0.0050)
+    line_below = _straight_line_dark_rate(st, rows, 0.0050)
+    check(below is not None and abs(below[0] / line_below - 1) > 1e-3
+          and abs(below[0] / truth(0.0050) - 1) < abs(line_below / truth(0.0050) - 1),
+          f"below 6 mV a curved, well-counted window still narrows to the quadratic "
+          f"({below[0] / truth(0.0050) - 1:+.2%} against the line's {line_below / truth(0.0050) - 1:+.2%})")
+    above = [(v, st._smooth_dark_rate(rows, v), _straight_line_dark_rate(st, rows, v))
+             for v in (0.0060, 0.0068, 0.0076, 0.0090)]
+    check(all(fit is not None and line is not None and abs(fit[0] / line - 1) < 1e-9 for _, fit, line in above),
+          f"from 6 mV up the same window keeps the straight line, however many counts it holds "
+          f"({min(fit[2] for _, fit, _ in above)}+ counts)")
+
+    # --- 2. the light scan's grid: 0.2 mV to 10 mV; the dark grid unchanged ------------------------
+    light, dark = st.light_threshold_grid(), st.threshold_grid()
+    fine = [v for v in light if v <= 0.0100 + 1e-9]
+    check(len(fine) == 49 and all(abs(b - a - 0.0002) < 1e-9 for a, b in zip(fine, fine[1:]))
+          and abs(fine[0] - 0.0004) < 1e-9 and abs(fine[-1] - 0.0100) < 1e-9,
+          f"the light grid steps 0.2 mV from 0.4 to 10.0 mV ({len(fine)} levels)")
+    check([v for v in light if v > 0.0100 + 1e-9] == [v for v in dark if v > 0.0100 + 1e-9]
+          and [v for v in light if v < 0.0060 - 1e-9] == [v for v in dark if v < 0.0060 - 1e-9],
+          "below 6 mV and above 10 mV it is the dark grid's")
+    check(0.0062 not in dark and 0.0064 in dark and len(dark) == 65,
+          f"the dark grid itself is unchanged: 0.4 mV steps above 6 mV, {len(dark)} levels")
+
+    # --- 4. every count period, beside the scan CSV ---------------------------------------------
+    tmpdir = tempfile.mkdtemp(prefix="sr400_periods_")
+    folder = _report_dir(tmpdir)
+    sr400 = VirtualSR400(pmt={}, time_scale=1e5)
+    device, log = _scan_device(driver, sr400, tmpdir)
+    device.run_threshold_scan_dark()
+    sr400.pmt["light_rate"] = 5.0e4
+    device.run_threshold_scan_light()
+    for kind in ("dark", "light"):
+        stem = f"SR400_threshold_scan_{kind}"
+        scan, periods = _newest(folder, stem, ".csv"), _newest(folder, stem, ".periods.csv")
+        check(scan is not None and periods is not None
+              and periods == os.path.splitext(scan)[0] + ".periods.csv",
+              f"the {kind} scan writes a .periods.csv beside its CSV, with the same stem")
+        if scan is None or periods is None:
+            continue
+        meta, prow = st.read_scan_csv(periods)
+        check(meta.get("kind") == "periods" and meta.get("of_kind") == kind,
+              f"it reads back as a periods record of the {kind} scan, not as a scan")
+        lines = [line for line in open(scan, encoding="utf-8").read().splitlines() if not line.startswith("#")]
+        header, data = lines[0].split(","), [dict(zip(lines[0].split(","), line.split(","))) for line in lines[1:]]
+        by_point = {}
+        for p in prow:
+            by_point.setdefault(int(p["point"]), []).append(p)
+        sums_ok = len(by_point) == len(data) and all(
+            sum(int(p["counts"]) for p in by_point.get(k, [])) == int(row["counts"])
+            and abs(sum(float(p["live_s"]) for p in by_point.get(k, [])) - float(row["live_s"])) < 1e-5
+            and abs(float(by_point[k][0]["abs_v_V"]) - float(row["abs_v_V"])) < 1e-9
+            for k, row in enumerate(data, start=1))
+        check(sums_ok, f"every {kind} measurement's counts and live time are the sums of its periods "
+                       f"({len(prow)} periods over {len(data)} measurements)")
+        ordered = all(
+            all(float(a["since_level_s"]) <= float(b["since_level_s"]) for a, b in zip(ps, ps[1:]))
+            and float(ps[0]["since_level_s"]) >= 0.0 and [int(p["period"]) for p in ps] == list(range(1, len(ps) + 1))
+            for ps in by_point.values())
+        check(ordered, f"and each {kind} point's periods are numbered in order, timed from the level change")
+    light_scan = _newest(folder, "SR400_threshold_scan_light", ".csv")
+    if light_scan:
+        lines = [line for line in open(light_scan, encoding="utf-8").read().splitlines() if not line.startswith("#")]
+        col = lines[0].split(",").index("abs_v_V")
+        levels = {round(float(line.split(",")[col]), 4) for line in lines[1:]}
+        check({0.0062, 0.0066, 0.0098} <= levels, "a simulated light scan measures the new 0.2 mV levels in 6-10 mV")
+
+    # --- the recommendation: the middle of the 5 % band, on the four real pairings ---------------
+    real = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "docs", "real_data", "2026-11-10")
+    names = {"D1": "SR400_threshold_scan_dark_2026-11-10_132008", "D2": "SR400_threshold_scan_dark_2026-11-10_163608",
+             "L1": "SR400_threshold_scan_light_2026-11-10_135935", "L2": "SR400_threshold_scan_light_2026-11-10_172444"}
+    if not all(os.path.exists(os.path.join(real, n + ".csv")) for n in names.values()):
+        return
+    darks = {k: st.analyse_dark(st.read_scan_csv(os.path.join(real, names[k] + ".csv"))[1]) for k in ("D1", "D2")}
+    lights = {k: st.read_scan_csv(os.path.join(real, names[k] + ".csv"))[1] for k in ("L1", "L2")}
+    res = {(d, l): st.analyse_light(lights[l], darks[d]) for d in darks for l in lights}
+    expected = {("D1", "L1"): 0.0068, ("D1", "L2"): 0.0068, ("D2", "L1"): 0.0076, ("D2", "L2"): 0.0072}
+    got = {k: res[k]["recommended_v"] for k in expected}
+    check(all(got[k] is not None and abs(got[k] - v) < 1e-9 for k, v in expected.items()),
+          f"recommended on the four pairings D1L1, D1L2, D2L1, D2L2: 6.8, 6.8, 7.6, 7.2 mV "
+          f"(got {[None if v is None else round(v * 1e3, 1) for v in got.values()]})")
+    r22 = res[("D2", "L2")]
+    check(abs(r22["optimum_v"] - 0.0076) < 1e-9 and r22["band_split"]
+          and "middle of the background-limited band" in r22["recommended_basis"]
+          and "not contiguous" in r22["recommended_basis"] and "7.6 mV" in r22["recommended_basis"],
+          f"on D2L2 the best level is 7.6 mV but the band 6.8-7.6 mV is recommended at its middle, 7.2 mV "
+          f"({r22['band_middle_relative']:.3f} of best), and the basis says the band is not contiguous")
+    check(r22["band_middle_relative"] >= st.FOM_MIDDLE_MIN,
+          f"the middle is used only because it scores at least {st.FOM_MIDDLE_MIN} of the best")
+    r21 = res[("D2", "L1")]
+    check(r21["optimum_band_v"][0] == r21["optimum_band_v"][1]
+          and r21["recommended_basis"].startswith("background-limited optimum"),
+          "a band of one level is the optimum, and is called that, not a middle")
+    r11 = res[("D1", "L1")]
+    check(abs(r11["recommended_v"] - 0.0068) < 1e-9 and "6.4 to 7.6 mV" in r11["recommended_basis"],
+          "on D1L1 the band 6.4-7.6 mV has its midpoint at 7.0 mV, unscored; 6.8 and 7.2 tie, the higher score wins")
+
+
 def test_threshold_scans(driver):
     print("\n[24] discriminator threshold scans, dark and light, on a simulated R8486")
 
@@ -3739,7 +3857,8 @@ def test_threshold_scans(driver):
     check("S/sqrt(B)" in text and "run the dark scan for the optimum" not in text,
           "so the S/sqrt(B) optimum, panel (d), is computed after all")
     light_csvs = sorted(f for f in os.listdir(_report_dir(tmpdir))
-                        if f.startswith("SR400_threshold_scan_light") and f.endswith(".csv"))
+                        if f.startswith("SR400_threshold_scan_light") and f.endswith(".csv")
+                        and not f.endswith(".periods.csv"))
     head = open(os.path.join(_report_dir(tmpdir), light_csvs[-1]), encoding="utf-8").read(600) if light_csvs else ""
     check("# dark_csv: SR400_threshold_scan_dark_" in head,
           "and the light CSV names that dark file, so a regenerated plot finds it too")
@@ -3830,7 +3949,9 @@ def test_threshold_scans(driver):
 
 
 def _newest(folder, prefix, suffix):
-    found = sorted(f for f in os.listdir(folder) if f.startswith(prefix) and f.endswith(suffix)) \
+    # ".csv" means the scan's own CSV, never its ".periods.csv" companion.
+    found = sorted(f for f in os.listdir(folder) if f.startswith(prefix) and f.endswith(suffix)
+                   and not (suffix == ".csv" and f.endswith(".periods.csv"))) \
         if os.path.isdir(folder) else []
     return os.path.join(folder, found[-1]) if found else None
 
@@ -4052,6 +4173,7 @@ def main() -> int:
         test_settling_and_hv,
         test_log_migration_and_smooth_background,
         test_curved_background_and_valley_floor,
+        test_dark_scan_study_changes,
         test_threshold_scans,
         test_scan_records_and_plots,
         test_guide_example_figures,
