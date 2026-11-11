@@ -160,6 +160,12 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Added
 
+- **Guide §6 chooses the threshold from your signal rate.** The scans' recommendation is the
+  weak-signal optimum. §6 of [`docs/THRESHOLD_SCAN_GUIDE.md`](docs/THRESHOLD_SCAN_GUIDE.md) now
+  gives, for a signal of N counts/s at the valley, the level to set, its GUI value, the range
+  within 5 % and the counting time, plus one-setting choices for an uncertain N. It also gives the
+  photon-background rule: set the level for N·(1 + f), and an uncertainty in f sets an accuracy
+  floor no threshold lowers. Provisional, from the four real scans; it links the two analyses.
 - **The second real run in [`docs/real_data/2026-11-10/`](docs/real_data/2026-11-10/)**: the
   16:36 dark and 17:24 light scans, CSVs byte for byte as measured (also in
   `analysis/low_signal_threshold/data/`), figures drawn from them by `selftest.py plot`. Its HV was

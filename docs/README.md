@@ -6,8 +6,8 @@ checked against, and the record of how the driver came to be.
 ## For operators
 
 - [THRESHOLD_SCAN_GUIDE.md](THRESHOLD_SCAN_GUIDE.md) — choosing the discriminator threshold,
-  step by step, for someone who has just learned what the threshold is, and finding the best PMT
-  high voltage. Illustrated with example figures from a simulated R8486; [`images/`](images/)
+  step by step, for someone who has just learned what the threshold is; which level suits your
+  signal rate (§6); and finding the best PMT high voltage. Illustrated with example figures from a simulated R8486; [`images/`](images/)
   holds those figures and the CSVs they are drawn from, so
   `python ../Logger-Stanford_SR400/selftest.py plot images/<example>.csv` regenerates them.
 - [SIMULATED_VS_REAL.md](SIMULATED_VS_REAL.md) — each of the guide's simulated figures beside

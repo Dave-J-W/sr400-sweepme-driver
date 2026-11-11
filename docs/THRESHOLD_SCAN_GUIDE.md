@@ -224,19 +224,99 @@ the dark CSV beside the light one.
 
 ## 6. Choosing and setting the threshold
 
-**Normally, use the recommended level.** Anywhere in panel (d)'s shaded band is also fine.
+**The scans' recommendation is the best level for a *weak* signal**, one comparable to or smaller
+than the dark counts. A stronger signal is better served by a lower level, which keeps more
+photons: once the signal outweighs the dark counts, losing photons costs more than counting a
+little more background. So choose from your **signal rate N**, with the table below.
 
-- **Weak signal** (your experiment's real signal is comparable to or smaller than the dark
-  counts): use the recommendation. This is the case it is built for.
-- **Strong signal** (much more than the dark counts): you can go towards the **lower** end of the
-  band and keep slightly more photons. Background matters less when the signal is big.
+> **Provisional.** The table comes from the four real scans of this R8486 at about 1000 V on
+> 2026-11-10 (two dark, two light), analysed in [`analysis/low_signal_threshold/`](../analysis/low_signal_threshold/README.md). The two
+> dark scans disagree by more than counting noise, so the low-N rows may still move. **Every level
+> here is below 10 mV**, so it holds only with the cables routed as they were for the scans
+> (§3). After you change the high voltage, the cables or the tube, repeat the scans (§7): the table
+> is this tube's, on that day.
 
-**To set it**, enter it in the SweepMe! Logger module's GUI:
+### Your signal rate N
+
+N is your signal's count rate, in counts per second, **with the dark counts subtracted and the
+discriminator at the valley** (the purple *valley* line in panel (c), about 4 mV on this tube).
+You need it only roughly, because each row of the table covers a range. To estimate it, count
+with the signal on and then off at 6.8 mV (`-0.0068`), subtract the two rates, and divide by
+0.75: about 75 % of the photons counted at the valley are counted at 6.8 mV on this tube.
+
+### The table
+
+For the usual measurement: **a signal-on run and a signal-off run of the same length**, the
+difference being your signal.
+
+| Signal N (counts/s at the valley) | Set | Type in the GUI | Also fine (within 5 %) | Each run, for 10 % precision on N |
+|---:|---:|---:|---|---:|
+| 1     | 6.8 mV | `-0.0068` | 6.8 mV only | 500–730 s |
+| 2     | 6.8 mV | `-0.0068` | 6.8 mV only | 160–220 s |
+| 5     | 6.8 mV | `-0.0068` | 6.4–6.8 mV | 41–51 s |
+| 10    | 6.4 mV | `-0.0064` | 6.0–6.8 mV | 17–19 s |
+| 20    | 6.0 mV | `-0.0060` | 5.6–6.8 mV | 7.4–7.7 s |
+| 50    | 5.8 mV | `-0.0058` | 5.4–6.4 mV | 2.6 s |
+| 100   | 5.6 mV | `-0.0056` | 5.0–6.4 mV | 1.2 s |
+| 200   | 5.6 mV | `-0.0056` | 4.6–6.0 mV | 0.58 s |
+| 500   | 5.0 mV | `-0.0050` | 4.2–6.0 mV | 0.22 s |
+| 1000  | 4.6 mV | `-0.0046` | 4.0\*–5.8 mV | 0.11 s |
+| 10000 | 4.0 mV\* | `-0.0040` | 4.0\*–5.6 mV | 0.010 s |
+
+- **"Set"** is the one level that does best across all four dark × light pairings of the real
+  scans. **"Also fine"** is every level within 5 % of the best in all four: anything in it costs
+  at most about 11 % more counting time.
+- **The time** is the length of *each* run (signal on, signal off), so the clock time is twice
+  that. The range covers the four pairings. For a precision p other than 10 %, multiply by
+  (0.1/p)².
+- \* **4.0 mV is the valley, the lowest level the scans can score** (the grey *not scored*
+  region of panel (d), §5). From N ≈ 300–600 counts/s the lower edge of the "also fine" range,
+  and from N ≈ 2000–4500 the best level itself, may lie below it, and the scans cannot tell. Your
+  own light scan's report gives the same limits for your tube, as the signal rate from which the
+  5 % band and the best level reach the valley.
+
+**If you want one setting and don't know N well:**
+
+| N somewhere between | Set | Costs at most, in counting time |
+|---|---:|---:|
+| 1 and 10    | **6.8 mV** (`-0.0068`) | 4 % |
+| 1 and 100   | **6.8 mV** (`-0.0068`) | 17 % |
+| 1 and 10000 | **6.4 mV** (`-0.0064`) | 25 % |
+| 100 and 10000 | **5.0 mV** (`-0.0050`) | 6 % |
+
+**If your signal-off run is much longer than the signal run**, so that the background is known
+precisely, the best levels are 0–0.6 mV lower than in the table. That table is in the
+[analysis README](../analysis/low_signal_threshold/README.md).
+
+### If your signal brings its own photon background
+
+Sometimes the light you measure brings stray light, scatter or fluorescence along with it, a
+fraction **f** of the signal. It has the same pulse sizes, so no threshold can separate it, and it
+is absent from the signal-off run. You correct for it with an assumed f. Then:
+
+1. **Set the threshold as if there were no photon background, for a signal of N × (1 + f).** For
+   f up to 10 % that is the same row of the table, except right at a step between rows (at
+   N = 200 the level drops from 5.6 to 5.0 mV between f = 1 % and 3 %, a near-tie). At f = 50 %
+   it is at most 0.6 mV lower.
+2. **An uncertainty in f sets a floor on your accuracy that no threshold and no counting time
+   lowers.** An uncertainty Δf on f biases N by about Δf / (1 + f), at every level. For example,
+   f = 10 % ± 3 % gives a floor of 2.7 %. At f = 50 % ± 15 % the floor is 10 %, so a total of 10 %
+   is never reached, however long you count.
+
+If your counting time is fixed, then once its counting noise is well below that floor the exact
+threshold matters less and less. If you count until you reach a target precision instead, it
+matters exactly as much as without a photon background. The details, including when the
+crossover comes, are in [`analysis/photon_background/`](../analysis/photon_background/README.md).
+**Provisional, and a model**: f and Δf are your inputs, and nothing in the scans measures them.
+
+### Setting it
+
+Enter the level in the SweepMe! Logger module's GUI:
 
 | Field | Enter | Example |
 |---|---|---|
 | `Discriminator A slope` | `Fall` | `Fall` |
-| `Discriminator A level in V` | the recommended level, **negative**, **in volts** | −6.4 mV → **`-0.0064`** |
+| `Discriminator A level in V` | your chosen level, **negative**, **in volts** | −6.4 mV → **`-0.0064`** |
 | `Counter A input` | `INPUT 1` | `INPUT 1` |
 
 > **Watch the units.** The field is in **volts**, and the scans report **millivolts**. −6.4 mV is
@@ -254,6 +334,9 @@ The level is sent to the SR400 when the measurement starts.
 - **"hysteresis"** (marked as a failed check). The discriminator's real level depends slightly on
   whether you approached it from above or below. When you set the level, always come from the
   same direction, or allow the margin the report gives.
+- **"AT the reference level, the lowest level scored"** (in red). The best S/√B is at the
+  valley, the edge of the grey *not scored* region. A lower level might be better, and the scans
+  cannot tell. Use the valley level, and see the footnote to the table above.
 - **"below 10 mV: valid only with the cables exactly as they were".** Because of the pickup
   effect in §3. If you move the cables, repeat the scans.
 
