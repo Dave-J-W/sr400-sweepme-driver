@@ -191,7 +191,7 @@ it. It covers:
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "627/627 checks passed"
+python tests/test_sr400_virtual.py   # expect "645/645 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`

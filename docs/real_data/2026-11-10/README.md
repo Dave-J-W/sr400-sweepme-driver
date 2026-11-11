@@ -61,7 +61,8 @@ threshold's own rate, and levels below the valley are not scored. Both are descr
 [`../../REFERENCE.md`](../../REFERENCE.md) §9.7.
 
 The test bench checks that committed figures are exactly what `selftest.py plot` draws from these
-CSVs, and pins the re-analysed levels of the first run.
+CSVs, that the copies here match the analysis folder's byte for byte, and pins the re-analysed
+levels of both runs.
 
 To regenerate the figures, from the repository root:
 
