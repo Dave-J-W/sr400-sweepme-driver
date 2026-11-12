@@ -385,8 +385,12 @@ follows the study's cheaper alternative: the middle of the band, not the argmax.
 
 - **1. The fit narrows only below 6 mV** (`DARK_CURVE_BELOW_V = 0.006`). From 6 mV up,
   `_smooth_dark_rate` is the straight line over +-1 mV however many counts the window holds. This
-  is the study's `tail_line`. On the two real dark scans it changes nothing: their tails never
-  triggered the narrowing.
+  is the study's `tail_line`. On the two real dark scans it changes nothing: B is identical at
+  every scored level, old code against new. The guide's simulated example **does** change. Its
+  dark scan holds more counts at 6.0-6.4 mV, so the old fit narrowed there. B rises 13 % at
+  6.0 mV and 8 % at 6.4 mV. Its optimum moves from 6.4 to 6.8 mV, and its band from 6.0-7.6 to
+  5.8-8.0 mV. It now counts 86.7 % of photons, against 89.8 %. (Found by the documents session
+  after f2f9600; that commit's message and this note's first version missed it.)
 - **2. The light scan has its own grid,** `light_threshold_grid()`, with 0.2 mV steps from 0.4 to
   10.0 mV. It has 75 levels, against `threshold_grid()`'s 65. Below 6 mV and above 10 mV it is the
   dark grid. The dark scan's grid is unchanged.
@@ -414,7 +418,8 @@ follows the study's cheaper alternative: the middle of the band, not the argmax.
     wins on score.
 - **Bench: 665 checks**, section [23i], run three times. The three committed light figures (both
   real, and the guide's example) were regenerated. Their recommendation text changed, and it is one
-  line longer, so everything below it moves down 17 px; the panels' data are as before.
+  line longer, so everything below it moves down 17 px. On the two real figures the panels' data
+  are as before. The example's S/sqrt(B) panel moved with its background, as in item 1.
 - **`analysis/low_signal_threshold` re-run.** No optimum, band or time changed. Only the bootstrap
   spreads moved (in resampled scans the narrowing had sometimes switched on at 6 mV and above).
   The README's counting-statistics paragraph is updated with the before and after numbers.
