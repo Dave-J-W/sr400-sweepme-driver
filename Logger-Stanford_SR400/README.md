@@ -1,5 +1,12 @@
 # SweepMe! driver — Stanford Research Systems SR400 photon counter
 
+> **Abstract.** The operator's reference. One SweepMe! point is one SR400 count period (the default)
+> or one scan of N periods. The count time is per period, or a total split across periods exactly.
+> Five **end-of-run tests** (checkboxes) run the self-tests and threshold scans after a run's last
+> point. On SweepMe! 1.5.7.9 they are the only route, because the action buttons cannot reach the
+> instrument. Each test writes its files to `DataDevices\Logger-Stanford_SR400\` and a row to
+> `SR400_test_log.csv`. The design detail is in `docs/REFERENCE.md`, under the same section numbers.
+
 Module: **Logger** · Interfaces: **RS-232 (COM)** and **GPIB**
 Files: `main.py`, `selftest.py` (§9), `README.md`, `license.txt`, `tests/test_sr400_virtual.py`
 
@@ -184,14 +191,14 @@ it. It covers:
   no-signal refusals, the light probe's refusals, drift flagged, injected hysteresis
   recovered in mV, and the S/√B optimum landing between the noise edge and the level
   where dark counts vanish
-- the scans' records and plots: CSV and SVG written beside each report, the CSV re-analysed to
+- the scans' records and plots: CSV, period log and SVG written beside each report, the CSV re-analysed to
   the same result, the plot regenerated from the CSV alone, and the refusals visible on the
   figure itself; and every committed figure in `docs/` exactly what the code draws from its CSV
 - a round trip of every wrapped command
 
 ```bash
 pip install pysweepme
-python tests/test_sr400_virtual.py   # expect "645/645 checks passed"
+python tests/test_sr400_virtual.py   # expect "665/665 checks passed"
 ```
 
 Run this before every hardware session and after every driver edit. Adding a case is one `test_*`
@@ -402,8 +409,8 @@ folder, in a subfolder named after the driver:
 C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
     SR400_self_test_tier_1_<timestamp>.txt
     SR400_self_test_tier_2_loopback_<timestamp>.txt
-    SR400_threshold_scan_dark_<timestamp>.txt    .csv    .svg
-    SR400_threshold_scan_light_<timestamp>.txt   .csv    .svg
+    SR400_threshold_scan_dark_<timestamp>.txt    .csv    .periods.csv    .svg
+    SR400_threshold_scan_light_<timestamp>.txt   .csv    .periods.csv    .svg
     SR400_test_log.csv                           one row per test, appended
 ```
 
@@ -433,13 +440,19 @@ why for each rather than just that it failed.
 Each report carries the port string, the interface, pass/fail per check, and the raw tables: the
 response-format table for tier 1, and the full counts-and-live-time tables for the scans.
 
-**The threshold scans also write a CSV and a plot**, with the same stem in the same folder, so an
-operator can choose the threshold by eye rather than take the recommendation on trust:
+**The threshold scans also write a CSV, a period log and a plot**, with the same stem in the
+same folder, so an operator can choose the threshold by eye rather than take the recommendation on
+trust:
 
 - **`.csv`** holds the raw record only: counts and live time per threshold, plus repeat and
   direction for the light scan. Rates, edges, the valley and the recommendation are all derived
   on load, so nothing in a figure can disagree with its record. The light CSV names the dark CSV
   it was scored against.
+- **`.periods.csv`** logs every count period: `point` (the row of the scan CSV it belongs to),
+  `repeat`, `direction`, `block`, `abs_v_V`, `period`, `counts`, `live_s` and `since_level_s`, the
+  time from setting the level to the start of the period. The scan CSV's counts and live time are
+  the sums over each point's periods. It exists so that effects inside a threshold, such as
+  settling after a level change, can be looked for later; the analysis does not read it.
 - **`.svg`** is the figure. It is plain SVG, which any web browser opens. SweepMe! 1.5.8 does
   bundle matplotlib (`libs\matplotlib`), but a plain pysweepme environment does not, and the
   figure has to open on whatever machine the report is sent to, SweepMe! or not. SVG needs no
@@ -479,11 +492,11 @@ Two end-of-run tests for the **R8486 on SIGNAL INPUT 1** (counter A, discriminat
 FALL, gates CW). The **dark scan** (`Dark threshold scan (PMT covered)`) finds the noise edge
 and the lowest usable level. The **light scan** (`Light threshold scan (steady light)`), three
 up and down passes under gentle steady light, finds where photons start to be lost, and, scored
-against the dark scan, recommends the level maximising S/√B. Each shows a blocking prompt
-first, checks its condition in the data, and writes a report, CSV and figure (§9.6). The dark
-scan keeps its fine grid up to 10 mV, then coarsens and stops in the quiet tail: 10–11 minutes on
-the real tube. The light scan's S/√B uses a fitted dark background and scores only from the valley
-up. The grid, the sampling rules, the analysis and its provisional constants are §9.7 of [`docs/REFERENCE.md`](../docs/REFERENCE.md).
+against the dark scan, recommends the middle of the band where S/√B is within 5 % of its best.
+Each shows a blocking prompt first, checks its condition in the data, and writes a report, CSV,
+period log and figure (§9.6). The dark scan keeps its fine grid up to 10 mV, then coarsens and
+stops in the quiet tail: 10–11 minutes on the real tube. The light scan steps 0.2 mV up to 10 mV.
+Its S/√B uses a fitted dark background and scores only from the valley up. The grid, the sampling rules, the analysis and its provisional constants are §9.7 of [`docs/REFERENCE.md`](../docs/REFERENCE.md).
 
 ### 9.8 Dark settling, and comparing PMT high voltages
 

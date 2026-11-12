@@ -1,5 +1,12 @@
 # History: the drafts and plans this driver came from
 
+> **Abstract.** How the driver came to be. Of three early drafts, one became the driver and one was
+> a byte-identical copy of it. The third, `SRS_SR400.py`, was an independent implementation and is
+> kept. This page records what was taken from it, including its scan architecture, which became a
+> mode, and what was not taken, and why. It also gives two defects in it, reproduced on the bench,
+> and how the manual settled the RS-232 terminator question: CR with echo off on RS-232, CR LF on
+> GPIB.
+
 Kept so the reasoning behind [`Logger-Stanford_SR400`](../Logger-Stanford_SR400/) stays
 recoverable.
 

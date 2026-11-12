@@ -1,5 +1,14 @@
 # SR400 driver — technical reference
 
+> **Abstract.** The design detail behind the driver README, under the same section numbers. §4 lists
+> 16 instrument gotchas, among them one-significant-digit presets, GPIB's need for REN and
+> destructive status reads. §6 explains throughput: on RS-232 the FTDI latency timer costs more than
+> the baud rate. §7 holds the open items, including the gate-delay scanning spec. §9 explains how
+> each self-test and scan works: the grids, the dark scan's adaptive sampling and 10 mV floor, the
+> fitted dark background, why levels below the valley are not scored, the recommendation (the middle
+> of the band within 5 % of the best S/√B), the settling check and the HV comparison. Constants
+> tuned on the two real dark scans of one tube are marked provisional.
+
 The design detail behind [`Logger-Stanford_SR400/README.md`](../Logger-Stanford_SR400/README.md),
 the operator's reference. **Both files share one section numbering**: §1–3, §5, §8 and §9.0,
 §9.2 and §9.6 are in the driver README; §4, §6, §7 and the detail of §9 are here. A "§" in either
@@ -642,9 +651,14 @@ sure NO light can reach it", "Ensure gentle, STEADY light on the R8486"). That i
 acknowledgement gate, not a question (§9.1 still holds): an OK proves nothing about the bench, so
 each scan also checks its condition in the data and stops if it was not met.
 
-**The grid.** 0.2 mV steps from 0.4 to 6.0 mV, 0.4 mV to 15.2 mV, 2 mV to 40 mV. Every level is a
-multiple of the discriminator's 0.2 mV resolution, so every level in the report is one the SR400
-actually applied.
+**The grids.** The dark scan (`threshold_grid`, 65 levels): 0.2 mV steps from 0.4 to 6.0 mV,
+0.4 mV to 15.2 mV, 2 mV to 40 mV. The light scan (`light_threshold_grid`, 75 levels): the same,
+but with 0.2 mV steps all the way to 10.0 mV, because the weak-signal optimum and its band lie in
+6–10 mV on the real tube, and with 0.4 mV steps there the light scan could not place the optimum
+finer than 0.4 mV. The extra levels cost seconds per pass at a usable light level. Every level is
+a multiple of the discriminator's 0.2 mV resolution, so every level in the report is one the SR400
+actually applied. The real light scans of 2026-11-10 predate the light grid, and step 0.4 mV
+above 6 mV.
 
 **Dark (covered tube) — the lower bound.** Sweeps upward with **adaptive count times**: each
 threshold counts to 500 counts (~4.5 % Poisson) where that takes under 10 s, and otherwise to 200
@@ -705,13 +719,23 @@ in mV** between up and down curves on the steep shoulder, with only the time ter
 Fitting the direction term is what keeps a not-quite-flat region from cancelling half the
 hysteresis, or passing it off as drift.
 
-**The recommendation** is the level maximising **S/√B**, from both scans together, when a dark
-scan is found: S is the photon fraction from the light scan (light minus dark, relative to the
-reference level), B the fitted dark background. This is the background-limited optimum, and it is
-what proves the zero-dark level is wrong rather than merely asserting it. Raising the threshold
-strips electronic noise faster than it removes photons. That lasts until the remaining dark
-counts are themselves single-PE pulses. From there S and B fall together and S/√B only drops.
-Without a dark scan it falls back to the valley, and says so.
+**The figure of merit** is **S/√B**, from both scans together, when a dark scan is found: S is
+the photon fraction from the light scan (light minus dark, relative to the reference level), B the
+fitted dark background. Its maximum is the background-limited optimum, and it is what proves the
+zero-dark level is wrong rather than merely asserting it. Raising the threshold strips electronic
+noise faster than it removes photons. That lasts until the remaining dark counts are themselves
+single-PE pulses. From there S and B fall together and S/√B only drops.
+
+**The recommendation is the middle of the band**, not the maximum. The band is every scored level
+within 5 % of the best (`FOM_BAND`). The recommended level is the scored level nearest the
+midpoint of the band's two ends, ties going to the higher score. It is used only when it scores at
+least 0.90 of the best (`FOM_MIDDLE_MIN`), the band spans more than one level and the band does
+not reach the lowest scored level; otherwise the plain optimum is recommended. The basis text
+says which, gives the band, the middle's own score and the single best level, and says when the
+band is not contiguous (some levels inside it score below 0.95). The reason: the top of S/√B is
+flat, so its argmax moves from scan to scan more than the band does (dark-scan method study,
+[`../analysis/dark_scan_method/`](../analysis/dark_scan_method/README.md)). Without a dark scan the
+recommendation falls back to the valley, and says so.
 
 *B is a local fit to the dark scan, not each threshold's own rate* (`_smooth_dark_rate`). Above
 about 6 mV a real dark threshold holds 16–60 counts, so B taken level by level is ±13–25 %, five
@@ -724,13 +748,23 @@ Poisson maximum likelihood, so zero-count thresholds count correctly:
   background estimate would make any SNR look enormous. Nor is any level beyond the dark scan's
   last threshold, where the fit would be an extrapolation.
 - **Where the curve bends** (the noise roll-off turning into the dark tail, 2–6 mV on the real
-  tube) a straight line overshoots. Where the ±1 mV window holds at least 800 counts
+  tube) a straight line overshoots. **Below 6 mV only** (`DARK_CURVE_BELOW_V`), where the ±1 mV
+  window holds at least 800 counts
   (`DARK_CURVE_MIN_COUNTS`) and a quadratic in log(rate) beats the line by a likelihood-ratio
   statistic above 4 (`DARK_CURVE_LR`), the window narrows in 0.2 mV steps, keeping at least 800
   counts and 4 thresholds, and the quadratic is fitted there. Chosen on held-out data: each real
   dark threshold left out in turn and predicted from the rest. Over 3.8–6 mV predicted/observed
   counts were 1.110 and 1.097 for the line on the two real dark scans, and are 1.001 and 1.002 now.
-  Above 6 mV the real windows hold fewer than 800 counts, so the tail fit is unchanged.
+  From 6 mV up the fit is always the straight line over ±1 mV, however many counts the window
+  holds. The dark-scan method study found that narrowing there capped the optimum's
+  reproducibility: a narrowed window keeps only about 800 counts, so longer dark counting stopped
+  reducing its noise. On the two real dark scans this limit changes no result, because their
+  tails never held enough counts to narrow.
+
+The fitted B is not smooth above 6 mV. The ±1 mV window gains and loses dark thresholds as it
+moves, so on the real scans B is not monotonic over 7.2–8.0 mV (on the 16:36 scan 0.93, 0.67 and
+0.72 counts/s at 7.2, 7.6 and 8.0 mV). Part of the 7.6 mV optimum there is that local dip in B.
+A fit whose window does not jump would help; none is made.
 
 The window width, 800 counts and the likelihood-ratio threshold are **provisional**, tuned on two
 scans of one tube. The real dark tail is also over-dispersed (more scatter between thresholds than
@@ -750,19 +784,22 @@ its best level falls as N rises. The report gives the N (10 values per decade) f
 band, and then the best level, reach the lowest scored level (`_bright_signal_limits`). Above that
 rate it says it cannot judge whether a lower level would be better.
 
-On the simulated tube (noise edge 5.2 mV, valley 4.8 mV) the optimum is **−6.4 mV, counting ~90 %
-of photons**, with S/√B within 5 % of best from 6.0 to 7.6 mV; the band reaches the valley from
-N ≈ 250 counts/s and the best level from ≈ 2000. On the first real pair (2026-11-10, dark 13:20,
-light 13:59) it is **−6.8 mV, counting 76 %**, within 5 % of best from 6.4 to 7.6 mV, reaching the
-valley from N ≈ 630 and ≈ 5000 counts/s. See [`SIMULATED_VS_REAL.md`](SIMULATED_VS_REAL.md). At
+On the simulated tube (noise edge 5.2 mV, valley 4.8 mV) the optimum is **−6.8 mV, counting
+87 % of photons**, with S/√B within 5 % of best from 5.8 to 8.0 mV; the band's middle is the
+optimum itself, so that is the recommendation. The band reaches the valley from N ≈ 250 counts/s
+and the best level from ≈ 2000. (Before the fit stopped narrowing above 6 mV, the simulator's
+thicker dark tail gave −6.4 mV.) On the first real pair (2026-11-10, dark 13:20, light 13:59) the
+optimum and the recommendation are **−6.8 mV, counting 76 %**, within 5 % of best from 6.4 to
+7.6 mV, reaching the valley from N ≈ 630 and ≈ 5000 counts/s. On the second (16:36, 17:24) the
+optimum is 7.6 mV and the recommendation, the band's middle, 7.2 mV. See [`SIMULATED_VS_REAL.md`](SIMULATED_VS_REAL.md). At
 15.2 mV the real S/√B has fallen to 0.20 of best. The strict window — noise edge to 1 % loss — is *empty* there, which the report states
 rather than treating as a failure. For the R8486 at 1000 V that is expected and is the evidence for
 the Stage 2 preamp. Below 10 mV any recommendation is valid only with the cables exactly as they
 were for the scan (manual p. 22).
 
 Both scans keep the safety invariants of §9.2: refuse while counting (before prompting), restore
-everything without a storage slot, never send `SE`, never raise. Each writes its report, CSV and
-SVG plot together (§9.6); a scan refused at the light probe writes the report only, because there
+everything without a storage slot, never send `SE`, never raise. Each writes its report, CSV, period
+log and SVG plot together (§9.6); a scan refused at the light probe writes the report only, because there
 was no sweep to plot.
 
 ### 9.8 Dark settling, and comparing PMT high voltages

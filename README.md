@@ -1,9 +1,14 @@
 # SR400 driver for SweepMe!
 
-A [SweepMe!](https://sweep-me.net) **Logger** driver for the Stanford Research Systems
-SR400 two-channel gated photon counter, over RS-232 or GPIB. It also carries hardware self-tests
-and discriminator threshold scans for an R8486 photomultiplier, run from the GUI at the end of a
-run. MIT licensed.
+> **Abstract.** A SweepMe! Logger driver for the SRS SR400 photon counter, over RS-232 or GPIB, with
+> hardware self-tests and discriminator threshold scans for an R8486 photomultiplier, run from the
+> GUI at the end of a run. It works on hardware with SweepMe! 1.5.7.9 over GPIB (2026-11-10), and a
+> virtual bench tests it with no instrument. To install, copy `Logger-Stanford_SR400/` into
+> SweepMe!'s `CustomDevices` folder. Gate-delay scanning is the one missing feature. The table below
+> says where to read next.
+
+[SweepMe!](https://sweep-me.net) · Stanford Research Systems SR400 two-channel gated photon
+counter · MIT licensed.
 
 | | |
 |---|---|

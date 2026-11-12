@@ -1,5 +1,14 @@
 # Simulated versus real threshold scans
 
+> **Abstract.** The guide's simulated example figures beside two real runs of the R8486
+> (2026-11-10), panel by panel. The real tube differs from the simulator in three ways. It has a
+> noise hump below 1.2 mV that the simulator lacks, a dark tail about ten times lower, and a deeper
+> valley. The real recommendations are 6.8 mV for the first run and 7.2 mV for the second, whose
+> single best level is 7.6 mV. Their 5 % bands are 6.4–7.6 and 6.8–7.6 mV. The two real dark scans
+> differ, and a study concluded that their sampling explains the move in the optimum but not the
+> differences in the curves, whose causes are untested. For choosing a level, the top of S/√B is
+> flat.
+
 The [threshold-scan guide](THRESHOLD_SCAN_GUIDE.md) is illustrated with figures from the driver's
 **simulated** R8486 ([`images/`](images/)). This page sets each of those figures beside the **real
 scans** of the tube: two runs, each a dark and a light scan, taken on the afternoon of 2026-11-10
@@ -111,14 +120,17 @@ physics.
 **What it means when you choose a level.** Because the top of S/√B is flat, the millivolt is
 cheap. On the study's simulated tubes a fixed 7.2 mV scores 0.97–0.998 of the best on both, with
 either light scan. 7.6 mV scores 0.95–0.97 of the best on the tube like the 13:20 scan, and 6.8 mV
-0.96–0.98 on the tube like the 16:36 scan. A single scan's noise edge is also less exact than its
+0.96–0.98 on the tube like the 16:36 scan. The real scans are rougher than the model tubes: on all
+four real pairings 7.2 mV scores 0.92–0.95, because the fitted background dips and rises over
+7.2–8.0 mV as its window gains and loses dark thresholds. A single scan's noise edge is also less exact than its
 0.2 mV step: in simulated repeats it falls mostly within 5.0–5.6 mV for the 13:20-like tube and
 5.6–6.4 mV for the 16:36-like one, a spread of about 0.6–0.8 mV.
 
-The study also proposes four changes to the driver, which are under consideration and **not
-made**: letting the background fit narrow only below about 6 mV, 0.2 mV light-scan steps over
-6–10 mV, optional alternating dark passes over 5.6–10 mV to pin the optimum to 0.2 mV, and
-logging every count period.
+The study proposed four changes to the driver. Three are now made: the background fit narrows
+only below 6 mV, the light scan steps 0.2 mV up to 10 mV, and every count period is logged. The
+fourth, optional alternating dark passes over 5.6–10 mV to pin the optimum to 0.2 mV, is
+deferred, and **not made**. Following the study, the scan now also recommends the middle of the
+5 % band instead of its single best level.
 
 ### Panel (b): live time per threshold
 
@@ -212,9 +224,10 @@ count-loss levels, with their uncertainties and GUI values, are in the box under
 
 | | Simulated | Real, 13:20 + 13:59 | Real, 16:36 + 17:24 |
 |---|---|---|---|
-| Optimum | 6.4 mV | 6.8 mV (GUI `-0.0068`) | 7.6 mV (GUI `-0.0076`) |
-| Within 5 % of the best | 6.0–7.6 mV | 6.4–7.6 mV | 6.8–7.6 mV |
-| Photons counted at the optimum, vs the reference | 90 % | 76 % | 62 % |
+| Optimum | 6.8 mV | 6.8 mV (GUI `-0.0068`) | 7.6 mV (GUI `-0.0076`) |
+| Within 5 % of the best | 5.8–8.0 mV | 6.4–7.6 mV | 6.8–7.6 mV |
+| Photons counted at the optimum, vs the reference | 87 % | 76 % | 62 % |
+| **Recommended**: the band's middle | 6.8 mV | 6.8 mV | **7.2 mV** (GUI `-0.0072`), scoring 0.92 of the best and counting 67 % |
 | Below the reference, light minus dark exceeds the reference rate by up to | 21 %, at 0.6 mV | 41 %, at 2.2 mV | 38 %, at 2.2 mV |
 | Band reaches the valley from a signal of | ~250 counts/s | ~630 counts/s | ~1000 counts/s |
 | Best level reaches the valley from | ~2000 counts/s | ~5000 counts/s | ~1e4 counts/s |
@@ -222,12 +235,12 @@ count-loss levels, with their uncertainties and GUI values, are in the box under
 Pairing each dark scan with each light scan, the optimum goes with the dark scan: 6.8 mV with the
 13:20 one and 7.6 mV with the 16:36 one, whichever light scan it is scored with.
 
-| Dark × light | Optimum | Within 5 % of the best |
-|---|---|---|
-| 13:20 × 13:59 | 6.8 mV | 6.4–7.6 mV |
-| 13:20 × 17:24 | 6.8 mV | 6.4–6.8 mV |
-| 16:36 × 13:59 | 7.6 mV | 7.6 mV only |
-| 16:36 × 17:24 | 7.6 mV | 6.8–7.6 mV |
+| Dark × light | Optimum | Within 5 % of the best | Recommended |
+|---|---|---|---|
+| 13:20 × 13:59 | 6.8 mV | 6.4–7.6 mV | 6.8 mV |
+| 13:20 × 17:24 | 6.8 mV | 6.4–6.8 mV | 6.8 mV |
+| 16:36 × 13:59 | 7.6 mV | 7.6 mV only | 7.6 mV (a one-level band: the optimum) |
+| 16:36 × 17:24 | 7.6 mV | 6.8–7.6 mV | 7.2 mV |
 
 What signal rate each level suits, across all four pairings, is in
 [`../analysis/low_signal_threshold/`](../analysis/low_signal_threshold/README.md).

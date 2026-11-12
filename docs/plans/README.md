@@ -1,5 +1,9 @@
 # The latency + batching plan, rebased
 
+> **Abstract.** The latency-and-batching implementation plan is kept verbatim beside this note. The
+> note records what the plan assumed and what was actually true, where each task landed (all three
+> tiers are done), two deliberate deviations, and what the plan left undone: per-period statistics.
+
 [`IMPLEMENTATION_PLAN_as_written.md`](IMPLEMENTATION_PLAN_as_written.md) is kept **verbatim**. Its
 "Documentation — what to write, and why" section is the reason: the rationales there (label numbers
 as measured/derived/unknown; cross-reference gotchas from the exception text, not only the README;

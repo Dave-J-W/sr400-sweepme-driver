@@ -1,5 +1,11 @@
 # Manual audit
 
+> **Abstract.** Every command, numeric limit and status bit in the driver, checked against the SR400
+> manual, Revision 2.7. Nothing in the driver was wrong. Two documentation defects were fixed, one
+> assumption became a quotation, and a `pdftotext` trap that mis-pairs the command list is recorded.
+> The audit missed the manual's GPIB capabilities section (REN; DCL and SDC act as `CL`). The bench
+> found that on 2026-11-10, and the driver now handles it. Three details stay unverified (§7.1).
+
 Every command, numeric limit and status bit in the driver checked against the **SR400 manual,
 Revision 2.7 (11/2018)**, the revision the driver header cites.
 

@@ -1,7 +1,8 @@
 # docs
 
-Nothing in this folder is loadable by SweepMe!. It is the documentation, the real data it is
-checked against, and the record of how the driver came to be.
+> **Abstract.** Index of `docs/`: the operator documents (the threshold-scan guide, the
+> simulated-versus-real comparison, the real data), the technical reference and the manual audit,
+> the analyses behind the threshold advice, and the history. Nothing here is loaded by SweepMe!.
 
 ## For operators
 

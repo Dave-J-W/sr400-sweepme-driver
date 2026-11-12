@@ -1,6 +1,11 @@
 # Changelog
 
-Newest first. Gotcha and section numbers are the shared numbering of
+> **Abstract.** Nothing has been released yet: every change is under *Unreleased*, newest first
+> within each heading. In outline, the driver works over GPIB on SweepMe! 1.5.7.9, which needed REN
+> and no port clear. Its self-tests and threshold scans run as end-of-run tests. The scans' analysis
+> has been revised repeatedly against the real data of 2026-11-10.
+
+Gotcha and section numbers are the shared numbering of
 [`Logger-Stanford_SR400/README.md`](Logger-Stanford_SR400/README.md) and
 [`docs/REFERENCE.md`](docs/REFERENCE.md).
 
@@ -109,6 +114,21 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Changed
 
+- **The light scan recommends the middle of the 5 % band**, not the single best level. The top of
+  S/√B is flat, so its argmax moves from scan to scan more than the band does (the dark-scan
+  method study). The recommendation is the scored level nearest the band's midpoint, used if it
+  scores at least 0.90 of the best (`FOM_MIDDLE_MIN`), the band spans more than one level and is
+  not at the floor; otherwise the plain optimum, as before. The basis text says which. On the
+  real pairings the recommendations are 6.8, 6.8, 7.6 and 7.2 mV (they were 6.8, 6.8, 7.6, 7.6):
+  the second real run now recommends 7.2 mV. On the real data 7.2 mV scores only 0.92–0.95 of the
+  best, because the fitted background is not smooth over 7.2–8.0 mV. REFERENCE §9.7.
+- **The background fit narrows only below 6 mV** (`DARK_CURVE_BELOW_V`). From 6 mV up it is the
+  straight line over ±1 mV, since the study found that narrowing there capped the optimum's
+  reproducibility. No real result changes. The simulated example's thicker tail did change: its
+  optimum is now 6.8 mV (87 % of photons, band 5.8–8.0 mV), not 6.4 mV.
+- **The light scan has its own grid**, `light_threshold_grid()`: 0.2 mV steps up to 10.0 mV, 75
+  levels, against 0.4 mV above 6 mV before. The dark grid is unchanged.
+- **Every document starts with an abstract.**
 - **The documentation is restructured.** The driver README keeps what an operator needs:
   installing, the GUI, the end-of-run tests and their reports. The 16 gotchas, throughput, the
   open items and the inner workings of each test moved verbatim to
@@ -160,6 +180,9 @@ Newest first. Gotcha and section numbers are the shared numbering of
 
 ### Added
 
+- **Every count period is logged**, to `<scan>.periods.csv` beside each threshold scan's CSV: one
+  row per period, with its counts, length and time since the level was set. The scan CSV's totals
+  are the sums of its periods. Driver README §9.6.
 - **The dark-scan method study's conclusion, in the docs.** Why do the two real dark scans
   differ? [`analysis/dark_scan_method/`](analysis/dark_scan_method/README.md) ran the driver's own
   sampling and analysis on simulated tubes tuned to each scan. Method alone moves the optimum

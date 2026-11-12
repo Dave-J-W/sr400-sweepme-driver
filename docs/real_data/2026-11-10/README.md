@@ -1,5 +1,12 @@
 # Real threshold scans, 2026-11-10
 
+> **Abstract.** Two real runs of the R8486, each a dark and a light threshold scan, from 2026-11-10.
+> The CSVs are as measured, the first run's reports and test log as written, and the figures are
+> redrawn by the current code. The first run's own reports hold two errors since corrected: a 1.0 mV
+> lower bound, and a recommendation of the valley made without the dark scan. Re-analysed, the first
+> run recommends 6.8 mV and the second 7.2 mV; the second's single best level is 7.6 mV. The HV was
+> 1000 V for the first run and was not recorded for the second.
+
 The first dark and light threshold scans of the R8486 on the SR400: two runs, the same afternoon,
 kept as measured. Compared against the simulated examples, panel by panel, in
 [`../../SIMULATED_VS_REAL.md`](../../SIMULATED_VS_REAL.md).
@@ -44,7 +51,8 @@ concluded at the time. Some of it has since been corrected:
    scan.** The dark result was held only in memory and was lost when SweepMe! restarted. The
    figure here was regenerated with the dark scan found beside it. It gives the
    background-limited optimum as **6.8 mV** (GUI `-0.0068`), counting 76 % of the photons
-   counted at the reference level, with S/√B within 5 % of its best from 6.4 to 7.6 mV.
+   counted at the reference level, with S/√B within 5 % of its best from 6.4 to 7.6 mV. 6.8 mV is
+   also the band's middle, so it is the recommendation.
 3. **The second dark scan went to 2 mV steps at 7.2 mV**, inside the region where the best level
    lies, so it has only 5 thresholds between 6 and 10 mV. That was the sampling rule of the time.
    The dark scan now keeps its fine steps up to 10 mV, which on these rates would have given 11
@@ -53,7 +61,8 @@ concluded at the time. Some of it has since been corrected:
 4. **The second light scan found its dark scan on its own**, from disk, so it was scored against
    it at the time and its CSV names it. Re-analysed by the current code, the optimum is **7.6 mV**
    (GUI `-0.0076`), counting 62 % of the photons at the reference level, with S/√B within 5 % of
-   its best from 6.8 to 7.6 mV.
+   its best from 6.8 to 7.6 mV. The scan now recommends the middle of that band, **7.2 mV**
+   (GUI `-0.0072`), counting 67 % and scoring 0.92 of the best; that is what its figure shows.
 
 **The two dark scans differ** more than counting noise allows: the second reads higher at
 3–5 mV and about 0.6 of the first in the tail, with its noise edge 0.8 mV higher. A
@@ -65,8 +74,9 @@ identify.
 it.
 
 Every figure here is drawn by the current analysis, which differs from the one the reports were
-made with in two ways. The dark background behind S/√B is a fitted curve rather than each
-threshold's own rate, and levels below the valley are not scored. Both are described in
+made with in three ways. The dark background behind S/√B is a fitted curve rather than each
+threshold's own rate, levels below the valley are not scored, and the recommendation is the
+middle of the 5 % band rather than its single best level. All three are described in
 [`../../REFERENCE.md`](../../REFERENCE.md) §9.7.
 
 The test bench checks that committed figures are exactly what `selftest.py plot` draws from these

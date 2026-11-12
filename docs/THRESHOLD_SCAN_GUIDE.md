@@ -1,5 +1,15 @@
 # Choosing the discriminator threshold — a step-by-step guide
 
+> **Abstract.** How to choose the R8486's discriminator threshold, step by step. Run the **dark
+> scan** (PMT covered, 10–11 minutes) and then the **light scan** (gentle, steady light, about 5
+> minutes) as end-of-run tests. Together they recommend a level: the middle of the band where S/√B
+> is within 5 % of its best. That recommendation is for a weak signal. §6 gives the level for your
+> signal rate N, from 6.8 mV (GUI `-0.0068`) at N ≤ 5 counts/s down to the valley, about 4 mV, near
+> N = 10⁴. It also gives the rule when the signal brings its own photon background. Enter the level
+> negative and in volts. §10 compares PMT high voltages. The numbers are provisional, from four real
+> scans of one tube, and every level below 10 mV holds only with the cables as they were for the
+> scans.
+
 For the **R8486 photomultiplier on SIGNAL INPUT 1** of the SR400. You need to know what the
 discriminator threshold *is*: the smallest pulse the SR400 will count. This guide covers how to
 choose it, using the driver's two threshold scans.
@@ -97,7 +107,7 @@ The recommended level is **advice for you to enter**, not something the scan app
    debug log shows one line per threshold**, with the time elapsed and an upper bound on the time
    left. **Don't touch the bench or uncover the PMT.**
 5. A final message gives a one-line result, for example *"lower bound 5.8 mV (GUI -0.0058)"*,
-   and the paths of three files.
+   and the paths of four files.
 
 ### Reading the dark result
 
@@ -165,8 +175,8 @@ old it is.
    passes in all. This takes **about 5 minutes at ~40,000 counts per second**, and longer when the
    light is dimmer. **Keep the light exactly as it is until it finishes.** Comparing the passes is
    how the scan detects whether the light or the discriminator drifted.
-5. The final message gives the recommendation, for example *"recommended A DISC LVL −6.4 mV,
-   counting 90 % of photons…"*.
+5. The final message gives the recommendation, for example *"recommended A DISC LVL −6.8 mV
+   (type -0.0068 in the GUI), counting 87% of photons…"*.
 
 ### Reading the light result
 
@@ -209,7 +219,9 @@ scans into one score, signal divided by the square root of background (S/√B), 
 threshold. It rises as the noise is cut away, peaks, then falls slowly as photons are lost.
 
 - The **shaded band** is every level within 5 % of the best. Anything in it is a good choice.
-- The **green line** is the best one: the recommendation.
+- The **green line** is the recommendation: **the middle of the band**, not necessarily its
+  highest point. The top is flat, and the highest point moves more from scan to scan than the band
+  does. The top line of the figure says which level scored best, if that is a different one.
 - A **grey region** at the left, labelled *not scored*, covers every level below the reference
   level (the valley). The scan does not score those levels. Below the valley the light scan counts
   more than the dark scan does, by up to about 40 % on the real tube, but that extra falls with the
@@ -231,8 +243,8 @@ the dark CSV beside the light one.
 
 ## 6. Choosing and setting the threshold
 
-**The scans' recommendation is the best level for a *weak* signal**, one comparable to or smaller
-than the dark counts. A stronger signal is better served by a lower level, which keeps more
+**The scans' recommendation is for a *weak* signal**, one comparable to or smaller than the dark
+counts: the middle of the band where S/√B is within 5 % of its best. A stronger signal is better served by a lower level, which keeps more
 photons: once the signal outweighs the dark counts, losing photons costs more than counting a
 little more background. So choose from your **signal rate N**, with the table below.
 
@@ -284,10 +296,11 @@ difference being your signal.
   own light scan's report gives the same limits for your tube, as the signal rate from which the
   5 % band and the best level reach the valley.
 
-**The best level is less sharp than "6.8 mV only" suggests.** The top of S/√B is flat:
-counting noise alone moves a single scan's optimum by 0.5–0.7 mV (one standard deviation) in
-simulation, and on the dark-scan study's two simulated tubes a fixed 7.2 mV scores 0.97–0.998 of
-the best. So don't chase a 0.4 mV difference between two scans.
+**The best level is less sharp than "6.8 mV only" suggests.** The top of S/√B is flat: counting
+noise alone moves a single scan's optimum by 0.5–0.7 mV (one standard deviation) in simulation.
+So don't chase a 0.4 mV difference between two scans. On the dark-scan study's two simulated tubes
+a fixed 7.2 mV scores 0.97–0.998 of the best, but on the real scans it scores 0.92–0.95, because
+the fitted background is not smooth there (REFERENCE §9.7).
 
 **If you want one setting and don't know N well:**
 
@@ -370,7 +383,7 @@ and occasionally anyway, for example monthly, as a check that nothing has change
 
 ## 8. Where the results are
 
-Each scan writes three files with the same name into
+Each scan writes four files with the same name into
 
 ```
 C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
@@ -381,15 +394,16 @@ C:\Users\Public\Documents\SweepMe!\DataDevices\Logger-Stanford_SR400\
 | `SR400_threshold_scan_dark_<date_time>.txt` | the report, with every number |
 | `SR400_threshold_scan_dark_<date_time>.csv` | the raw measurements |
 | `SR400_threshold_scan_dark_<date_time>.svg` | the figure, which opens in any web browser |
+| `SR400_threshold_scan_dark_<date_time>.periods.csv` | every count period: counts, length, time since the level was set |
 
-and the same three for the light scan. The final message of each scan gives the exact paths.
+and the same four for the light scan. The final message of each scan gives the exact paths.
 
 The same folder also holds **`SR400_test_log.csv`**, with one row per scan or self-test, ever.
 It is the quickest place to find a past result: the light scan's row has the recommended level in
 `recommended_disc_A_level_V`, already in volts and signed, ready to type in. The dark scan's row has
 the lower bound, and where dark counts vanish if the scan went that far.
 
-**To get help with a result, send all six files.** The CSV files hold the raw data, so anyone can
+**To get help with a result, send all eight files.** The CSV files hold the raw data, so anyone can
 redraw the figures from them. On a machine with Python, put both CSV files in one folder and run:
 
 ```bash
